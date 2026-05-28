@@ -1,0 +1,3557 @@
+(function(){
+  "use strict";
+
+  const STORAGE_KEY = "meadevil-app-v2";
+  const MeadLogic = window.MeadLogic || {};
+  const {
+    round,
+    calcABV,
+    sgToBrix,
+    brixToSg,
+    calcOneThirdBreak,
+    estimateHoneyForTargetOG,
+    estimateOGFromHoney,
+    estimateRecipeTargets,
+    calculateTosna,
+    suggestYanPpm,
+    calculateAdvancedNutrients,
+    calculateGoFerm,
+    calculateBacksweetening,
+    calculateBottleCount,
+    calculateBlend,
+    calculateBenchTrial,
+    calculateStepFeed,
+    calculateSourceBill
+  } = MeadLogic;
+
+  const $ = (id) => document.getElementById(id);
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+  const makeId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  let trendHoverPoints = [];
+  const RAPT_AUTO_REFRESH_MS = 20 * 60 * 1000;
+  const RAPT_VISIBILITY_REFRESH_STALE_MS = 45 * 60 * 1000;
+
+  const YEAST_PRESETS = {
+    "71B": { tolerance: "14", temp: "59–86°F", nitrogenRequirement: "low" },
+    "D47": { tolerance: "15", temp: "59–86°F", nitrogenRequirement: "low" },
+    "QA23": { tolerance: "16", temp: "57–82°F", nitrogenRequirement: "low" },
+    "EC-1118": { tolerance: "18", temp: "50–86°F", nitrogenRequirement: "low" }
+  };
+
+  const SOURCE_PRESETS = {
+    "Honey": { ppg: "35", unit: "lb", locked: true },
+    "Maple Syrup": { ppg: "29.8", unit: "lb", locked: true },
+    "Table Sugar": { ppg: "46", unit: "lb", locked: true },
+    "Juice (single strength)": { ppg: "5", unit: "lb", locked: true },
+    "Juice Concentrate": { ppg: "48", unit: "lb", locked: true },
+    "Fruit / Puree": { ppg: "10", unit: "lb", locked: true },
+    "Custom": { ppg: "", unit: "lb", locked: false }
+  };
+
+  const CSV_SOURCE_SLOTS = 6;
+  const CELLAR_ADDITION_UNITS = ["g","mL","oz","lb","tsp","tbsp","drops","sticks","pods","whole fruit","sachets"];
+  const RECIPE_SOURCE_FIELDS = new Set(["sourceType","description","amount","unit","ppg"]);
+  const CELLAR_ADDITION_FIELDS = new Set(["type","purpose","amount","unit","notes"]);
+  const MENTOR_DEFAULT_BATCH_GAL = 3;
+  const MENTOR_DEFAULT_ABV = 12;
+  const RECIPE_STYLE_OPTIONS = ["Traditional","Melomel","Hydromel","Metheglin","Sack Mead","Cyser","Pyment","Bochet","Acerglyn","Braggot","Other"];
+
+  const MENTOR_HONEY_KB = [
+    {
+      name: "Orange Blossom",
+      aliases: ["orange blossom", "citrus blossom"],
+      profile: "citrus-floral lift and bright aromatic top notes",
+      bestUse: "tropical, tequila-inspired, and bright fruit meads",
+      watch: "can read thin if structure is underbuilt"
+    },
+    {
+      name: "Wildflower",
+      aliases: ["wildflower"],
+      profile: "balanced floral and herbaceous honey backbone",
+      bestUse: "flexible base for most mead styles",
+      watch: "quality varies by source lot"
+    },
+    {
+      name: "Meadowfoam",
+      aliases: ["meadowfoam"],
+      profile: "marshmallow, vanilla, and toasted sugar notes",
+      bestUse: "dessert and coconut-adjacent concepts",
+      watch: "can dominate subtle fruit if overused"
+    },
+    {
+      name: "Avocado",
+      aliases: ["avocado honey", "avocado"],
+      profile: "dark caramel and toasted wood depth",
+      bestUse: "oak, cacao, and darker adjunct builds",
+      watch: "needs acid lift to avoid heaviness"
+    },
+    {
+      name: "Buckwheat",
+      aliases: ["buckwheat"],
+      profile: "earthy molasses-like punch",
+      bestUse: "aggressive concepts needing a loud honey voice",
+      watch: "too much can become muddy quickly"
+    },
+    {
+      name: "Clover",
+      aliases: ["clover"],
+      profile: "neutral honey sweetness and clean fermentability",
+      bestUse: "base layer when adjuncts do the heavy lifting",
+      watch: "can feel generic without clear structure"
+    },
+    {
+      name: "Tupelo",
+      aliases: ["tupelo"],
+      profile: "clean floral honey with elegant sweetness",
+      bestUse: "honey-forward and off-dry still meads",
+      watch: "cost can be high and supply can be limited"
+    },
+    {
+      name: "Acacia",
+      aliases: ["acacia"],
+      profile: "light, delicate, and softly floral",
+      bestUse: "session meads and delicate floral profiles",
+      watch: "easy to bury under strong adjuncts"
+    },
+    {
+      name: "Sage",
+      aliases: ["sage honey", "sage"],
+      profile: "clean herbal sweetness with subtle spice",
+      bestUse: "botanical and citrus-forward meads",
+      watch: "can seem plain if acidity is too low"
+    },
+    {
+      name: "Blackberry Blossom",
+      aliases: ["blackberry blossom", "blackberry honey"],
+      profile: "jammy berry undertone with floral lift",
+      bestUse: "berry melomels and dark-fruit builds",
+      watch: "fruit additions can mask it if extraction is heavy"
+    },
+    {
+      name: "Blueberry Blossom",
+      aliases: ["blueberry blossom", "blueberry honey"],
+      profile: "soft berry floral aroma and gentle sweetness",
+      bestUse: "blue fruit and violet/floral concepts",
+      watch: "can lose signature in high ABV builds"
+    },
+    {
+      name: "Raspberry Blossom",
+      aliases: ["raspberry blossom", "raspberry honey"],
+      profile: "bright floral-red fruit tone",
+      bestUse: "lively fruit meads and sparkling lanes",
+      watch: "needs temperature control to keep aromatics intact"
+    },
+    {
+      name: "Star Thistle",
+      aliases: ["star thistle", "thistle honey"],
+      profile: "toffee-like sweetness with mild floral notes",
+      bestUse: "dessert and medium-bodied traditional meads",
+      watch: "can drift heavy without acid structure"
+    },
+    {
+      name: "Basswood (Linden)",
+      aliases: ["basswood", "linden"],
+      profile: "minty-lime floral edge over clean honey core",
+      bestUse: "citrus and herb-accented meads",
+      watch: "polarizing profile if overdosed"
+    },
+    {
+      name: "Fireweed",
+      aliases: ["fireweed"],
+      profile: "light floral, soft fruit, and clean finish",
+      bestUse: "bright traditional and light melomel bases",
+      watch: "too subtle for heavy oak/spice programs"
+    },
+    {
+      name: "Gallberry",
+      aliases: ["gallberry"],
+      profile: "rich but clean southern wild profile",
+      bestUse: "full-bodied traditional or semi-sweet still meads",
+      watch: "requires good oxygen/temperature management for clean ferment"
+    },
+    {
+      name: "Eucalyptus",
+      aliases: ["eucalyptus"],
+      profile: "resinous herbal top note with deep sweetness",
+      bestUse: "bold botanical concepts and dark structure builds",
+      watch: "can dominate delicate fruit quickly"
+    },
+    {
+      name: "Heather",
+      aliases: ["heather"],
+      profile: "aromatic floral-earth complexity",
+      bestUse: "high-character sipping meads",
+      watch: "intense profile can read medicinal if misbalanced"
+    },
+    {
+      name: "Chestnut",
+      aliases: ["chestnut"],
+      profile: "tannic, nutty, and savory honey depth",
+      bestUse: "structured meads with oak or cacao accents",
+      watch: "needs sweetness and acid tuning to avoid bitterness"
+    }
+  ];
+
+  const MENTOR_YEAST_KB = [
+    {
+      name: "71B",
+      aliases: ["71b", "lalvin 71b"],
+      lane: "fruit-softening and round mid palate",
+      watch: "can flatten brightness if fermentation runs too warm"
+    },
+    {
+      name: "D47",
+      aliases: ["d47", "lalvin d47"],
+      lane: "full texture and classic still mead profile",
+      watch: "temperature drift can throw fusels"
+    },
+    {
+      name: "QA23",
+      aliases: ["qa23", "qa-23", "lalvin qa23"],
+      lane: "citrus and tropical aromatic expression",
+      watch: "needs solid nutrition and temp control to stay clean"
+    },
+    {
+      name: "EC-1118",
+      aliases: ["ec-1118", "ec1118", "champagne yeast"],
+      lane: "high alcohol reliability and dry finishes",
+      watch: "can strip subtle aromatics if concept needs delicacy"
+    }
+  ];
+
+  const MENTOR_ADJUNCT_KB = [
+    {
+      key: "toasted_coconut",
+      name: "Toasted Coconut",
+      aliases: ["toasted coconut", "coconut", "coconut flakes", "coco"],
+      stage: "secondary extraction",
+      unit: "oz",
+      perGalMin: 0.7,
+      perGalMax: 1.3,
+      flavor: "toasted nut, cream, and confection depth",
+      role: "build the coconut core without sunscreen character",
+      caution: "overdosing gets waxy and artificial"
+    },
+    {
+      key: "lime_zest",
+      name: "Lime Zest",
+      aliases: ["lime zest", "lime peel", "lime"],
+      stage: "late secondary",
+      unit: "whole-lime-zests",
+      perGalMin: 0.4,
+      perGalMax: 1.0,
+      flavor: "high citrus snap and fresh aromatics",
+      role: "cuts sweetness and creates tequila-adjacent brightness",
+      caution: "avoid pith pickup and long contact times"
+    },
+    {
+      key: "orange_peel",
+      name: "Orange Peel",
+      aliases: ["orange peel", "orange zest", "orange"],
+      stage: "late secondary",
+      unit: "whole-orange-zests",
+      perGalMin: 0.25,
+      perGalMax: 0.8,
+      flavor: "sweet citrus bridge",
+      role: "rounds sharp citrus edges",
+      caution: "too much drifts into marmalade bitterness"
+    },
+    {
+      key: "vanilla_bean",
+      name: "Vanilla Bean",
+      aliases: ["vanilla bean", "vanilla"],
+      stage: "secondary finishing",
+      unit: "beans",
+      perGalMin: 0.18,
+      perGalMax: 0.35,
+      flavor: "soft sweetness illusion and polish",
+      role: "connects coconut and honey",
+      caution: "can mute freshness when overdone"
+    },
+    {
+      key: "american_oak",
+      name: "American Oak (medium toast)",
+      aliases: ["oak", "american oak", "oak cubes", "barrel"],
+      stage: "secondary structure",
+      unit: "oz",
+      perGalMin: 0.12,
+      perGalMax: 0.3,
+      flavor: "vanillin, coconut, and tannin line",
+      role: "shape the finish and tighten sweetness",
+      caution: "small batches over-oak fast"
+    },
+    {
+      key: "agave_syrup",
+      name: "Agave Syrup",
+      aliases: ["agave", "agave syrup", "agave nectar", "tequila"],
+      stage: "bench-trial backsweetening",
+      unit: "oz",
+      perGalMin: 0.3,
+      perGalMax: 1.1,
+      flavor: "agave-like flavor bridge",
+      role: "reinforces tequila inspiration without adding spirits",
+      caution: "pushes cloying quickly if acid is low"
+    },
+    {
+      key: "sea_salt",
+      name: "Sea Salt (micro dose)",
+      aliases: ["salt", "sea salt", "saline"],
+      stage: "bench-trial only",
+      unit: "g",
+      perGalMin: 0.05,
+      perGalMax: 0.18,
+      flavor: "palate width and finish lift",
+      role: "adds snap when sweetness feels broad",
+      caution: "easy to ruin a batch if not bench-tested"
+    }
+  ];
+
+  const MENTOR_ARCHETYPE_KB = [
+    {
+      key: "tequila_coconut",
+      aliases: ["tequila", "agave", "margarita", "tiki", "coconut", "lime"],
+      lead: "toasted coconut and citrus-agave illusion over visible honey",
+      recipeStyle: "Metheglin",
+      defaultHoney: "Orange Blossom",
+      defaultYeast: "QA23",
+      defaultAbv: 12.5,
+      defaultSweetness: "Semi-sweet",
+      acidPlan: "Bright acid line with a clean, clipped finish. Post-ferment pH usually lands best around 3.45-3.60.",
+      tanninPlan: "Light tannin frame only. Enough grip for shape, not enough to read woody.",
+      packaging: "Usually strongest as still mead with a light chill."
+    },
+    {
+      key: "fruit_dark",
+      aliases: ["cherry", "berry", "plum", "currant", "dark fruit"],
+      lead: "ripe fruit core with honey still audible underneath",
+      recipeStyle: "Melomel",
+      defaultHoney: "Wildflower",
+      defaultYeast: "71B",
+      defaultAbv: 12,
+      defaultSweetness: "Semi-sweet",
+      acidPlan: "Use acid to sharpen fruit edges; sweetness alone will read jammy.",
+      tanninPlan: "Build tannin in small steps to avoid drying out fruit aromatics.",
+      packaging: "Still or petillant depending on fruit intensity."
+    },
+    {
+      key: "dessert_spice",
+      aliases: ["dessert", "vanilla", "cinnamon", "spice", "rich", "lush"],
+      lead: "dessert texture with disciplined sweetness and spice contour",
+      recipeStyle: "Metheglin",
+      defaultHoney: "Meadowfoam",
+      defaultYeast: "D47",
+      defaultAbv: 13,
+      defaultSweetness: "Sweet",
+      acidPlan: "Do not skip acid support or the finish goes flabby.",
+      tanninPlan: "Use light oak or tea tannin to keep sweetness from collapsing.",
+      packaging: "Best still and bottle-aged."
+    },
+    {
+      key: "honey_first",
+      aliases: ["traditional", "show mead", "honey forward", "honey-first"],
+      lead: "clean fermentation with honey as the lead actor",
+      recipeStyle: "Traditional",
+      defaultHoney: "Orange Blossom",
+      defaultYeast: "D47",
+      defaultAbv: 12,
+      defaultSweetness: "Off-dry",
+      acidPlan: "Minimal intervention: just enough acid to keep line and length.",
+      tanninPlan: "Micro-dose tannin only if finish feels hollow.",
+      packaging: "Still with enough age to settle rough edges."
+    }
+  ];
+
+  function escapeHTML(value){
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function copyText(text){
+    if (!text) return;
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+
+  function formatDateTime(value){
+    if (!value) return "—";
+    const date = new Date(value);
+    return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  function formatDate(value){
+    if (!value) return "—";
+    return new Date(value).toLocaleDateString();
+  }
+
+  function formatCompactDateTime(value){
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return `${date.toLocaleDateString([], { month: "short", day: "numeric" })} ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  }
+
+  function formatLogTimestamp(log){
+    if (!log) return "—";
+    if (log.telemetryAt) return formatDateTime(log.telemetryAt);
+    if (log.date) return formatDate(log.date);
+    return formatDateTime(log.createdAt);
+  }
+
+  function renderRows(id, rows){
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = rows.map(([label, value]) => `
+      <div class="info-row">
+        <div class="info-row-label">${escapeHTML(label)}</div>
+        <div class="info-row-value">${typeof value === "string" ? value : escapeHTML(String(value ?? "—"))}</div>
+      </div>
+    `).join("");
+  }
+
+  function sortLogsDescending(logs){
+    return clone(logs || []).sort((a, b) => {
+      const aTime = new Date(`${a.date}T00:00:00`).getTime();
+      const bTime = new Date(`${b.date}T00:00:00`).getTime();
+      if (aTime !== bTime) return bTime - aTime;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }
+
+  function sortLogsAscending(logs){
+    return sortLogsDescending(logs).reverse();
+  }
+
+  function logTimelineTime(log){
+    if (!log) return null;
+    if (log.telemetryAt) {
+      const telemetryTime = new Date(log.telemetryAt).getTime();
+      if (Number.isFinite(telemetryTime)) return telemetryTime;
+    }
+    if (log.date) {
+      const dateOnlyTime = new Date(`${log.date}T12:00:00`).getTime();
+      if (Number.isFinite(dateOnlyTime)) return dateOnlyTime;
+    }
+    const createdTime = new Date(log.createdAt || "").getTime();
+    return Number.isFinite(createdTime) ? createdTime : null;
+  }
+
+  function fermentationOg(){
+    const preferred = [
+      Number(data.currentBatch.targetOg),
+      Number(data.nutrients.og),
+      Number(data.currentBatch.targetOg || 0)
+    ].find((value) => Number.isFinite(value) && value > 0);
+    if (preferred) return preferred;
+
+    const highestLog = sortLogsDescending(data.fermentationLogs)
+      .map((entry) => Number(entry.gravity))
+      .find((value) => Number.isFinite(value) && value > 0);
+    return highestLog || null;
+  }
+
+  function buildFermentationTrendModel(logs){
+    const ordered = sortLogsAscending(logs)
+      .map((log) => {
+        const gravity = Number(log.gravity);
+        const temp = Number(log.temp);
+        const time = logTimelineTime(log);
+        return {
+          ...log,
+          gravity: Number.isFinite(gravity) ? gravity : null,
+          temp: Number.isFinite(temp) ? temp : null,
+          time: Number.isFinite(time) ? time : null
+        };
+      })
+      .filter((log) => log.time);
+
+    if (!ordered.length) return null;
+
+    const og = fermentationOg();
+    const points = ordered.map((log) => ({
+      time: log.time,
+      label: formatDate(log.date),
+      gravity: log.gravity,
+      temp: log.temp,
+      abv: og && log.gravity ? calcABV(og, log.gravity) : null
+    }));
+
+    const gravityValues = points.map((point) => point.gravity).filter((value) => Number.isFinite(value));
+    const tempValues = points.map((point) => point.temp).filter((value) => Number.isFinite(value));
+    const abvValues = points.map((point) => point.abv).filter((value) => Number.isFinite(value));
+
+    return {
+      points,
+      gravityValues,
+      tempValues,
+      abvValues,
+      startLabel: points[0].label,
+      endLabel: points[points.length - 1].label
+    };
+  }
+
+  function seriesPath(points, key, xAt, yAt){
+    const plotted = points.filter((point) => Number.isFinite(point[key]));
+    if (!plotted.length) return "";
+    return plotted.map((point, index) => `${index ? "L" : "M"} ${xAt(point.time).toFixed(1)} ${yAt(point[key]).toFixed(1)}`).join(" ");
+  }
+
+  function trendScale(values, options = {}){
+    const {
+      fallbackMin = 0,
+      fallbackMax = 1,
+      minPadding = 0.15,
+      paddingRatio = 0.08
+    } = options;
+    const source = values.length ? values : [fallbackMin, fallbackMax];
+    const min = Math.min(...source);
+    const max = Math.max(...source);
+    const padding = min === max
+      ? Math.max(Math.abs(min * paddingRatio), minPadding)
+      : Math.max((max - min) * paddingRatio, minPadding);
+    return {
+      min,
+      max,
+      safeMin: min - padding,
+      safeMax: max + padding
+    };
+  }
+
+  function scaleY(value, scale, top, height){
+    return top + ((scale.safeMax - value) / (scale.safeMax - scale.safeMin)) * height;
+  }
+
+  function axisTicks(scale, count = 4){
+    return Array.from({ length: count }, (_, index) => {
+      const ratio = count === 1 ? 0 : (index / (count - 1));
+      return scale.safeMin + ((scale.safeMax - scale.safeMin) * (1 - ratio));
+    });
+  }
+
+  function trendSeriesConfig(){
+    return {
+      gravity: {
+        label: "Gravity",
+        swatch: "gravity",
+        color: "#ffb34d",
+        digits: 3,
+        suffix: "",
+        visible: data.rapt.showGravityTrend !== false
+      },
+      temp: {
+        label: "Temp",
+        swatch: "temp",
+        color: "#4fc3f7",
+        digits: 1,
+        suffix: "°F",
+        visible: data.rapt.showTempTrend !== false
+      },
+      abv: {
+        label: "Est. ABV",
+        swatch: "abv",
+        color: "#ff6d9d",
+        digits: 1,
+        suffix: "%",
+        visible: data.rapt.showAbvTrend !== false
+      }
+    };
+  }
+
+  function renderTrendTooltip(point, left, top){
+    const tooltip = $("fermentationTrendTooltip");
+    if (!tooltip || !point) return;
+    tooltip.innerHTML = [
+      `<strong>${escapeHTML(formatCompactDateTime(point.when))}</strong>`,
+      Number.isFinite(point.gravity) ? `<div>Gravity <strong>${escapeHTML(String(round(point.gravity, 3)))}</strong></div>` : "",
+      Number.isFinite(point.temp) ? `<div>Temp <strong>${escapeHTML(String(round(point.temp, 1)))}°F</strong></div>` : "",
+      Number.isFinite(point.abv) ? `<div>Est. ABV <strong>${escapeHTML(String(round(point.abv, 1)))}%</strong></div>` : "",
+      point.source === "rapt" ? `<div class="muted">Source: RAPT Pill</div>` : `<div class="muted">Source: manual log</div>`
+    ].filter(Boolean).join("");
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.hidden = false;
+  }
+
+  function hideTrendTooltip(){
+    const tooltip = $("fermentationTrendTooltip");
+    if (!tooltip) return;
+    tooltip.hidden = true;
+  }
+
+  function renderFermentationTrend(logs){
+    const summary = $("fermentationTrendSummary");
+    const chart = $("fermentationTrendChart");
+    if (!summary || !chart) return;
+
+    const model = buildFermentationTrendModel(logs);
+    if (!model || model.points.length < 2){
+      trendHoverPoints = [];
+      summary.innerHTML = "";
+      chart.innerHTML = `<div class="empty-state">Add at least two readings and the trend graph will light up.</div>`;
+      return;
+    }
+
+    const series = trendSeriesConfig();
+    const width = 760;
+    const height = 360;
+    const padding = { top: 26, right: 88, bottom: 38, left: 58 };
+    const innerWidth = width - padding.left - padding.right;
+    const innerHeight = height - padding.top - padding.bottom;
+    const minTime = Math.min(...model.points.map((point) => point.time));
+    const maxTime = Math.max(...model.points.map((point) => point.time));
+
+    const xAt = (value) => {
+      if (maxTime === minTime) return padding.left + (innerWidth / 2);
+      return padding.left + (((value - minTime) / (maxTime - minTime)) * innerWidth);
+    };
+    const gravityScale = trendScale(model.gravityValues, { fallbackMin: 0.99, fallbackMax: 1.12, minPadding: 0.002, paddingRatio: 0.14 });
+    const tempScale = trendScale(model.tempValues, { fallbackMin: 58, fallbackMax: 72, minPadding: 0.3, paddingRatio: 0.12 });
+    const abvScale = trendScale(model.abvValues, { fallbackMin: 0, fallbackMax: 14, minPadding: 0.2, paddingRatio: 0.14 });
+
+    const gridTicks = axisTicks(gravityScale, 5);
+    const gridLines = gridTicks.map((tick) => {
+      const y = scaleY(tick, gravityScale, padding.top, innerHeight);
+      return `<line x1="${padding.left}" y1="${y.toFixed(1)}" x2="${width - padding.right}" y2="${y.toFixed(1)}" stroke="rgba(244,230,208,0.08)" stroke-width="1" />`;
+    }).join("");
+
+    const verticalLines = model.points.map((point) => {
+      const x = xAt(point.time);
+      return `<line x1="${x.toFixed(1)}" y1="${padding.top}" x2="${x.toFixed(1)}" y2="${height - padding.bottom}" stroke="rgba(244,230,208,0.04)" stroke-width="1" />`;
+    }).join("");
+
+    const gravityPath = seriesPath(model.points, "gravity", xAt, (value) => scaleY(value, gravityScale, padding.top, innerHeight));
+    const tempPath = seriesPath(model.points, "temp", xAt, (value) => scaleY(value, tempScale, padding.top, innerHeight));
+    const abvPath = seriesPath(model.points, "abv", xAt, (value) => scaleY(value, abvScale, padding.top, innerHeight));
+
+    const markers = model.points.map((point) => {
+      const bits = [];
+      if (series.gravity.visible && Number.isFinite(point.gravity)) bits.push(`<circle cx="${xAt(point.time).toFixed(1)}" cy="${scaleY(point.gravity, gravityScale, padding.top, innerHeight).toFixed(1)}" r="3.5" fill="#ffb34d" />`);
+      if (series.temp.visible && Number.isFinite(point.temp)) bits.push(`<circle cx="${xAt(point.time).toFixed(1)}" cy="${scaleY(point.temp, tempScale, padding.top, innerHeight).toFixed(1)}" r="3.5" fill="#4fc3f7" />`);
+      if (series.abv.visible && Number.isFinite(point.abv)) bits.push(`<circle cx="${xAt(point.time).toFixed(1)}" cy="${scaleY(point.abv, abvScale, padding.top, innerHeight).toFixed(1)}" r="3.5" fill="#ff6d9d" />`);
+      return bits.join("");
+    }).join("");
+
+    const hoverWidth = Math.max(18, innerWidth / Math.max(model.points.length, 8));
+    trendHoverPoints = model.points.map((point) => ({
+      ...point,
+      when: point.time
+    }));
+    const hitTargets = model.points.map((point, index) => {
+      const x = xAt(point.time);
+      return `<rect data-trend-point="${index}" x="${(x - hoverWidth / 2).toFixed(1)}" y="${padding.top}" width="${hoverWidth.toFixed(1)}" height="${innerHeight}" fill="transparent" />`;
+    }).join("");
+
+    const gravityTicks = axisTicks(gravityScale, 5).map((tick) => {
+      const y = scaleY(tick, gravityScale, padding.top, innerHeight);
+      return `
+        <text x="${padding.left - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#ffb34d" font-size="11">${round(tick, 3)}</text>
+      `;
+    }).join("");
+    const tempTicks = axisTicks(tempScale, 5).map((tick) => {
+      const y = scaleY(tick, tempScale, padding.top, innerHeight);
+      return `
+        <text x="${width - padding.right + 8}" y="${(y + 4).toFixed(1)}" fill="#4fc3f7" font-size="11">${round(tick, 1)}°</text>
+      `;
+    }).join("");
+    const abvAxisX = width - padding.right + 42;
+    const abvTickLabels = axisTicks(abvScale, 4).map((tick) => {
+      const y = scaleY(tick, abvScale, padding.top, innerHeight);
+      return `
+        <text x="${abvAxisX}" y="${(y + 4).toFixed(1)}" fill="#ff6d9d" font-size="11">${round(tick, 1)}%</text>
+      `;
+    }).join("");
+
+    const latest = model.points[model.points.length - 1];
+    summary.innerHTML = [
+      Number.isFinite(latest.gravity) ? `<button class="chart-pill ${series.gravity.visible ? "active" : ""}" data-trend-series-toggle="gravity" type="button" aria-pressed="${series.gravity.visible ? "true" : "false"}"><span class="chart-swatch gravity"></span>Gravity ${escapeHTML(String(round(latest.gravity, 3)))}</button>` : "",
+      Number.isFinite(latest.temp) ? `<button class="chart-pill ${series.temp.visible ? "active" : ""}" data-trend-series-toggle="temp" type="button" aria-pressed="${series.temp.visible ? "true" : "false"}"><span class="chart-swatch temp"></span>Temp ${escapeHTML(String(round(latest.temp, 1)))}°F</button>` : "",
+      Number.isFinite(latest.abv) ? `<button class="chart-pill ${series.abv.visible ? "active" : ""}" data-trend-series-toggle="abv" type="button" aria-pressed="${series.abv.visible ? "true" : "false"}"><span class="chart-swatch abv"></span>Est. ABV ${escapeHTML(String(round(latest.abv, 1)))}%</button>` : ""
+    ].filter(Boolean).join("");
+
+    chart.innerHTML = `
+      <svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Fermentation trend chart">
+        ${gridLines}
+        ${verticalLines}
+        <line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom}" stroke="rgba(255,179,77,0.45)" stroke-width="1.2" />
+        <line x1="${width - padding.right}" y1="${padding.top}" x2="${width - padding.right}" y2="${height - padding.bottom}" stroke="rgba(79,195,247,0.45)" stroke-width="1.2" />
+        <line x1="${(abvAxisX - 8).toFixed(1)}" y1="${padding.top}" x2="${(abvAxisX - 8).toFixed(1)}" y2="${height - padding.bottom}" stroke="rgba(255,109,157,0.32)" stroke-width="1" stroke-dasharray="4 5" />
+        <text x="${padding.left - 8}" y="${padding.top - 8}" text-anchor="end" fill="#ffb34d" font-size="11">SG</text>
+        <text x="${width - padding.right + 8}" y="${padding.top - 8}" fill="#4fc3f7" font-size="11">Temp</text>
+        <text x="${abvAxisX}" y="${padding.top - 8}" fill="#ff6d9d" font-size="11">ABV</text>
+        ${gravityTicks}
+        ${tempTicks}
+        ${abvTickLabels}
+        ${series.gravity.visible ? `<path d="${gravityPath}" fill="none" stroke="#ffb34d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />` : ""}
+        ${series.temp.visible ? `<path d="${tempPath}" fill="none" stroke="#4fc3f7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />` : ""}
+        ${series.abv.visible ? `<path d="${abvPath}" fill="none" stroke="#ff6d9d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 7" />` : ""}
+        ${markers}
+        ${hitTargets}
+        <text x="${padding.left}" y="${height - 10}" fill="rgba(244,230,208,0.72)" font-size="11">${escapeHTML(model.startLabel)}</text>
+        <text x="${width - padding.right}" y="${height - 10}" text-anchor="end" fill="rgba(244,230,208,0.72)" font-size="11">${escapeHTML(model.endLabel)}</text>
+      </svg>
+      <div class="chart-tooltip" id="fermentationTrendTooltip" hidden></div>
+      <div class="trend-chart-note">
+        Click a series pill to hide or show it. Hover the chart to inspect a reading. Gravity uses the left axis, temperature uses the blue right axis, and estimated ABV uses the pink dashed axis.
+      </div>
+    `;
+  }
+
+  /* =========================================================
+     App defaults and state templates
+     ========================================================= */
+
+  function sourcePreset(type){
+    return SOURCE_PRESETS[String(type || "Honey")] || SOURCE_PRESETS["Honey"];
+  }
+
+  function sourceDefault(type){
+    return sourcePreset(type).ppg || "35";
+  }
+
+  function sourceLocked(type){
+    return Boolean(sourcePreset(type).locked);
+  }
+
+  function sourceUnitDefault(type){
+    return sourcePreset(type).unit || "lb";
+  }
+
+  function defaultAdditionRow(){
+    return {
+      id: makeId("src"),
+      sourceType: "Honey",
+      description: "",
+      amount: "",
+      unit: "lb",
+      ppg: sourceDefault("Honey")
+    };
+  }
+
+  function defaultFermentChecklist(){
+    return [
+      { id: makeId("task"), text: "Hydrate yeast with Go-Ferm if using dry yeast", done: false },
+      { id: makeId("task"), text: "Record actual OG and pitch temperature", done: false },
+      { id: makeId("task"), text: "Control fermentation temperature in the yeast's happy range", done: false },
+      { id: makeId("task"), text: "Degas / aerate only in the safe early window", done: false },
+      { id: makeId("task"), text: "Hit nutrient additions on schedule", done: false },
+      { id: makeId("task"), text: "Stop nutrient additions at the 1/3 sugar break", done: false },
+      { id: makeId("task"), text: "Check gravity stability before stabilization or packaging", done: false }
+    ];
+  }
+
+  function defaultCellarChecklist(){
+    return [
+      { id: makeId("cellar"), text: "Confirm fermentation has actually stopped before chemical stabilization", done: false },
+      { id: makeId("cellar"), text: "Use sulfite + sorbate together if chemically stabilizing for backsweetening", done: false },
+      { id: makeId("cellar"), text: "Re-check gravity and watch for refermentation after sweetening", done: false },
+      { id: makeId("cellar"), text: "Bench trial sweetness / acid / tannin before scaling to the whole batch", done: false },
+      { id: makeId("cellar"), text: "Record final sensory read before bottling", done: false }
+    ];
+  }
+
+  function defaultRecipeDraft(){
+    return {
+      name: "",
+      style: "Traditional",
+      batchGallons: "",
+      targetAbv: "",
+      sweetness: "Dry",
+      carbonation: "Still",
+      yeast: "",
+      yeastTolerance: "",
+      temp: "",
+      nitrogenRequirement: "low",
+      dryYeast: "",
+      honeyPPG: "35",
+      honeyBase: "",
+      fruitAdjuncts: "",
+      acidPlan: "",
+      tanninPlan: "",
+      quickNote: "",
+      notes: "",
+      tags: "",
+      targetOg: "",
+      targetFg: "",
+      estimatedAbv: "",
+      additions: [defaultAdditionRow()]
+    };
+  }
+
+  function defaultCurrentBatch(){
+    return {
+      recipeId: "",
+      name: "",
+      style: "Traditional",
+      batchGallons: "",
+      targetAbv: "",
+      sweetness: "Dry",
+      carbonation: "Still",
+      yeast: "",
+      yeastTolerance: "",
+      temp: "",
+      nitrogenRequirement: "low",
+      dryYeast: "",
+      honeyPPG: "35",
+      honeyBase: "",
+      fruitAdjuncts: "",
+      acidPlan: "",
+      tanninPlan: "",
+      quickNote: "",
+      notes: "",
+      tags: "",
+      targetOg: "",
+      targetFg: "",
+      estimatedAbv: "",
+      additions: [defaultAdditionRow()],
+      fermentNotes: "",
+      stepFeedPoints: "30",
+      stepFeedHoneyPpg: "35",
+      stepFeedCount: "1",
+      stepFeedLog: [],
+      loadedAt: null
+    };
+  }
+
+  function defaultNutrients(){
+    return {
+      batchGallons: "",
+      og: "",
+      brix: "",
+      yeastRequirement: "low",
+      dryYeast: "",
+      protocol: "tosna",
+      targetYanPpm: "160",
+      fruitOffsetPpm: "0",
+      enforceLimits: true,
+      limitO: "1.2",
+      limitK: "0.5",
+      limitD: "0.96",
+      ratioO: "60",
+      ratioK: "25",
+      ratioD: "15",
+      notes: ""
+    };
+  }
+
+  function defaultCellarAddition(){
+    return {
+      id: makeId("cellaradd"),
+      type: "Honey",
+      purpose: "Sweetness",
+      amount: "",
+      unit: "g",
+      notes: ""
+    };
+  }
+
+  function defaultCellar(){
+    return {
+      finishPath: "Backsweetened and still",
+      stableSgA: "",
+      stableDateA: "",
+      stableSgB: "",
+      stableDateB: "",
+      currentPh: "",
+      currentTemp: "",
+      kmetaAmount: "",
+      sorbateAmount: "",
+      backsweetenVolume: "",
+      backsweetenCurrentSg: "",
+      backsweetenTargetSg: "",
+      backsweetenSourceType: "Honey",
+      backsweetenPpg: "35",
+      benchBatchGallons: "",
+      benchSampleMl: "100",
+      benchAddition: "",
+      benchUnit: "g",
+      blendVol1: "",
+      blendSg1: "",
+      blendVol2: "",
+      blendSg2: "",
+      cellarGallons: "",
+      cellarBottleOz: "12",
+      cellarLossPct: "5",
+      stabilizationNotes: "",
+      packagingNotes: "",
+      tastingNotes: "",
+      rating: "",
+      tags: "",
+      wouldMakeAgain: false,
+      additions: [defaultCellarAddition()]
+    };
+  }
+
+  function defaultCalcs(){
+    return {
+      targetOg: "",
+      targetBatch: "",
+      targetPpg: "35",
+      honeyLb: "",
+      honeyBatch: "",
+      honeyPpg: "35",
+      abvOg: "",
+      abvFg: "",
+      breakOg: "",
+      sgInput: "",
+      brixInput: "",
+      recipeBatch: "",
+      recipeAbv: "",
+      recipeSweetness: "Dry",
+      recipeTolerance: ""
+    };
+  }
+
+  function defaultRaptSync(){
+    return {
+      batchKey: "active",
+      lastFetchedAt: "",
+      lastReadingAt: "",
+      lastImportCount: 0,
+      lastStatus: "Waiting for import",
+      lastError: "",
+      deviceName: "",
+      deviceId: "",
+      latestGravity: "",
+      latestTempF: "",
+      showGravityTrend: true,
+      showTempTrend: true,
+      showAbvTrend: true
+    };
+  }
+
+  function defaultMentor(){
+    return {
+      conceptName: "",
+      style: "",
+      inspiration: "",
+      vision: "",
+      batchSize: "",
+      targetAbv: "",
+      sweetness: "Dry",
+      carbonation: "Still",
+      honey: "",
+      yeast: "",
+      fruitSpiceOak: "",
+      structure: "",
+      mustHave: "",
+      avoid: "",
+      constraints: ""
+    };
+  }
+
+  function defaultMentorKnowledgeBase(){
+    return {
+      honeys: clone(MENTOR_HONEY_KB),
+      yeasts: clone(MENTOR_YEAST_KB),
+      adjuncts: clone(MENTOR_ADJUNCT_KB),
+      archetypes: clone(MENTOR_ARCHETYPE_KB)
+    };
+  }
+
+  const defaultData = {
+    ui: {
+      activeTab: "dashboard",
+      selectedRecipeId: null,
+      recipeSearch: "",
+      archiveSearch: "",
+      showAllFermentLogs: false
+    },
+    clock: { elapsedMs: 0, running: false, lastStartedAt: null },
+    recipeDraft: defaultRecipeDraft(),
+    recipes: [],
+    currentBatch: defaultCurrentBatch(),
+    fermentationLogs: [],
+    fermentChecklist: defaultFermentChecklist(),
+    nutrients: defaultNutrients(),
+    cellar: defaultCellar(),
+    cellarChecklist: defaultCellarChecklist(),
+    archive: [],
+    calcs: defaultCalcs(),
+    rapt: defaultRaptSync(),
+    mentor: defaultMentor(),
+    mentorKnowledge: defaultMentorKnowledgeBase()
+  };
+
+  /* =========================================================
+     Data normalization and persistence
+     ========================================================= */
+
+  function normalizeRecipe(recipe){
+    const merged = { ...defaultRecipeDraft(), ...(recipe || {}) };
+    merged.id = recipe.id || makeId("recipe");
+    merged.createdAt = recipe.createdAt || new Date().toISOString();
+    merged.updatedAt = recipe.updatedAt || merged.createdAt;
+    merged.additions = Array.isArray(recipe.additions) && recipe.additions.length ? recipe.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
+    return merged;
+  }
+
+  function normalizeLog(log){
+    return {
+      id: log.id || makeId("grav"),
+      date: log.date || todayStr(),
+      gravity: String(log.gravity || ""),
+      temp: String(log.temp || ""),
+      pH: String(log.pH || ""),
+      note: String(log.note || ""),
+      createdAt: log.createdAt || new Date().toISOString(),
+      source: String(log.source || "manual"),
+      sourceId: String(log.sourceId || ""),
+      telemetryAt: String(log.telemetryAt || ""),
+      deviceName: String(log.deviceName || ""),
+      deviceId: String(log.deviceId || "")
+    };
+  }
+
+  function normalizeArchiveItem(item){
+    return {
+      id: item.id || makeId("arch"),
+      archivedAt: item.archivedAt || new Date().toISOString(),
+      batch: { ...defaultCurrentBatch(), ...(item.batch || {}) },
+      nutrients: { ...defaultNutrients(), ...(item.nutrients || {}) },
+      cellar: { ...defaultCellar(), ...(item.cellar || {}) },
+      fermentChecklist: Array.isArray(item.fermentChecklist) && item.fermentChecklist.length ? item.fermentChecklist : defaultFermentChecklist(),
+      cellarChecklist: Array.isArray(item.cellarChecklist) && item.cellarChecklist.length ? item.cellarChecklist : defaultCellarChecklist(),
+      fermentationLogs: Array.isArray(item.fermentationLogs) ? item.fermentationLogs.map(normalizeLog) : [],
+      summary: item.summary || ""
+    };
+  }
+
+  function loadData(){
+    try{
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    } catch(error){
+      console.error("Could not load app data", error);
+      return null;
+    }
+  }
+
+  function normalizeMentorKnowledge(input){
+    const defaults = defaultMentorKnowledgeBase();
+    const source = input && typeof input === "object" ? input : {};
+
+    function mergeListWithDefaults(list, fallback, keyField){
+      if (!Array.isArray(list)) return clone(fallback);
+      const normalized = list
+        .filter((item) => item && typeof item === "object")
+        .map((item) => clone(item));
+      const existing = new Set(
+        normalized
+          .map((item) => String((item[keyField] || item.name || "")).toLowerCase().trim())
+          .filter(Boolean)
+      );
+      fallback.forEach((item) => {
+        const key = String((item[keyField] || item.name || "")).toLowerCase().trim();
+        if (key && !existing.has(key)){
+          normalized.push(clone(item));
+        }
+      });
+      return normalized;
+    }
+
+    return {
+      honeys: mergeListWithDefaults(source.honeys, defaults.honeys, "name"),
+      yeasts: mergeListWithDefaults(source.yeasts, defaults.yeasts, "name"),
+      adjuncts: mergeListWithDefaults(source.adjuncts, defaults.adjuncts, "key"),
+      archetypes: mergeListWithDefaults(source.archetypes, defaults.archetypes, "key")
+    };
+  }
+
+  function normalizeData(parsed){
+    const base = clone(defaultData);
+    const merged = {
+      ...base,
+      ...(parsed || {}),
+      ui: { ...base.ui, ...((parsed || {}).ui || {}) },
+      clock: normalizeClock((parsed || {}).clock),
+      recipeDraft: { ...defaultRecipeDraft(), ...((parsed || {}).recipeDraft || {}) },
+      currentBatch: { ...defaultCurrentBatch(), ...((parsed || {}).currentBatch || {}) },
+      nutrients: { ...defaultNutrients(), ...((parsed || {}).nutrients || {}) },
+      cellar: { ...defaultCellar(), ...((parsed || {}).cellar || {}) },
+      calcs: { ...defaultCalcs(), ...((parsed || {}).calcs || {}) },
+      rapt: { ...defaultRaptSync(), ...((parsed || {}).rapt || {}) },
+      mentor: { ...defaultMentor(), ...((parsed || {}).mentor || {}) },
+      mentorKnowledge: normalizeMentorKnowledge((parsed || {}).mentorKnowledge)
+    };
+    merged.recipeDraft.additions = Array.isArray(merged.recipeDraft.additions) && merged.recipeDraft.additions.length ? merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
+    merged.currentBatch.additions = Array.isArray(merged.currentBatch.additions) && merged.currentBatch.additions.length ? merged.currentBatch.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
+    merged.currentBatch.stepFeedLog = Array.isArray(merged.currentBatch.stepFeedLog) ? merged.currentBatch.stepFeedLog : [];
+    merged.cellar.additions = Array.isArray(merged.cellar.additions) && merged.cellar.additions.length ? merged.cellar.additions.map((row) => ({ ...defaultCellarAddition(), ...row, id: row.id || makeId("cellaradd") })) : [defaultCellarAddition()];
+    merged.recipes = Array.isArray((parsed || {}).recipes) ? parsed.recipes.map(normalizeRecipe) : [];
+    merged.fermentationLogs = Array.isArray((parsed || {}).fermentationLogs) ? parsed.fermentationLogs.map(normalizeLog) : [];
+    merged.fermentChecklist = Array.isArray((parsed || {}).fermentChecklist) && parsed.fermentChecklist.length ? parsed.fermentChecklist : defaultFermentChecklist();
+    merged.cellarChecklist = Array.isArray((parsed || {}).cellarChecklist) && parsed.cellarChecklist.length ? parsed.cellarChecklist : defaultCellarChecklist();
+    merged.archive = Array.isArray((parsed || {}).archive) ? parsed.archive.map(normalizeArchiveItem) : [];
+    if (!merged.ui.activeTab) merged.ui.activeTab = "dashboard";
+    return merged;
+  }
+
+  let data = normalizeData(loadData());
+  let clockInterval = null;
+  let raptRefreshInterval = null;
+  let raptImportPromise = null;
+
+  function normalizeClock(clock){
+    const input = clock || {};
+    if (typeof input.elapsedMs === "number" || typeof input.lastStartedAt === "number"){
+      return {
+        elapsedMs: Number(input.elapsedMs) || 0,
+        running: Boolean(input.running),
+        lastStartedAt: input.running && input.lastStartedAt ? Number(input.lastStartedAt) : null
+      };
+    }
+    const running = Boolean(input.running);
+    const startedAt = input.startedAt ? Number(input.startedAt) : null;
+    const elapsedMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+    return {
+      elapsedMs,
+      running,
+      lastStartedAt: running ? Date.now() : null
+    };
+  }
+
+  function persistData(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch(error){
+      console.error("Could not save app data", error);
+    }
+  }
+
+  function normalizeIsoDate(value){
+    if (!value) return "";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  }
+
+  function celsiusToFahrenheit(value){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? round((numeric * 9 / 5) + 32, 1) : "";
+  }
+
+  function raptEndpointUrl(batchKey){
+    const query = new URLSearchParams();
+    query.set("batch", batchKey || data.rapt.batchKey || "active");
+    return `/.netlify/functions/rapt-bridge?${query.toString()}`;
+  }
+
+  function buildRaptLogNote(reading){
+    const bits = [
+      "RAPT Pill",
+      reading.deviceName || "",
+      Number.isFinite(Number(reading.battery)) ? `Battery ${round(Number(reading.battery), 0)}%` : "",
+      Number.isFinite(Number(reading.rssi)) ? `RSSI ${round(Number(reading.rssi), 0)}` : ""
+    ].filter(Boolean);
+    return bits.join(" · ");
+  }
+
+  function normalizeRaptReading(reading){
+    const gravity = Number(reading.gravity);
+    if (!Number.isFinite(gravity)) return null;
+
+    const telemetryAt = normalizeIsoDate(reading.telemetryAt || reading.telemetry_at || reading.created_date || reading.createdDate) || new Date().toISOString();
+    const temperatureF = celsiusToFahrenheit(reading.temperatureC ?? reading.temperature_c ?? reading.temperature);
+    const deviceId = String(reading.deviceId || reading.device_id || "");
+    const deviceName = String(reading.deviceName || reading.device_name || "");
+    const sourceId = String(reading.readingId || reading.reading_id || `${deviceId || "rapt"}-${telemetryAt}`);
+
+    return {
+      date: telemetryAt.slice(0, 10),
+      gravity: String(round(gravity, 3)),
+      temp: temperatureF === "" ? "" : String(temperatureF),
+      pH: "",
+      note: buildRaptLogNote(reading),
+      createdAt: telemetryAt,
+      source: "rapt",
+      sourceId,
+      telemetryAt,
+      deviceName,
+      deviceId
+    };
+  }
+
+  function mergeRaptLogs(logs){
+    const existingSourceIds = new Set(
+      data.fermentationLogs
+        .map((entry) => String(entry.sourceId || ""))
+        .filter(Boolean)
+    );
+
+    let added = 0;
+    logs.forEach((log) => {
+      if (!log) return;
+      const sourceId = String(log.sourceId || "");
+      if (sourceId && existingSourceIds.has(sourceId)) return;
+      data.fermentationLogs.push(normalizeLog(log));
+      if (sourceId) existingSourceIds.add(sourceId);
+      added += 1;
+    });
+    return added;
+  }
+
+  function latestRateWindow(logs){
+    const ordered = sortLogsAscending(logs).filter((entry) => Number.isFinite(Number(entry.gravity)));
+    if (ordered.length < 2) return null;
+
+    const latest = ordered[ordered.length - 1];
+    const latestTime = new Date(latest.telemetryAt || latest.createdAt || `${latest.date}T00:00:00`).getTime();
+    if (!Number.isFinite(latestTime)) return null;
+
+    let baseline = null;
+    for (let index = ordered.length - 2; index >= 0; index -= 1){
+      const candidate = ordered[index];
+      const candidateTime = new Date(candidate.telemetryAt || candidate.createdAt || `${candidate.date}T00:00:00`).getTime();
+      const hoursApart = (latestTime - candidateTime) / 3600000;
+      if (Number.isFinite(candidateTime) && hoursApart >= 12){
+        baseline = candidate;
+        break;
+      }
+    }
+
+    if (!baseline) baseline = ordered[ordered.length - 2];
+    if (!baseline) return null;
+
+    const baselineTime = new Date(baseline.telemetryAt || baseline.createdAt || `${baseline.date}T00:00:00`).getTime();
+    const hoursApart = (latestTime - baselineTime) / 3600000;
+    const latestGravity = Number(latest.gravity);
+    const baselineGravity = Number(baseline.gravity);
+    if (!Number.isFinite(hoursApart) || hoursApart <= 0 || !Number.isFinite(latestGravity) || !Number.isFinite(baselineGravity)) return null;
+
+    const sgDrop = baselineGravity - latestGravity;
+    const pointsDrop = sgDrop * 1000;
+    const pointsPerDay = pointsDrop * (24 / hoursApart);
+
+    return {
+      latest,
+      baseline,
+      hoursApart,
+      sgDrop,
+      pointsDrop,
+      pointsPerDay
+    };
+  }
+
+  function fermentationRateSummary(logs){
+    const window = latestRateWindow(logs);
+    if (!window) {
+      return {
+        drop: "Need at least two gravity readings",
+        rate: "Waiting on a trend",
+        window: "No comparison window yet",
+        projection: "Need a trend first"
+      };
+    }
+
+    const latestGravity = Number(window.latest.gravity);
+    const targetGravity = Number(data.currentBatch.targetFg || 1.000);
+    const hasForwardProgress = window.pointsPerDay > 0;
+    let projection = "Rate is flat or rising";
+    if (hasForwardProgress && Number.isFinite(latestGravity) && Number.isFinite(targetGravity) && latestGravity > targetGravity){
+      const pointsRemaining = (latestGravity - targetGravity) * 1000;
+      const daysRemaining = pointsRemaining / window.pointsPerDay;
+      if (Number.isFinite(daysRemaining) && daysRemaining >= 0){
+        const label = data.currentBatch.targetFg ? `target FG ${round(targetGravity, 3)}` : "1.000";
+        if (daysRemaining < 1){
+          projection = `Under 1 day to ${label}`;
+        } else {
+          projection = `${round(daysRemaining, 1)} days to ${label}`;
+        }
+      }
+    } else if (hasForwardProgress && Number.isFinite(latestGravity) && Number.isFinite(targetGravity) && latestGravity <= targetGravity){
+      projection = `At or below ${data.currentBatch.targetFg ? `target FG ${round(targetGravity, 3)}` : "1.000"}`;
+    }
+
+    const direction = window.pointsPerDay >= 0 ? "dropping" : "rising";
+    return {
+      drop: `${round(window.sgDrop, 3)} SG over ${round(window.hoursApart, 1)} hr`,
+      rate: `${Math.abs(round(window.pointsPerDay, 1))} pts/day ${direction}`,
+      window: `${formatCompactDateTime(window.baseline.telemetryAt || window.baseline.createdAt || `${window.baseline.date}T00:00:00`)} to ${formatCompactDateTime(window.latest.telemetryAt || window.latest.createdAt || `${window.latest.date}T00:00:00`)}`,
+      projection
+    };
+  }
+
+  function shouldRaptAutoRefresh(){
+    if (document.visibilityState === "hidden") return false;
+    const lastFetch = new Date(data.rapt.lastFetchedAt || 0).getTime();
+    return !lastFetch || (Date.now() - lastFetch) >= RAPT_VISIBILITY_REFRESH_STALE_MS;
+  }
+
+  function startRaptAutoRefresh(){
+    if (raptRefreshInterval) clearInterval(raptRefreshInterval);
+    raptRefreshInterval = setInterval(() => {
+      if (!shouldRaptAutoRefresh()) return;
+      importRaptReadings({ silent: true }).catch((error) => {
+        console.warn("Background RAPT refresh failed", error);
+      });
+    }, RAPT_AUTO_REFRESH_MS);
+
+    document.addEventListener("visibilitychange", () => {
+      if (shouldRaptAutoRefresh()){
+        importRaptReadings({ silent: true }).catch((error) => {
+          console.warn("Visibility-triggered RAPT refresh failed", error);
+        });
+      }
+    });
+
+    window.addEventListener("focus", () => {
+      if (shouldRaptAutoRefresh()){
+        importRaptReadings({ silent: true }).catch((error) => {
+          console.warn("Focus-triggered RAPT refresh failed", error);
+        });
+      }
+    });
+  }
+
+  async function importRaptReadings(options = {}){
+    if (raptImportPromise) return raptImportPromise;
+    const silent = Boolean(options.silent);
+    const batchKey = data.rapt.batchKey || "active";
+    raptImportPromise = (async () => {
+      data.rapt.lastError = "";
+      data.rapt.lastStatus = "Checking bridge...";
+      if (!silent) renderFerment();
+
+      try{
+        const response = await fetch(raptEndpointUrl(batchKey), {
+          method: "GET",
+          headers: { "Accept": "application/json" }
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok){
+          throw new Error(String(payload.error || `Bridge returned ${response.status}`));
+        }
+
+        const incoming = Array.isArray(payload.readings) ? payload.readings.map(normalizeRaptReading).filter(Boolean) : [];
+        incoming.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        const added = mergeRaptLogs(incoming);
+        const latest = incoming[incoming.length - 1] || null;
+
+        data.rapt.lastFetchedAt = new Date().toISOString();
+        data.rapt.lastImportCount = added;
+        data.rapt.lastStatus = incoming.length ? (added ? `Imported ${added} new reading${added === 1 ? "" : "s"}` : "No new RAPT readings") : "No RAPT readings available yet";
+        data.rapt.deviceName = String(payload.deviceName || latest?.deviceName || data.rapt.deviceName || "");
+        data.rapt.deviceId = String(payload.deviceId || latest?.deviceId || data.rapt.deviceId || "");
+        data.rapt.lastReadingAt = String(payload.lastReadingAt || latest?.telemetryAt || data.rapt.lastReadingAt || "");
+        data.rapt.latestGravity = String(payload.latestGravity || latest?.gravity || data.rapt.latestGravity || "");
+        data.rapt.latestTempF = String(payload.latestTempF || latest?.temp || data.rapt.latestTempF || "");
+
+        persistData();
+        renderDashboard();
+        renderFerment();
+        return { added, total: incoming.length };
+      } catch (error){
+        data.rapt.lastFetchedAt = new Date().toISOString();
+        data.rapt.lastError = String(error?.message || error);
+        data.rapt.lastStatus = "Bridge unavailable";
+        persistData();
+        renderFerment();
+        return { added: 0, total: 0, error };
+      } finally {
+        raptImportPromise = null;
+      }
+    })();
+    return raptImportPromise;
+  }
+
+  /* =========================================================
+     Derived calculations and active state helpers
+     ========================================================= */
+
+
+  function displayYeastName(recipe){
+    if (!recipe) return "";
+    return recipe.yeast === "Other / Custom" ? (recipe.yeastOther || "") : (recipe.yeast || "");
+  }
+
+  function recipeSourceSummary(recipe){
+    const rows = Array.isArray((recipe || {}).additions) ? recipe.additions : [];
+    const honey = rows.filter((row) => String(row.sourceType).toLowerCase() === "honey" && (row.description || row.amount));
+    const other = rows.filter((row) => String(row.sourceType).toLowerCase() !== "honey" && (row.description || row.amount));
+    return {
+      honey: honey.length ? honey.map((row) => row.description || row.sourceType).join(", ") : "",
+      other: other.length ? other.map((row) => row.description || row.sourceType).join(", ") : ""
+    };
+  }
+
+  function recipeSearchText(recipe){
+    const summary = recipeSourceSummary(recipe);
+    return [recipe.name, recipe.style, summary.honey, summary.other, recipe.tags, recipe.quickNote, recipe.notes].join(" ").toLowerCase();
+  }
+
+  function daysBetween(start, end){
+    if (!start || !end) return null;
+    const a = new Date(start);
+    const b = new Date(end);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+    return Math.round((b - a) / 86400000);
+  }
+
+  function cellarAnalysis(){
+    const c = data.cellar;
+    const latest = latestGravityLog();
+    const sgA = Number(c.stableSgA);
+    const sgB = Number(c.stableSgB);
+    const spacingDays = daysBetween(c.stableDateA, c.stableDateB);
+    const stablePair = sgA && sgB && Math.abs(sgA - sgB) < 0.0015;
+    const gateReady = stablePair && spacingDays != null && spacingDays >= 7;
+    const backsweeteningPlanned = ["Backsweetened and still","Backsweetened and force-carbonated"].includes(c.finishPath) || (Number(c.backsweetenTargetSg) > Number(c.backsweetenCurrentSg || 0));
+    const warnings = [];
+    const greenlights = [];
+    if (!gateReady){
+      warnings.push("Do not treat stabilization as a substitute for finishing fermentation. Get two stable SG readings at least a week apart first.");
+    } else {
+      greenlights.push(`Gravity looks stable across ${spacingDays} day${spacingDays === 1 ? "" : "s"}.`);
+    }
+    if (backsweeteningPlanned && (!c.kmetaAmount || !c.sorbateAmount)){
+      warnings.push("You are planning a sweeter finish but have not recorded both potassium metabisulfite and potassium sorbate yet.");
+    }
+    if (c.finishPath === "Bottle-conditioned" && (backsweeteningPlanned || c.kmetaAmount || c.sorbateAmount)){
+      warnings.push("Bottle-conditioning does not play nicely with a chemically stabilized backsweetened finish. Pick one path deliberately.");
+    }
+    if ((c.kmetaAmount || c.sorbateAmount) && !gateReady){
+      warnings.push("Chemical additions recorded before the stability gate is truly cleared. Make sure this was intentional and not an attempt to stop an active ferment.");
+    }
+    if (c.additions.some((row) => row.amount && !row.notes)){
+      warnings.push("At least one post-fermentation addition has no note about why it was used. That makes future batches harder to learn from.");
+    }
+    if (Number(c.backsweetenTargetSg) > Number(c.backsweetenCurrentSg || 0) && !c.benchAddition){
+      warnings.push("You are planning a sweeter finish without a best trial sample logged yet.");
+    }
+    if (c.currentPh) greenlights.push(`Current pH recorded at ${c.currentPh}. Re-check after any significant sweetening or acid shift.`);
+    if (c.finishPath === "Oak / spice aging") greenlights.push("Oak / spice aging selected. Bench trials matter even more here than in fruit-forward batches.");
+    return { gateReady, stablePair, spacingDays, warnings, greenlights, latest };
+  }
+
+  function applyYeastPresetToDraft(selected){
+    const preset = YEAST_PRESETS[selected];
+    const isCustom = selected === "Other / Custom";
+    $("recipeYeastOtherWrap").classList.toggle("hidden-field", !isCustom);
+    $("recipeYeastTolerance").readOnly = !isCustom;
+    $("recipeTemp").readOnly = !isCustom;
+    if (preset){
+      data.recipeDraft.yeastTolerance = preset.tolerance;
+      data.recipeDraft.temp = preset.temp;
+      data.recipeDraft.nitrogenRequirement = preset.nitrogenRequirement || "medium";
+      $("recipeYeastTolerance").value = preset.tolerance;
+      $("recipeTemp").value = preset.temp;
+      if ($("recipeNitrogenRequirement")) $("recipeNitrogenRequirement").value = data.recipeDraft.nitrogenRequirement;
+    } else if (!isCustom && !selected){
+      data.recipeDraft.yeastTolerance = "";
+      data.recipeDraft.temp = "";
+      data.recipeDraft.nitrogenRequirement = "low";
+      $("recipeYeastTolerance").value = "";
+      $("recipeTemp").value = "";
+      if ($("recipeNitrogenRequirement")) $("recipeNitrogenRequirement").value = data.recipeDraft.nitrogenRequirement;
+    }
+    if (!isCustom) {
+      data.recipeDraft.yeastOther = "";
+      if ($("recipeYeastOther")) $("recipeYeastOther").value = "";
+    }
+  }
+  function syncRecipeDerived(){
+    const recipe = data.recipeDraft;
+    if (recipe.targetOg){
+      data.nutrients.targetYanPpm = String(suggestYanPpm({ og: recipe.targetOg, yeastRequirement: data.nutrients.yeastRequirement || recipe.nitrogenRequirement || "low" }));
+    }
+    const plan = estimateRecipeTargets({
+      batchGallons: recipe.batchGallons,
+      targetAbv: recipe.targetAbv,
+      sweetness: recipe.sweetness,
+      yeastTolerance: recipe.yeastTolerance,
+      honeyPPG: 35
+    });
+    recipe.targetOg = plan ? String(round(plan.targetOg, 3)) : "";
+    recipe.targetFg = plan ? String(round(plan.targetFg, 3)) : "";
+    recipe.estimatedAbv = plan ? String(round(plan.targetAbv, 1)) : "";
+  }
+
+  function syncNutrientsFromRecipe(recipeLike, options = {}){
+    const recipe = recipeLike || data.recipeDraft || {};
+    const force = Boolean(options.force);
+    const yeastName = displayYeastName(recipe);
+    const preset = YEAST_PRESETS[recipe.yeast] || (YEAST_PRESETS[yeastName] || null);
+    const resolvedRequirement = recipe.nitrogenRequirement || (preset ? preset.nitrogenRequirement : data.nutrients.yeastRequirement) || "low";
+    if (force || !data.nutrients.batchGallons) data.nutrients.batchGallons = recipe.batchGallons || data.nutrients.batchGallons;
+    if (force || !data.nutrients.og) data.nutrients.og = recipe.targetOg || data.nutrients.og;
+    if (force || !data.nutrients.brix) data.nutrients.brix = recipe.targetOg ? String(round(sgToBrix(recipe.targetOg), 1)) : data.nutrients.brix;
+    data.nutrients.dryYeast = recipe.dryYeast || "";
+    data.nutrients.yeastRequirement = resolvedRequirement;
+    if (data.nutrients.og){
+      data.nutrients.targetYanPpm = String(suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }));
+    }
+  }
+
+  function syncCurrentBatchDerived(){
+    const batch = data.currentBatch;
+    if (batch.targetOg && batch.targetFg){
+      const abv = calcABV(batch.targetOg, batch.targetFg);
+      batch.estimatedAbv = abv ? String(round(abv, 1)) : batch.estimatedAbv;
+    }
+  }
+
+  function batchHasData(){
+    const b = data.currentBatch;
+    return Boolean(b.name || b.targetOg || displayYeastName(b));
+  }
+
+  function currentRecipe(){
+    return data.recipes.find((recipe) => recipe.id === data.ui.selectedRecipeId) || null;
+  }
+
+  function latestGravityLog(){
+    return sortLogsDescending(data.fermentationLogs)[0] || null;
+  }
+
+  function currentSourceBill(){
+    return calculateSourceBill({ batchGallons: data.recipeDraft.batchGallons, rows: data.recipeDraft.additions });
+  }
+
+  function nutrientProtocolDefaults(protocol){
+    const mode = String(protocol || "tosna");
+    if (mode == "tosna") return { enforceLimits: true, limitO: "1.2", limitK: "0", limitD: "0", ratioO: "100", ratioK: "0", ratioD: "0" };
+    if (mode == "k_dap_20_80") return { enforceLimits: true, limitO: "0", limitK: "0.5", limitD: "0.96", ratioO: "0", ratioK: "20", ratioD: "80" };
+    if (mode == "advanced") return { enforceLimits: true, limitO: "1.2", limitK: "0.5", limitD: "0.96", ratioO: "60", ratioK: "25", ratioD: "15" };
+    return null;
+  }
+
+  function applyNutrientProtocolDefaults(protocol){
+    const defaults = nutrientProtocolDefaults(protocol);
+    if (!defaults) return;
+    Object.assign(data.nutrients, defaults);
+  }
+
+  function currentTosnaPlan(){
+    return calculateTosna({
+      batchGallons: data.nutrients.batchGallons,
+      og: data.nutrients.og,
+      brix: data.nutrients.brix,
+      yeastRequirement: data.nutrients.yeastRequirement
+    });
+  }
+
+  function currentAdvancedPlan(){
+    return calculateAdvancedNutrients({
+      batchGallons: data.nutrients.batchGallons,
+      og: data.nutrients.og,
+      targetYanPpm: data.nutrients.targetYanPpm,
+      fruitOffsetPpm: data.nutrients.fruitOffsetPpm,
+      protocol: data.nutrients.protocol,
+      enforceLimits: data.nutrients.enforceLimits,
+      limitO: data.nutrients.limitO,
+      limitK: data.nutrients.limitK,
+      limitD: data.nutrients.limitD,
+      ratioO: data.nutrients.ratioO,
+      ratioK: data.nutrients.ratioK,
+      ratioD: data.nutrients.ratioD
+    });
+  }
+
+  /* =========================================================
+     Navigation and global clock helpers
+     ========================================================= */
+
+  function setActiveTab(tab){
+    data.ui.activeTab = tab;
+    renderTabs();
+    persistData();
+  }
+
+  function renderTabs(){
+    document.querySelectorAll("[data-tab].tab-btn").forEach((button) => {
+      const active = button.dataset.tab === data.ui.activeTab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    document.querySelectorAll(".tab-panel").forEach((panel) => {
+      panel.classList.toggle("active", panel.id === `tab-${data.ui.activeTab}`);
+    });
+  }
+
+  function formatClock(ms){
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600).toString().padStart(2, "0");
+    const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
+    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${hours}:${minutes}:${seconds}`;
+  }
+
+  function clockDisplay(){
+    const display = $("batchClockDisplay");
+    const button = $("batchClockBtn");
+    if (!display) return;
+    const runningMs = data.clock.running && data.clock.lastStartedAt ? (Date.now() - data.clock.lastStartedAt) : 0;
+    const elapsed = (Number(data.clock.elapsedMs) || 0) + Math.max(0, runningMs);
+    display.textContent = formatClock(elapsed);
+    if (button){
+      button.textContent = data.clock.running ? "Stop Clock" : "Start Clock";
+      button.setAttribute("aria-pressed", data.clock.running ? "true" : "false");
+    }
+  }
+
+  function startClockTicker(){
+    if (clockInterval) clearInterval(clockInterval);
+    clockDisplay();
+    if (data.clock.running){
+      clockInterval = setInterval(clockDisplay, 1000);
+    }
+  }
+
+  /* =========================================================
+     Render layer
+     ========================================================= */
+
+  function renderDashboard(){
+    const batch = data.currentBatch;
+    const latest = latestGravityLog();
+    const tosna = currentTosnaPlan();
+    const advanced = currentAdvancedPlan();
+    const breakGravity = calcOneThirdBreak(batch.targetOg || data.nutrients.og);
+    const rate = fermentationRateSummary(data.fermentationLogs);
+    const nextMove = (() => {
+      if (!batchHasData()) return `No active batch loaded. Start in <strong>Recipes</strong> or load a saved recipe from <strong>Archive</strong>.`;
+      if (!latest) return `You have a batch loaded, but no gravity history yet. Record the real OG and pitch conditions before your memory gets cute.`;
+      if (breakGravity && Number(latest.gravity) > breakGravity) return `You are still above the 1/3 sugar break. This is the window to stay on top of nutrients, oxygen discipline, and temperature.`;
+      if (breakGravity && Number(latest.gravity) <= breakGravity) return `You are past the 1/3 sugar break. Stop nutrient additions, stop treating it like a must-build day, and let it ferment clean.`;
+      return `Keep the notes honest and the process boring. Mead gets better when you stop improvising the important parts.`;
+    })();
+    $("dashboardNextMove").innerHTML = nextMove;
+
+    $("dashboardBatchPulse").innerHTML = batchHasData()
+      ? `<strong>${escapeHTML(batch.name || "Unnamed batch")}</strong><br>${escapeHTML(batch.style || "Mead")} · ${escapeHTML(batch.batchGallons || "—")} gal · target OG ${escapeHTML(batch.targetOg || "—")} · target FG ${escapeHTML(batch.targetFg || "—")} · est. ${escapeHTML(batch.estimatedAbv || batch.targetAbv || "—")}% ABV<br><span class="muted">Loaded ${escapeHTML(formatDateTime(batch.loadedAt))}</span>`
+      : `No active batch loaded yet.`;
+
+    renderRows("dashboardNutrientPulse", [
+      ["Simple plan", tosna ? `${round(tosna.totalFermaidO, 1)} g Fermaid O total` : "Need batch size + OG/Brix"],
+      ["Advanced plan", advanced ? `${round(advanced.gramsO, 1)} g O · ${round(advanced.gramsK, 1)} g K · ${round(advanced.gramsD, 1)} g DAP` : "Need YAN inputs"],
+      ["Go-Ferm", calculateGoFerm(data.nutrients.dryYeast) ? `${round(calculateGoFerm(data.nutrients.dryYeast).goFermGrams, 1)} g` : "Enter dry yeast grams"]
+    ]);
+
+    renderRows("dashboardFermentationPulse", [
+      ["Latest gravity", latest ? escapeHTML(latest.gravity) : "No readings"],
+      ["1/3 break", breakGravity ? `${round(breakGravity, 3)}` : "Need OG"],
+      ["Latest temp/pH", latest ? `${escapeHTML(latest.temp || "—")}°F · pH ${escapeHTML(latest.pH || "—")}` : "No readings"],
+      ["Window", latest && breakGravity ? (Number(latest.gravity) <= breakGravity ? "Past nutrient cutoff" : "Still in feeding window") : "Need OG + reading"],
+      ["Rate", escapeHTML(rate.rate)]
+    ]);
+
+    const batchStructure = recipeSourceSummary(batch);
+    $("dashboardStructure").innerHTML = batchHasData()
+      ? `Honey: <strong>${escapeHTML(batchStructure.honey || "Not written yet")}</strong><br>Everything else: <strong>${escapeHTML(batchStructure.other || "None written yet")}</strong>`
+      : `Structure is blank until a batch exists.`;
+
+    const reminders = data.fermentChecklist.filter((item) => !item.done).slice(0, 4);
+    $("dashboardReminders").innerHTML = reminders.length
+      ? reminders.map((item) => `
+          <label class="check-item">
+            <input type="checkbox" data-dash-task-toggle="${item.id}" ${item.done ? "checked" : ""} />
+            <span>${escapeHTML(item.text)}</span>
+          </label>
+        `).join("")
+      : `<div class="empty-state">Nothing urgent left on the active run sheet.</div>`;
+  }
+
+  function renderRecipeSourceList(){
+    const rows = data.recipeDraft.additions;
+    $("recipeSourceList").innerHTML = rows.map((row) => {
+      const locked = sourceLocked(row.sourceType);
+      const presetLabel = locked ? "Auto from source" : "Editable for custom measured values";
+      return `
+      <div class="source-row">
+        <div class="form-grid-4">
+          <div class="field">
+            <label>Source</label>
+            <select data-source-id="${row.id}" data-source-field="sourceType">
+              ${Object.keys(SOURCE_PRESETS).map((option) => `<option ${row.sourceType === option ? "selected" : ""}>${option}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field"><label>Description</label><input data-source-id="${row.id}" data-source-field="description" value="${escapeHTML(row.description)}" placeholder="Orange blossom, tart cherry, medium toast oak..." /></div>
+          <div class="field"><label>Amount</label><input data-source-id="${row.id}" data-source-field="amount" type="number" step="0.1" value="${escapeHTML(row.amount)}" /></div>
+          <div class="field"><label>Unit</label><select data-source-id="${row.id}" data-source-field="unit"><option ${row.unit === "lb" ? "selected" : ""}>lb</option><option ${row.unit === "kg" ? "selected" : ""}>kg</option></select></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field"><label>PPG</label><input data-source-id="${row.id}" data-source-field="ppg" type="number" step="0.1" value="${escapeHTML(row.ppg)}" ${locked ? "readonly" : ""} /><span class="input-hint">${presetLabel}</span></div>
+          <div class="field checkbox-field"><button class="mini-btn" data-source-delete="${row.id}" type="button">Remove source</button></div>
+        </div>
+      </div>
+    `;
+    }).join("");
+  }
+
+  function renderRecipeComputed(){
+    syncRecipeDerived();
+    const recipe = data.recipeDraft;
+    const plan = estimateRecipeTargets({
+      batchGallons: recipe.batchGallons,
+      targetAbv: recipe.targetAbv,
+      sweetness: recipe.sweetness,
+      yeastTolerance: recipe.yeastTolerance,
+      honeyPPG: 35
+    });
+    const bill = currentSourceBill();
+    const targetOg = plan ? Number(plan.targetOg) : null;
+    const targetFg = plan ? Number(plan.targetFg) : null;
+    const actualOg = bill ? Number(bill.estimatedOg) : null;
+    const ogDeltaPoints = targetOg && actualOg ? Math.round((actualOg - targetOg) * 1000) : null;
+    const topSources = bill && bill.lineItems.length
+      ? clone(bill.lineItems).sort((a, b) => b.totalPoints - a.totalPoints).slice(0, 3).map((item) => `${item.description} (${round(item.perGallonPoints, 1)} pts/gal)`).join(", ")
+      : "Need source rows";
+    const sourceSummary = recipeSourceSummary(recipe);
+
+    renderRows("recipeTargetSummary", [
+      ["Target OG", plan ? `${round(plan.targetOg, 3)}` : "Need batch size + target ABV"],
+      ["Target FG", plan ? `${round(plan.targetFg, 3)}` : "Choose sweetness"],
+      ["Target ABV", plan ? `${round(plan.targetAbv, 1)}%` : "Set your north star"],
+      ["Traditional mead equivalent", plan ? `${round(plan.honeyLb, 2)} lb honey (${round(plan.honeyKg, 2)} kg)` : "Need targets"],
+      ["Yeast fit", plan && plan.exceedsTolerance ? `<strong>Target exceeds the entered yeast tolerance.</strong>` : "Within stated tolerance or not checked"]
+    ]);
+
+    renderRows("recipeMustSummary", [
+      ["Source bill OG", bill ? `${round(bill.estimatedOg, 3)}` : "Need batch size + source rows"],
+      ["OG delta vs target", ogDeltaPoints == null ? "Need target + source bill" : (ogDeltaPoints === 0 ? "On target" : `${ogDeltaPoints > 0 ? "+" : ""}${ogDeltaPoints} points`)],
+      ["Gravity points", bill ? `${round(bill.gravityPointsPerGallon, 1)} pts/gal` : "Need rows"],
+      ["Top contributors", bill ? topSources : "Need rows"]
+    ]);
+
+    const warnings = [];
+    const greenlights = [];
+    if (!recipe.name) warnings.push("Name the batch so the recipe stops living as anonymous sludge in the vault.");
+    if (!recipe.targetAbv) warnings.push("Set the ABV target. Without it, the rest of the design has no spine.");
+    if (!displayYeastName(recipe)) warnings.push("Choose a yeast so tolerance, temp, and nutrient expectations stop being vague.");
+    if (!recipe.batchGallons) warnings.push("Set the batch size. Mead math without volume is fiction.");
+    if (!(bill && bill.lineItems.length)) warnings.push("Build the source bill. The source bill should be the real recipe, not a note to self.");
+    if (!sourceSummary.honey) warnings.push("No honey source is described in the source bill. If that is intentional, fine — but own that it stops reading like a classic mead build.");
+    if (plan && plan.exceedsTolerance) warnings.push("Your stated target ABV is above the entered yeast tolerance. Either change the target, change the yeast, or plan step-feeding deliberately.");
+    if (ogDeltaPoints != null && Math.abs(ogDeltaPoints) >= 8) warnings.push(`The current source bill sits ${Math.abs(ogDeltaPoints)} gravity points ${ogDeltaPoints > 0 ? "above" : "below"} the design target. Decide whether the target or the bill is wrong.`);
+    if (actualOg && Number(recipe.yeastTolerance) && calcABV(actualOg, targetFg || 1.000) > Number(recipe.yeastTolerance) + 0.3) warnings.push("At the current source-bill gravity and target finish, the projected ABV likely outruns the selected yeast tolerance.");
+    if ((bill?.lineItems || []).length >= 3 && !recipe.quickNote) warnings.push("This is a multi-source build with no quick note. Future-you will forget what the actual intent was.");
+    const customCount = (bill?.lineItems || []).filter((item) => item.description.toLowerCase().includes("custom")).length;
+    if (customCount) warnings.push("Custom source rows are in play. That is fine, but make sure the PPG values are measured or intentionally assumed.");
+    if (plan && bill && Math.abs(ogDeltaPoints || 0) <= 5) greenlights.push("The source bill is landing close to the design target.");
+    if (displayYeastName(recipe) && recipe.batchGallons && bill && bill.lineItems.length) greenlights.push("The recipe has enough structure to become a real batch instead of a rough concept.");
+    if ((bill?.lineItems || []).some((item) => item.perGallonPoints > 45)) warnings.push("At least one source is carrying a huge share of the gravity. Make sure that is intentional and not a unit or entry mistake.");
+
+    $("recipeReadiness").innerHTML = [
+      greenlights.length ? `<div>${greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>")}</div>` : "",
+      warnings.length ? `<div>${warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>` : `<div>This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div>`
+    ].filter(Boolean).join("<br><br>");
+
+    const selected = currentRecipe();
+    $("currentRecipeLaunch").innerHTML = selected
+      ? `<strong>${escapeHTML(selected.name)}</strong><br>${escapeHTML(selected.style)} · ${escapeHTML(selected.batchGallons || "—")} gal · target ${escapeHTML(selected.targetAbv || selected.estimatedAbv || "—")}% ABV<br><span class="muted">${escapeHTML(selected.quickNote || recipeSourceSummary(selected).honey || "No quick note")}</span>`
+      : `No saved recipe selected yet.`;
+  }
+
+  function renderRecipes(){
+    renderRecipeSourceList();
+    renderRecipeComputed();
+  }
+
+  function renderCurrentBatchSummary(){
+    const batch = data.currentBatch;
+    const batchSummary = recipeSourceSummary(batch);
+    $("currentBatchSummary").innerHTML = batchHasData()
+      ? `
+        <div><strong>${escapeHTML(batch.name || "Unnamed mead")}</strong></div>
+        <div>${escapeHTML(batch.style || "Mead")} · ${escapeHTML(batch.batchGallons || "—")} gal · ${escapeHTML(batch.targetAbv || batch.estimatedAbv || "—")}% target ABV</div>
+        <div>Target OG ${escapeHTML(batch.targetOg || "—")} · Target FG ${escapeHTML(batch.targetFg || "—")} · Sweetness ${escapeHTML(batch.sweetness || "—")}</div>
+        <div>Honey: ${escapeHTML(batchSummary.honey || "—")}</div>
+        <div>Other sources: ${escapeHTML(batchSummary.other || "—")}</div>
+        <div>Yeast: ${escapeHTML(displayYeastName(batch) || "—")} · Temp: ${escapeHTML(batch.temp || "—")}</div>
+        <div>Loaded: <span class="muted">${escapeHTML(formatDateTime(batch.loadedAt))}</span></div>
+      `
+      : `No active batch loaded.`;
+  }
+
+  function renderFerment(){
+    renderCurrentBatchSummary();
+    $("batchFermentNotes").value = data.currentBatch.fermentNotes || "";
+    const checklistRemaining = data.fermentChecklist.filter((item) => !item.done).length;
+    $("fermentChecklistSummary").textContent = checklistRemaining ? `${checklistRemaining} open` : "All done";
+    $("fermentChecklist").innerHTML = data.fermentChecklist.map((item) => `
+      <label class="check-item">
+        <input type="checkbox" data-task-toggle="${item.id}" ${item.done ? "checked" : ""} />
+        <span>${escapeHTML(item.text)}</span>
+      </label>
+    `).join("");
+
+    const webhookUrl = `${window.location.origin}/.netlify/functions/rapt-bridge`;
+    const latestRaptReading = data.rapt.latestGravity
+      ? `SG ${escapeHTML(data.rapt.latestGravity)}${data.rapt.latestTempF ? ` at ${escapeHTML(data.rapt.latestTempF)}°F` : ""}`
+      : "Waiting for device data";
+    const raptStatus = data.rapt.lastError
+      ? `Sync issue: ${escapeHTML(data.rapt.lastError)}`
+      : escapeHTML(data.rapt.lastStatus || "Waiting for import");
+    const rate = fermentationRateSummary(data.fermentationLogs);
+    $("raptAdminSummary").textContent = data.rapt.lastReadingAt ? `Latest ${formatDateTime(data.rapt.lastReadingAt)}` : "Auto sync ready";
+
+    renderRows("raptSyncSnapshot", [
+      ["Status", raptStatus],
+      ["Last fetch", escapeHTML(formatDateTime(data.rapt.lastFetchedAt))],
+      ["Auto refresh", `Every ${Math.round(RAPT_AUTO_REFRESH_MS / 60000)} min while this tab is active`],
+      ["Latest device reading", latestRaptReading],
+      ["Telemetry timestamp", escapeHTML(formatDateTime(data.rapt.lastReadingAt))],
+      ["Device", escapeHTML(data.rapt.deviceName || data.rapt.deviceId || "Waiting for first webhook")]
+    ]);
+    $("raptWebhookHint").innerHTML = `RAPT custom webhook target: <code>${escapeHTML(webhookUrl)}</code>. Use header <code>x-meadevil-secret</code> and batch <code>${escapeHTML(data.rapt.batchKey || "active")}</code>.`;
+
+    const logs = sortLogsDescending(data.fermentationLogs);
+    renderFermentationTrend(logs);
+    const latest = latestGravityLog();
+    $("fermentationTrendMeta").innerHTML = [
+      latest ? `<span class="trend-meta-item">Latest gravity <strong>${escapeHTML(latest.gravity)}</strong></span>` : "",
+      latest ? `<span class="trend-meta-item">Latest timestamp <strong>${escapeHTML(formatLogTimestamp(latest))}</strong></span>` : "",
+      latest && latest.temp ? `<span class="trend-meta-item">Latest temp <strong>${escapeHTML(latest.temp)}°F</strong></span>` : ""
+    ].filter(Boolean).join("");
+    $("gravityLogSummary").textContent = logs.length ? `${logs.length} readings` : "No readings yet";
+    const visibleLogs = data.ui.showAllFermentLogs ? logs : logs.slice(0, 12);
+    $("toggleGravityLogBtn").textContent = data.ui.showAllFermentLogs ? "Show recent only" : `Show all logs${logs.length > 12 ? ` (${logs.length})` : ""}`;
+    $("toggleGravityLogBtn").style.display = logs.length > 12 ? "inline-flex" : "none";
+    $("gravityLog").innerHTML = logs.length
+      ? visibleLogs.map((item) => `
+          <div class="log-row">
+            <strong>${escapeHTML(item.date)} — SG ${escapeHTML(item.gravity)}</strong>
+            <div class="muted">Temp ${escapeHTML(item.temp || "—")}°F · pH ${escapeHTML(item.pH || "—")}</div>
+            <div class="muted">${escapeHTML(item.note || "")}</div>
+            <div class="item-actions">
+              ${item.source === "rapt" ? `<span class="small">Imported from RAPT</span>` : ""}
+              <button class="mini-btn" data-log-delete="${item.id}" type="button">Delete</button>
+            </div>
+          </div>
+        `).join("")
+      : `<div class="empty-state">No gravity readings yet. Mead without a gravity trail turns into unreliable campfire storytelling.</div>`;
+    if (logs.length > visibleLogs.length){
+      $("gravityLog").insertAdjacentHTML("beforeend", `<div class="empty-state">${logs.length - visibleLogs.length} older reading${logs.length - visibleLogs.length === 1 ? "" : "s"} hidden until you expand the full log.</div>`);
+    }
+
+    const breakGravity = calcOneThirdBreak(data.currentBatch.targetOg || data.nutrients.og);
+    renderRows("sugarBreakSnapshot", [
+      ["1/3 break target", breakGravity ? `${round(breakGravity, 3)}` : "Need OG"],
+      ["Latest reading", latest ? escapeHTML(latest.gravity) : "No readings"],
+      ["Status", latest && breakGravity ? (Number(latest.gravity) <= breakGravity ? "Past nutrient cutoff" : "Still in feeding window") : "Need OG + reading"],
+      ["Recent gravity drop", escapeHTML(rate.drop)],
+      ["Fermentation rate", escapeHTML(rate.rate)],
+      ["Rate window", escapeHTML(rate.window)],
+      ["Projection", escapeHTML(rate.projection)]
+    ]);
+
+    const step = calculateStepFeed({
+      volumeGallons: data.currentBatch.batchGallons,
+      pointsPerFeed: data.currentBatch.stepFeedPoints,
+      honeyPPG: data.currentBatch.stepFeedHoneyPpg,
+      feedCount: data.currentBatch.stepFeedCount
+    });
+    $("stepFeedPoints").value = data.currentBatch.stepFeedPoints || "30";
+    $("stepFeedHoneyPpg").value = data.currentBatch.stepFeedHoneyPpg || "35";
+    $("stepFeedCount").value = data.currentBatch.stepFeedCount || "1";
+    $("stepFeedResult").innerHTML = step
+      ? `Each feed adds about <strong>${round(step.honeyLbPerFeed, 2)} lb</strong> honey (${round(step.honeyOzPerFeed, 1)} oz / ${round(step.honeyKgPerFeed, 2)} kg) to raise the batch by ${escapeHTML(String(data.currentBatch.stepFeedPoints))} gravity points. Planned total: ${round(step.totalHoneyLb, 2)} lb across ${escapeHTML(String(data.currentBatch.stepFeedCount))} feed(s).`
+      : `Load a batch with a volume first.`;
+    $("stepFeedLog").innerHTML = data.currentBatch.stepFeedLog.length
+      ? clone(data.currentBatch.stepFeedLog).reverse().map((entry) => `
+          <div class="schedule-row">
+            <strong>${escapeHTML(formatDate(entry.date))}</strong>
+            <div class="muted">${round(entry.honeyLb, 2)} lb honey to add ${escapeHTML(entry.points)} points</div>
+          </div>
+        `).join("")
+      : `<div class="empty-state">No step feeds logged for this batch.</div>`;
+  }
+
+  function renderNutrients(){
+    const tosna = currentTosnaPlan();
+    const goFerm = calculateGoFerm(data.nutrients.dryYeast);
+    const advanced = currentAdvancedPlan();
+    const protocol = data.nutrients.protocol || "tosna";
+    $("nutrientYeastRequirementDisplay").value = String(data.nutrients.yeastRequirement || "low").replace(/^./, (m) => m.toUpperCase());
+    $("nutrientDryYeastDisplay").value = data.nutrients.dryYeast || "";
+    document.querySelectorAll("[data-nutrient-protocol]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.nutrientProtocol === protocol);
+    });
+    const showLimits = protocol === "custom";
+    const showRatios = protocol === "custom";
+    const defaults = nutrientProtocolDefaults(protocol);
+    $("nutrientEnforceLimitsWrap").style.display = showLimits ? "block" : "none";
+    $("nutrientLimitGrid").style.display = showLimits ? "grid" : "none";
+    $("nutrientRatioGrid").style.display = showRatios ? "grid" : "none";
+    ["nutrientLimitO","nutrientLimitK","nutrientLimitD","nutrientRatioO","nutrientRatioK","nutrientRatioD","nutrientEnforceLimits"].forEach((id) => {
+      const el = $(id);
+      if (el) el.disabled = protocol !== "custom";
+    });
+
+    renderRows("nutrientSummary", [
+      ["Protocol", advanced ? escapeHTML(advanced.protocolLabel) : "Need batch size + OG/Brix"],
+      ["Resolved Brix", tosna ? `${round(tosna.brix, 1)}` : "Need batch size + OG/Brix"],
+      ["1/3 sugar break", tosna && tosna.breakGravity ? `${round(tosna.breakGravity, 3)}` : "—"],
+      ["Dry yeast", data.nutrients.dryYeast ? `${escapeHTML(String(data.nutrients.dryYeast))} g` : "Set in Build"],
+      ["Go-Ferm", goFerm ? `${round(goFerm.goFermGrams, 1)} g · ${round(goFerm.rehydrationWaterMl, 0)} mL water` : "Add dry yeast in Build"],
+      ["Suggested YAN", data.nutrients.og ? `${suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement })} ppm before fruit offset` : "Need OG"]
+    ]);
+
+    $("nutrientSchedule").innerHTML = advanced
+      ? advanced.schedule.map((step) => {
+          const parts = [];
+          if (step.gramsO > 0) parts.push(`${round(step.gramsO, 1)} g Fermaid O`);
+          if (step.gramsK > 0) parts.push(`${round(step.gramsK, 1)} g Fermaid K`);
+          if (step.gramsD > 0) parts.push(`${round(step.gramsD, 1)} g DAP`);
+          const line = parts.length ? parts.join(" · ") : `${round(step.totalGrams, 1)} g total`;
+          return `
+          <div class="schedule-row">
+            <strong>${escapeHTML(step.label)}</strong>
+            <div class="muted">${line}</div>
+          </div>
+        `;
+        }).join("")
+      : `<div class="empty-state">No protocol schedule yet.</div>`;
+
+    renderRows("advancedNutrientSummary", [
+      ["Target YAN", advanced ? `${escapeHTML(String(data.nutrients.targetYanPpm))} ppm` : "Need inputs"],
+      ["Fruit offset", advanced ? `${round(advanced.fruitOffsetPpm, 0)} ppm` : "—"],
+      ["Caps", advanced ? (protocol === "custom" ? "Custom" : `Protocol defaults applied`) : "—"],
+      ["Effective YAN", advanced ? `${round(advanced.effectiveYanPpm, 0)} ppm` : "—"],
+      ["Fermaid O", advanced ? `${round(advanced.gramsO, 1)} g` : "—"],
+      ["Fermaid K", advanced ? `${round(advanced.gramsK, 1)} g` : "—"],
+      ["DAP", advanced ? `${round(advanced.gramsD, 1)} g` : "—"]
+    ]);
+
+    $("advancedNutrientSchedule").innerHTML = advanced
+      ? advanced.schedule.map((step) => `
+          <div class="schedule-row">
+            <strong>${escapeHTML(step.label)}</strong>
+            <div class="muted">O ${round(step.gramsO, 1)} g · K ${round(step.gramsK, 1)} g · DAP ${round(step.gramsD, 1)} g</div>
+          </div>
+        `).join("")
+      : `<div class="empty-state">No protocol output yet.</div>`;
+
+    const suggested = data.nutrients.og ? suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }) : null;
+    const yeastContext = displayYeastName(data.currentBatch) || displayYeastName(data.recipeDraft) || "selected yeast";
+    $("nutrientDiscipline").innerHTML = `${data.nutrients.notes ? `Batch note: ${escapeHTML(data.nutrients.notes)}<br><br>` : ""}${suggested ? `For ${escapeHTML(yeastContext)}, a <strong>${escapeHTML(String(data.nutrients.yeastRequirement))}</strong> nitrogen-demand profile at this gravity suggests about <strong>${suggested} ppm</strong> before fruit offset.` : "Select a protocol to generate a feed plan."}`;
+  }
+
+  function renderCellar(){
+    const c = data.cellar;
+    const back = calculateBacksweetening({
+      volumeGallons: c.backsweetenVolume,
+      currentSg: c.backsweetenCurrentSg,
+      targetSg: c.backsweetenTargetSg,
+      honeyPPG: c.backsweetenPpg
+    });
+    $("backsweetenResult").innerHTML = back
+      ? `Raise ${escapeHTML(String(c.backsweetenVolume))} gal from ${escapeHTML(String(c.backsweetenCurrentSg))} to ${escapeHTML(String(c.backsweetenTargetSg))} with about <strong>${round(back.honeyLb, 2)} lb</strong> of ${escapeHTML(String(c.backsweetenSourceType || "Honey").toLowerCase())} equivalent (${round(back.honeyOz, 1)} oz / ${round(back.honeyKg, 2)} kg).`
+      : `Enter current and target gravity.`;
+
+    const bench = calculateBenchTrial({
+      batchGallons: c.benchBatchGallons,
+      sampleMl: c.benchSampleMl,
+      additionAmount: c.benchAddition
+    });
+    $("benchTrialResult").innerHTML = bench
+      ? `The best trial sample scales to about <strong>${round(bench.scaledAmount, c.benchUnit === "drops" ? 0 : 2)} ${escapeHTML(c.benchUnit)}</strong> for the whole batch.`
+      : `Enter batch size, sample size, and the best trial sample dose.`;
+
+    const blend = calculateBlend({
+      volume1: c.blendVol1,
+      sg1: c.blendSg1,
+      volume2: c.blendVol2,
+      sg2: c.blendSg2
+    });
+    $("blendResult").innerHTML = blend
+      ? `Blending yields about <strong>${round(blend.totalVolume, 2)} gal</strong> at roughly <strong>${round(blend.blendedSg, 3)}</strong> SG.`
+      : `Enter two blend components.`;
+
+    const bottles = calculateBottleCount({
+      gallons: c.cellarGallons,
+      bottleOz: c.cellarBottleOz,
+      lossPct: c.cellarLossPct
+    });
+    $("cellarBottleResult").innerHTML = bottles
+      ? `About <strong>${bottles.fullBottles}</strong> full ${escapeHTML(String(c.cellarBottleOz))} oz bottles with roughly ${round(bottles.leftoverOz, 1)} oz left after ${escapeHTML(String(c.cellarLossPct))}% loss.`
+      : `Enter packaging values.`;
+
+    $("cellarAdditionList").innerHTML = c.additions.length
+      ? c.additions.map((row) => `
+          <div class="recipe-source-row">
+            <div class="compact-addition-top">
+              <div class="field"><label>Type</label><select data-cellar-addition-id="${row.id}" data-cellar-addition-field="type"><option ${row.type === "Honey" ? "selected" : ""}>Honey</option><option ${row.type === "Fruit" ? "selected" : ""}>Fruit</option><option ${row.type === "Juice / Concentrate" ? "selected" : ""}>Juice / Concentrate</option><option ${row.type === "Oak" ? "selected" : ""}>Oak</option><option ${row.type === "Spice / Tincture" ? "selected" : ""}>Spice / Tincture</option><option ${row.type === "Acid" ? "selected" : ""}>Acid</option><option ${row.type === "Tannin" ? "selected" : ""}>Tannin</option><option ${row.type === "Finings" ? "selected" : ""}>Finings</option><option ${row.type === "Other" ? "selected" : ""}>Other</option></select></div>
+              <div class="field"><label>Purpose</label><select data-cellar-addition-id="${row.id}" data-cellar-addition-field="purpose"><option ${row.purpose === "Sweetness" ? "selected" : ""}>Sweetness</option><option ${row.purpose === "Aroma" ? "selected" : ""}>Aroma</option><option ${row.purpose === "Flavor" ? "selected" : ""}>Flavor</option><option ${row.purpose === "Structure" ? "selected" : ""}>Structure</option><option ${row.purpose === "Clarification" ? "selected" : ""}>Clarification</option><option ${row.purpose === "Aging" ? "selected" : ""}>Aging</option></select></div>
+              <div class="field"><label>Amount</label><input data-cellar-addition-id="${row.id}" data-cellar-addition-field="amount" value="${escapeHTML(row.amount || "")}" /></div>
+              <div class="field"><label>Unit</label><select data-cellar-addition-id="${row.id}" data-cellar-addition-field="unit">${CELLAR_ADDITION_UNITS.map((unit) => `<option ${row.unit === unit ? "selected" : ""}>${unit}</option>`).join("")}</select></div>
+              <div class="item-actions"><button class="mini-btn" data-cellar-addition-delete="${row.id}" type="button">Remove</button></div>
+            </div>
+            <div class="field source-notes"><label>Note</label><textarea data-cellar-addition-id="${row.id}" data-cellar-addition-field="notes" placeholder="Why it was added, trial result, timing, extraction goal…">${escapeHTML(row.notes || "")}</textarea></div>
+          </div>
+        `).join("")
+      : `<div class="empty-state">No post-fermentation additions logged yet.</div>`;
+
+    $("stabilizationChecklist").innerHTML = data.cellarChecklist.map((item) => `
+      <label class="check-item">
+        <input type="checkbox" data-cellar-task-toggle="${item.id}" ${item.done ? "checked" : ""} />
+        <span>${escapeHTML(item.text)}</span>
+      </label>
+    `).join("");
+
+    const analysis = cellarAnalysis();
+    const lines = [];
+    lines.push(`<strong>${escapeHTML(c.finishPath)}</strong>`);
+    if (analysis.greenlights.length) lines.push(analysis.greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>"));
+    if (analysis.warnings.length) lines.push(`<div style="margin-top:8px">${analysis.warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>`);
+    $("cellarSmartSummary").innerHTML = lines.join("<br><br>");
+
+    const additionCount = c.additions.filter((row) => row.amount || row.notes).length;
+    $("archivePrepSummary").innerHTML = batchHasData()
+      ? `Archiving right now would save <strong>${escapeHTML(data.currentBatch.name || "this batch")}</strong>, the gravity trail, nutrient setup, <strong>${additionCount}</strong> post-fermentation addition${additionCount === 1 ? "" : "s"}, the finish path, tasting notes, tags, and rebrew verdict.`
+      : `No active batch loaded yet.`;
+  }
+
+  function renderArchive(){
+    $("recipeSearch").value = data.ui.recipeSearch || "";
+    $("archiveSearch").value = data.ui.archiveSearch || "";
+    const recipeSearch = (data.ui.recipeSearch || "").trim().toLowerCase();
+    const recipes = clone(data.recipes)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .filter((recipe) => {
+        if (!recipeSearch) return true;
+        return recipeSearchText(recipe).includes(recipeSearch);
+      });
+
+    $("recipeList").innerHTML = recipes.length
+      ? recipes.map((recipe) => `
+          <div class="recipe-item ${data.ui.selectedRecipeId === recipe.id ? "active" : ""}">
+            <div class="kicker">Updated ${escapeHTML(formatDate(recipe.updatedAt))}</div>
+            <strong>${escapeHTML(recipe.name || "Unnamed recipe")}</strong>
+            <div class="muted">${escapeHTML(recipe.style || "Mead")} · ${escapeHTML(recipe.batchGallons || "—")} gal · ${escapeHTML(recipe.targetAbv || recipe.estimatedAbv || "—")}% ABV</div>
+            <div class="muted">${escapeHTML(recipe.quickNote || recipeSourceSummary(recipe).honey || "No quick note")}</div>
+            <div class="item-actions">
+              <button class="mini-btn" data-recipe-edit="${recipe.id}" type="button">Edit</button>
+              <button class="mini-btn" data-recipe-load="${recipe.id}" type="button">Load to batch</button>
+              <button class="mini-btn" data-recipe-copy="${recipe.id}" type="button">Copy note</button>
+              <button class="mini-btn" data-recipe-delete="${recipe.id}" type="button">Delete</button>
+            </div>
+          </div>
+        `).join("")
+      : `<div class="empty-state">No saved recipes yet.</div>`;
+
+    const archiveSearch = (data.ui.archiveSearch || "").trim().toLowerCase();
+    const items = clone(data.archive)
+      .sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime())
+      .filter((item) => {
+        if (!archiveSearch) return true;
+        return [item.batch.name, item.batch.style, recipeSourceSummary(item.batch).honey, recipeSourceSummary(item.batch).other, item.cellar.tags, item.cellar.tastingNotes].join(" ").toLowerCase().includes(archiveSearch);
+      });
+
+    $("archiveList").innerHTML = items.length
+      ? items.map((item) => `
+          <div class="archive-card">
+            <div class="kicker">Archived ${escapeHTML(formatDate(item.archivedAt))}</div>
+            <strong>${escapeHTML(item.batch.name || "Unnamed batch")}</strong>
+            <div class="muted">${escapeHTML(item.batch.style || "Mead")} · OG ${escapeHTML(item.batch.targetOg || "—")} · FG ${escapeHTML(item.batch.targetFg || "—")} · ABV ${escapeHTML(item.batch.targetAbv || item.batch.estimatedAbv || "—")}%</div>
+            <div class="muted">Honey: ${escapeHTML(recipeSourceSummary(item.batch).honey || "—")}</div>
+            <div class="muted">Finish: ${escapeHTML(item.cellar.finishPath || "—")} · Rating: ${escapeHTML(item.cellar.rating || "—")} · Tags: ${escapeHTML(item.cellar.tags || "—")} · Rebrew: ${item.cellar.wouldMakeAgain ? "Yes" : "No"}</div>
+            <div class="muted">${escapeHTML(item.cellar.tastingNotes || "")}</div>
+            <div class="item-actions">
+              <button class="mini-btn" data-archive-load="${item.id}" type="button">Load to batch</button>
+              <button class="mini-btn" data-archive-clone="${item.id}" type="button">Clone to recipe</button>
+              <button class="mini-btn" data-archive-delete="${item.id}" type="button">Delete</button>
+            </div>
+          </div>
+        `).join("")
+      : `<div class="empty-state">No archived batches yet.</div>`;
+  }
+
+  function renderCalcs(){
+    const honey = estimateHoneyForTargetOG({ targetOg: data.calcs.targetOg, batchGallons: data.calcs.targetBatch, honeyPPG: data.calcs.targetPpg });
+    $("calcHoneyNeededResult").innerHTML = honey
+      ? `Targeting ${escapeHTML(String(data.calcs.targetOg))} at ${escapeHTML(String(data.calcs.targetBatch))} gal needs about <strong>${round(honey.honeyLb, 2)} lb</strong> honey (${round(honey.honeyKg, 2)} kg).`
+      : `Enter values.`;
+
+    const og = estimateOGFromHoney({ honeyLb: data.calcs.honeyLb, batchGallons: data.calcs.honeyBatch, honeyPPG: data.calcs.honeyPpg });
+    $("calcOgResult").innerHTML = og
+      ? `${escapeHTML(String(data.calcs.honeyLb))} lb honey in ${escapeHTML(String(data.calcs.honeyBatch))} gal projects an OG around <strong>${round(og.og, 3)}</strong>.`
+      : `Enter values.`;
+
+    const abv = calcABV(data.calcs.abvOg, data.calcs.abvFg);
+    $("calcAbvResult").innerHTML = abv
+      ? `Estimated ABV: <strong>${round(abv, 2)}%</strong>`
+      : `Enter OG and FG.`;
+
+    const breakGravity = calcOneThirdBreak(data.calcs.breakOg);
+    $("calcBreakResult").innerHTML = breakGravity
+      ? `1/3 sugar break lands around <strong>${round(breakGravity, 3)}</strong>.`
+      : `Enter OG.`;
+
+    const brix = sgToBrix(data.calcs.sgInput);
+    $("calcBrixResult").innerHTML = brix
+      ? `Approx. <strong>${round(brix, 1)} °Bx</strong>`
+      : `Enter SG.`;
+
+    const sg = brixToSg(data.calcs.brixInput);
+    $("calcSgResult").innerHTML = sg
+      ? `Approx. <strong>${round(sg, 3)}</strong> SG`
+      : `Enter Brix.`;
+
+    const targetRecipe = estimateRecipeTargets({
+      batchGallons: data.calcs.recipeBatch,
+      targetAbv: data.calcs.recipeAbv,
+      sweetness: data.calcs.recipeSweetness,
+      yeastTolerance: data.calcs.recipeTolerance,
+      honeyPPG: 35
+    });
+    $("calcTargetRecipeResult").innerHTML = targetRecipe
+      ? `For ${escapeHTML(String(data.calcs.recipeBatch))} gal at ${escapeHTML(String(data.calcs.recipeAbv))}% ABV and a ${escapeHTML(data.calcs.recipeSweetness)} finish, start near <strong>${round(targetRecipe.targetOg, 3)}</strong> OG and expect roughly <strong>${round(targetRecipe.honeyLb, 2)} lb</strong> honey.`
+      : `Enter batch size and target ABV.`;
+  }
+
+  function mentorKeywordBag(state){
+    return [
+      state.conceptName,
+      state.style,
+      state.inspiration,
+      state.vision,
+      state.honey,
+      state.yeast,
+      state.fruitSpiceOak,
+      state.structure,
+      state.mustHave,
+      state.avoid,
+      state.constraints
+    ].join(" ").toLowerCase();
+  }
+
+  function mentorFindMatches(bag, library){
+    const haystack = String(bag || "").toLowerCase();
+    if (!haystack) return [];
+    return library
+      .map((entry) => {
+        const terms = [entry.name, ...(entry.aliases || [])]
+          .map((term) => String(term || "").toLowerCase())
+          .filter(Boolean);
+        const score = terms.reduce((total, term) => total + (haystack.includes(term) ? (term.length + 20) : 0), 0);
+        return { entry, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((item) => item.entry);
+  }
+
+  function mentorResolveEntryFromText(text, library){
+    const bag = String(text || "").toLowerCase();
+    if (!bag) return null;
+    return mentorFindMatches(bag, library)[0] || null;
+  }
+
+  function activeMentorKnowledge(){
+    return normalizeMentorKnowledge((data || {}).mentorKnowledge);
+  }
+
+  function mentorPickArchetype(bag, archetypeLibrary){
+    const list = Array.isArray(archetypeLibrary) ? archetypeLibrary : [];
+    const haystack = String(bag || "").toLowerCase();
+    let best = null;
+    let bestScore = 0;
+    list.forEach((archetype) => {
+      const score = (archetype.aliases || []).reduce((total, alias) => {
+        const term = String(alias || "").toLowerCase();
+        return total + (term && haystack.includes(term) ? term.length + 30 : 0);
+      }, 0);
+      if (score > bestScore){
+        best = archetype;
+        bestScore = score;
+      }
+    });
+    return best || list.find((item) => item.key === "honey_first") || list[0] || null;
+  }
+
+  function mentorResolveYeastName(inputText, fallback, yeastLibrary){
+    const upper = String(inputText || "").toUpperCase();
+    const directPreset = Object.keys(YEAST_PRESETS).find((name) => upper.includes(name));
+    if (directPreset) return directPreset;
+    const kbMatch = mentorResolveEntryFromText(inputText, Array.isArray(yeastLibrary) ? yeastLibrary : []);
+    if (kbMatch && kbMatch.name) return kbMatch.name;
+    return fallback || "";
+  }
+
+  function mentorResolveRecipeStyle(raw, fallback){
+    const normalized = String(raw || "").toLowerCase().trim();
+    if (!normalized) return fallback;
+    const exact = RECIPE_STYLE_OPTIONS.find((option) => option.toLowerCase() === normalized);
+    if (exact) return exact;
+    const partial = RECIPE_STYLE_OPTIONS.find((option) => normalized.includes(option.toLowerCase()));
+    return partial || fallback;
+  }
+
+  function mentorScaledRange(adjunct, gallons){
+    const perGalMin = Number(adjunct.perGalMin);
+    const perGalMax = Number(adjunct.perGalMax);
+    if (!(perGalMin > 0 && perGalMax > 0 && gallons > 0)){
+      return `${adjunct.stage}: ${adjunct.role}.`;
+    }
+    const precision = String(adjunct.unit || "").includes("zest") ? 1 : 2;
+    const minTotal = round(perGalMin * gallons, precision);
+    const maxTotal = round(perGalMax * gallons, precision);
+    return `${adjunct.stage}: ${perGalMin}-${perGalMax} ${adjunct.unit}/gal (${minTotal}-${maxTotal} ${adjunct.unit} for ${round(gallons, 1)} gal). ${adjunct.role}.`;
+  }
+
+  function mentorCocoDemoState(){
+    return {
+      ...defaultMentor(),
+      conceptName: "The Blood of El Coco Loco",
+      style: "Metheglin / tropical lane",
+      inspiration: "Tequila-inspired coconut mead with agave-like lift and no actual spirits.",
+      vision: "Toasted coconut nose, citrus lift, agave illusion in the mid-palate, and a clean non-syrupy finish.",
+      batchSize: "3",
+      targetAbv: "12.5",
+      sweetness: "Semi-sweet",
+      carbonation: "Still",
+      honey: "Orange blossom with a touch of meadowfoam",
+      yeast: "QA23",
+      fruitSpiceOak: "Toasted coconut, lime zest, vanilla bean, tiny amount of medium-toast American oak",
+      structure: "Bright acid line, light tannin, polished finish",
+      mustHave: "No sunscreen coconut. No pithy bitterness. No hot alcohol.",
+      avoid: "waxy coconut, syrupy finish, bitter lime pith",
+      constraints: "No actual tequila in the package. Must taste premium and clean."
+    };
+  }
+
+  function buildMentor(state){
+    const kb = activeMentorKnowledge();
+    const honeyLibrary = Array.isArray(kb.honeys) && kb.honeys.length ? kb.honeys : clone(MENTOR_HONEY_KB);
+    const yeastLibrary = Array.isArray(kb.yeasts) && kb.yeasts.length ? kb.yeasts : clone(MENTOR_YEAST_KB);
+    const adjunctLibrary = Array.isArray(kb.adjuncts) && kb.adjuncts.length ? kb.adjuncts : clone(MENTOR_ADJUNCT_KB);
+    const archetypeLibrary = Array.isArray(kb.archetypes) && kb.archetypes.length ? kb.archetypes : clone(MENTOR_ARCHETYPE_KB);
+
+    const bag = mentorKeywordBag(state);
+    const archetype = mentorPickArchetype(bag, archetypeLibrary);
+    const matchedAdjuncts = mentorFindMatches(bag, adjunctLibrary).slice(0, 4);
+    const matchedHoneys = mentorFindMatches(bag, honeyLibrary);
+
+    const selectedHoney = mentorResolveEntryFromText(state.honey, honeyLibrary)
+      || matchedHoneys[0]
+      || mentorResolveEntryFromText(archetype ? archetype.defaultHoney : "", honeyLibrary)
+      || honeyLibrary[0]
+      || MENTOR_HONEY_KB[0];
+
+    const defaultYeast = archetype ? archetype.defaultYeast : "71B";
+    const resolvedYeastName = mentorResolveYeastName(state.yeast, defaultYeast, yeastLibrary);
+    const yeastPreset = YEAST_PRESETS[resolvedYeastName] || null;
+    const yeastKb = yeastLibrary.find((entry) => entry.name === resolvedYeastName) || null;
+
+    const batchGallons = Number(state.batchSize) > 0 ? Number(state.batchSize) : MENTOR_DEFAULT_BATCH_GAL;
+    const targetAbv = Number(state.targetAbv) > 0 ? Number(state.targetAbv) : (Number(archetype && archetype.defaultAbv) || MENTOR_DEFAULT_ABV);
+    const sweetness = state.sweetness || (archetype && archetype.defaultSweetness) || "Semi-sweet";
+    const carbonation = state.carbonation || "Still";
+    const recipeStyle = mentorResolveRecipeStyle(state.style, (archetype && archetype.recipeStyle) || "Traditional");
+
+    const projected = estimateRecipeTargets({
+      batchGallons,
+      targetAbv,
+      sweetness,
+      yeastTolerance: yeastPreset ? yeastPreset.tolerance : "",
+      honeyPPG: 35
+    });
+
+    const totalHoneyLb = projected && projected.honeyLb ? projected.honeyLb : null;
+    const baseHoneyLb = totalHoneyLb ? round(totalHoneyLb * 0.88, 2) : null;
+    const reserveHoneyLb = totalHoneyLb ? round(totalHoneyLb - baseHoneyLb, 2) : null;
+    const yanTarget = projected && projected.targetOg
+      ? suggestYanPpm({ og: projected.targetOg, yeastRequirement: yeastPreset ? yeastPreset.nitrogenRequirement : "low" })
+      : null;
+
+    const pairings = [];
+    const architecture = [];
+    const ingredientPlan = [];
+    const conflicts = [];
+    const finish = [];
+    const title = state.conceptName || "This mead concept";
+    const adjunctLabel = matchedAdjuncts.length ? matchedAdjuncts.map((adjunct) => adjunct.name).join(", ") : "No adjuncts locked yet";
+
+    pairings.push(["Identity", archetype ? archetype.lead : "Pick a clear lead actor for the glass (honey, fruit, oak, spice, or finish)."]);
+    pairings.push(["Aroma stack", `${selectedHoney.name} honey + ${adjunctLabel}`]);
+    pairings.push(["Palate target", state.vision || "Define the exact mouthfeel and finish in one sentence before buying ingredients."]);
+    pairings.push(["Service posture", archetype ? archetype.packaging : `Planned as ${carbonation.toLowerCase()} mead.`]);
+
+    architecture.push(["Batch target", `${round(batchGallons, 1)} gal at ${round(targetAbv, 1)}% ABV (${sweetness.toLowerCase()}, ${carbonation.toLowerCase()})`]);
+    architecture.push(["Gravity track", projected ? `OG ${round(projected.targetOg, 3)} to FG ${round(projected.targetFg, 3)}.` : "Set batch size and ABV to generate OG/FG targets."]);
+    architecture.push(["Fermentables", totalHoneyLb ? `${round(totalHoneyLb, 2)} lb honey total. Start around ${baseHoneyLb} lb in primary and hold about ${reserveHoneyLb} lb for finish tuning.` : "Need ABV + batch size for fermentable weight guidance."]);
+    architecture.push(["Yeast lane", `${resolvedYeastName}${yeastPreset ? ` (tolerance ${yeastPreset.tolerance}% | ${yeastPreset.temp})` : ""}${yeastKb ? ` - ${yeastKb.lane}.` : "."}`]);
+    architecture.push(["Recommendation basis", "Style/archetype matching + editable honey/yeast/adjunct libraries + dose guardrails from the local knowledge base."]);
+    architecture.push(["Structure rail", state.structure || (archetype ? `${archetype.acidPlan} ${archetype.tanninPlan}` : "Define acid and tannin posture now so sweetness is not carrying the whole concept." )]);
+    architecture.push(["Nutrition intent", yanTarget ? `Target roughly ${yanTarget} ppm YAN and keep additions complete by the one-third sugar break.` : "Target YAN will appear once gravity targets are set."]);
+
+    ingredientPlan.push(["Primary honey", `${selectedHoney.name}: ${selectedHoney.profile}. Best lane: ${selectedHoney.bestUse}.`]);
+    if (matchedAdjuncts.length){
+      matchedAdjuncts.forEach((adjunct) => {
+        ingredientPlan.push([adjunct.name, mentorScaledRange(adjunct, batchGallons)]);
+      });
+    } else {
+      ingredientPlan.push(["Adjunct ranges", "Add adjunct ideas in the concept notes to unlock stage-specific dose ranges."]);
+    }
+
+    matchedAdjuncts.forEach((adjunct) => {
+      conflicts.push([`${adjunct.name} risk`, adjunct.caution]);
+    });
+    if (projected && projected.exceedsTolerance){
+      conflicts.push(["Yeast mismatch", `Target ABV (${round(targetAbv, 1)}%) is above ${resolvedYeastName} tolerance. Lower ABV or pick a harder yeast lane.`]);
+    }
+    if (state.avoid){
+      conflicts.push(["Avoid list lock", `Guardrail: ${state.avoid}. Build every process choice to avoid these failure notes.`]);
+    }
+    if (state.constraints){
+      conflicts.push(["Constraints", state.constraints]);
+    }
+    if (!conflicts.length){
+      conflicts.push(["No major clashes flagged", "Main risk is execution drift: poor extraction timing, no bench trials, or uncontrolled fermentation temp."]);
+    }
+
+    finish.push(["Stage 1 - Primary", projected ? `Build must to OG ${round(projected.targetOg, 3)}, run a healthy pitch, and keep temperature steady in ${yeastPreset ? yeastPreset.temp : "the yeast comfort zone"}.` : "Set gravity target before moving to production steps."]);
+    finish.push(["Stage 2 - Secondary", matchedAdjuncts.length ? `Run staged adjunct extraction: ${matchedAdjuncts.map((adjunct) => adjunct.name).join(", ")}. Taste every 48-72 hours and pull when profile is clean.` : "Define secondary additions and extraction windows."]);
+    finish.push(["Stage 3 - Bench tuning", "After stabilization, run sweetness/acid/tannin bench trials and lock a target that protects aroma while keeping line on the finish."]);
+    finish.push(["Stage 4 - Package", archetype ? archetype.packaging : `Package as ${carbonation.toLowerCase()} once stable gravity and sensory targets hold for at least two readings.`]);
+
+    const summary = `${title} now has a full build lane: ${archetype ? archetype.lead : "custom profile"}. This board is generating a numeric recipe skeleton and stage-by-stage execution plan instead of generic brainstorming text.`;
+
+    const noteSections = [
+      state.inspiration ? `Inspiration: ${state.inspiration}` : "",
+      state.vision ? `Drinking experience: ${state.vision}` : "",
+      `Flavor map: ${pairings.map((row) => `${row[0]} - ${row[1]}`).join(" | ")}`,
+      `Process plan: ${finish.map((row) => `${row[0]} - ${row[1]}`).join(" | ")}`,
+      conflicts.length ? `Risk controls: ${conflicts.map((row) => `${row[0]} - ${row[1]}`).join(" | ")}` : ""
+    ].filter(Boolean);
+
+    const blueprint = {
+      style: recipeStyle,
+      batchGallons: String(round(batchGallons, 1)),
+      targetAbv: String(round(targetAbv, 1)),
+      sweetness,
+      carbonation,
+      yeast: YEAST_PRESETS[resolvedYeastName] ? resolvedYeastName : "Other / Custom",
+      yeastOther: YEAST_PRESETS[resolvedYeastName] ? "" : resolvedYeastName,
+      yeastTolerance: yeastPreset ? yeastPreset.tolerance : "",
+      temp: yeastPreset ? yeastPreset.temp : "",
+      nitrogenRequirement: yeastPreset ? yeastPreset.nitrogenRequirement : "low",
+      honeyBase: selectedHoney ? selectedHoney.name : "",
+      fruitAdjuncts: matchedAdjuncts.map((adjunct) => adjunct.name).join(", "),
+      acidPlan: state.structure || (archetype ? archetype.acidPlan : ""),
+      tanninPlan: archetype ? archetype.tanninPlan : "Bench-test tannin so the finish has grip but no harshness.",
+      quickNote: state.mustHave || (archetype ? archetype.lead : ""),
+      notes: noteSections.join("\n\n"),
+      targetOg: projected ? String(round(projected.targetOg, 3)) : "",
+      targetFg: projected ? String(round(projected.targetFg, 3)) : "",
+      estimatedAbv: projected ? String(round(projected.targetAbv, 1)) : "",
+      additions: totalHoneyLb
+        ? [{
+            ...defaultAdditionRow(),
+            sourceType: "Honey",
+            description: `${selectedHoney.name} base honey`,
+            amount: String(baseHoneyLb || round(totalHoneyLb, 2)),
+            unit: "lb",
+            ppg: sourceDefault("Honey")
+          }]
+        : [defaultAdditionRow()]
+    };
+
+    return { summary, pairings, architecture, ingredientPlan, conflicts, finish, blueprint };
+  }
+
+  function renderMentor(){
+    const built = buildMentor(data.mentor);
+    $("mentorSummary").innerHTML = built.summary;
+    renderRows("mentorPairings", built.pairings);
+    renderRows("mentorArchitecture", built.architecture);
+    renderRows("mentorIngredientPlan", built.ingredientPlan);
+    renderRows("mentorConflicts", built.conflicts);
+    renderRows("mentorFinishPlan", built.finish);
+  }
+
+  function renderAll(){
+    renderTabs();
+    clockDisplay();
+    renderDashboard();
+    renderRecipes();
+    renderFerment();
+    renderNutrients();
+    renderCellar();
+    renderArchive();
+    renderCalcs();
+    renderMentor();
+  }
+
+  /* =========================================================
+     Form hydration helpers
+     ========================================================= */
+
+  function populateRecipeForm(){
+    const r = data.recipeDraft;
+    $("recipeName").value = r.name || "";
+    $("recipeStyle").value = r.style || "Traditional";
+    $("recipeBatchGallons").value = r.batchGallons || "";
+    $("recipeTargetAbv").value = r.targetAbv || "";
+    $("recipeSweetness").value = r.sweetness || "Dry";
+    $("recipeCarbonation").value = r.carbonation || "Still";
+    $("recipeYeast").value = r.yeast || "";
+    $("recipeDryYeast").value = r.dryYeast || "";
+    $("recipeYeastTolerance").value = r.yeastTolerance || "";
+    $("recipeTemp").value = r.temp || "";
+    if ($("recipeNitrogenRequirement")) $("recipeNitrogenRequirement").value = r.nitrogenRequirement || "low";
+    if ($("recipeYeastOther")) $("recipeYeastOther").value = r.yeastOther || "";
+    applyYeastPresetToDraft(r.yeast || "");
+    $("recipeTags").value = r.tags || "";
+    $("recipeQuickNote").value = r.quickNote || "";
+    $("recipeNotes").value = r.notes || "";
+  }
+
+  function populateNutrientForm(){
+    const n = data.nutrients;
+    $("nutrientBatchGallons").value = n.batchGallons || "";
+    $("nutrientOg").value = n.og || "";
+    $("nutrientBrix").value = n.brix || "";
+    $("nutrientYeastRequirementDisplay").value = n.yeastRequirement || "low";
+    $("nutrientDryYeastDisplay").value = n.dryYeast || "";
+    document.querySelectorAll("[data-nutrient-protocol]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.nutrientProtocol === (n.protocol || "tosna"));
+    });
+    $("nutrientFruitOffset").value = n.fruitOffsetPpm || "0";
+    $("nutrientTargetYan").value = n.targetYanPpm || "160";
+    $("nutrientEnforceLimits").checked = Boolean(n.enforceLimits);
+    $("nutrientLimitO").value = n.limitO || "1.2";
+    $("nutrientLimitK").value = n.limitK || "0.5";
+    $("nutrientLimitD").value = n.limitD || "0.96";
+    $("nutrientRatioO").value = n.ratioO || "60";
+    $("nutrientRatioK").value = n.ratioK || "25";
+    $("nutrientRatioD").value = n.ratioD || "15";
+    $("nutrientNotes").value = n.notes || "";
+  }
+
+  function populateCellarForm(){
+    const c = data.cellar;
+    $("finishPath").value = c.finishPath || "Backsweetened and still";
+    $("stableSgA").value = c.stableSgA || "";
+    $("stableDateA").value = c.stableDateA || "";
+    $("stableSgB").value = c.stableSgB || "";
+    $("stableDateB").value = c.stableDateB || "";
+    $("cellarCurrentPh").value = c.currentPh || "";
+    $("cellarCurrentTemp").value = c.currentTemp || "";
+    $("kmetaAmount").value = c.kmetaAmount || "";
+    $("sorbateAmount").value = c.sorbateAmount || "";
+    $("backsweetenVolume").value = c.backsweetenVolume || "";
+    $("backsweetenCurrentSg").value = c.backsweetenCurrentSg || "";
+    $("backsweetenTargetSg").value = c.backsweetenTargetSg || "";
+    $("backsweetenSourceType").value = c.backsweetenSourceType || "Honey";
+    $("backsweetenPpg").value = c.backsweetenPpg || "35";
+    $("backsweetenPpg").disabled = sourceLocked(c.backsweetenSourceType || "Honey");
+    $("benchBatchGallons").value = c.benchBatchGallons || "";
+    $("benchSampleMl").value = c.benchSampleMl || "100";
+    $("benchAddition").value = c.benchAddition || "";
+    $("benchUnit").value = c.benchUnit || "g";
+    $("blendVol1").value = c.blendVol1 || "";
+    $("blendSg1").value = c.blendSg1 || "";
+    $("blendVol2").value = c.blendVol2 || "";
+    $("blendSg2").value = c.blendSg2 || "";
+    $("cellarGallons").value = c.cellarGallons || "";
+    $("cellarBottleOz").value = c.cellarBottleOz || "12";
+    $("cellarLossPct").value = c.cellarLossPct || "5";
+    $("stabilizationNotes").value = c.stabilizationNotes || "";
+    $("packagingNotes").value = c.packagingNotes || "";
+    $("tastingNotes").value = c.tastingNotes || "";
+    $("cellarRating").value = c.rating || "";
+    $("cellarTags").value = c.tags || "";
+    $("wouldMakeAgain").checked = Boolean(c.wouldMakeAgain);
+  }
+
+  function populateCalcForm(){
+    const c = data.calcs;
+    $("calcTargetOg").value = c.targetOg || "";
+    $("calcTargetBatch").value = c.targetBatch || "";
+    $("calcTargetPpg").value = c.targetPpg || "35";
+    $("calcHoneyLb").value = c.honeyLb || "";
+    $("calcHoneyBatch").value = c.honeyBatch || "";
+    $("calcHoneyPpg").value = c.honeyPpg || "35";
+    $("calcAbvOg").value = c.abvOg || "";
+    $("calcAbvFg").value = c.abvFg || "";
+    $("calcBreakOg").value = c.breakOg || "";
+    $("calcSgInput").value = c.sgInput || "";
+    $("calcBrixInput").value = c.brixInput || "";
+    $("calcRecipeBatch").value = c.recipeBatch || "";
+    $("calcRecipeAbv").value = c.recipeAbv || "";
+    $("calcRecipeSweetness").value = c.recipeSweetness || "Dry";
+    $("calcRecipeTolerance").value = c.recipeTolerance || "";
+  }
+
+  function populateMentorForm(){
+    const m = data.mentor;
+    const setField = (id, value) => {
+      const el = $(id);
+      if (!el) return;
+      el.value = value;
+    };
+    setField("mentorConceptName", m.conceptName || "");
+    setField("mentorStyle", m.style || "");
+    setField("mentorInspiration", m.inspiration || "");
+    setField("mentorVision", m.vision || "");
+    setField("mentorBatchSize", m.batchSize || "");
+    setField("mentorTargetAbv", m.targetAbv || "");
+    setField("mentorSweetness", m.sweetness || "Dry");
+    setField("mentorCarbonation", m.carbonation || "Still");
+    setField("mentorHoney", m.honey || "");
+    setField("mentorYeast", m.yeast || "");
+    setField("mentorFruitSpiceOak", m.fruitSpiceOak || "");
+    setField("mentorStructure", m.structure || "");
+    setField("mentorMustHave", m.mustHave || "");
+    setField("mentorAvoid", m.avoid || "");
+    setField("mentorConstraints", m.constraints || "");
+  }
+
+  function mentorKnowledgeCounts(kb){
+    const safe = normalizeMentorKnowledge(kb);
+    return {
+      honeys: safe.honeys.length,
+      yeasts: safe.yeasts.length,
+      adjuncts: safe.adjuncts.length,
+      archetypes: safe.archetypes.length
+    };
+  }
+
+  function renderMentorKnowledgeStatus(message, isError = false){
+    const el = $("mentorKnowledgeStatus");
+    if (!el) return;
+    const counts = mentorKnowledgeCounts(data.mentorKnowledge);
+    const label = `Honeys ${counts.honeys} · Yeasts ${counts.yeasts} · Adjuncts ${counts.adjuncts} · Archetypes ${counts.archetypes}`;
+    if (message){
+      el.innerHTML = `<div>${escapeHTML(message)}</div><div class="muted" style="margin-top:8px">${escapeHTML(label)}</div>`;
+      if (isError){
+        el.innerHTML = `<div>⚠ ${escapeHTML(message)}</div><div class="muted" style="margin-top:8px">${escapeHTML(label)}</div>`;
+      }
+      return;
+    }
+    el.innerHTML = `<div class="muted">${escapeHTML(label)}</div>`;
+  }
+
+  function populateMentorKnowledgeEditor(){
+    const editor = $("mentorKnowledgeEditor");
+    if (editor){
+      editor.value = JSON.stringify(normalizeMentorKnowledge(data.mentorKnowledge), null, 2);
+      editor.classList.add("mono-input");
+    }
+    renderMentorKnowledgeStatus("Knowledge base loaded.");
+  }
+
+  function applyMentorKnowledgeFromEditor({ pretty = true } = {}){
+    const editor = $("mentorKnowledgeEditor");
+    if (!editor) return false;
+    let parsed;
+    try{
+      parsed = JSON.parse(editor.value || "{}");
+    } catch (error){
+      renderMentorKnowledgeStatus(`Invalid JSON: ${error.message}`, true);
+      return false;
+    }
+    data.mentorKnowledge = normalizeMentorKnowledge(parsed);
+    if (pretty){
+      editor.value = JSON.stringify(data.mentorKnowledge, null, 2);
+    }
+    persistData();
+    renderMentor();
+    renderMentorKnowledgeStatus("Knowledge base saved.");
+    return true;
+  }
+
+  function recipeFromDraft(){
+    syncRecipeDerived();
+    return normalizeRecipe({ ...data.recipeDraft, updatedAt: new Date().toISOString() });
+  }
+
+  function applyRecipeToBatch(recipe){
+    data.currentBatch = {
+      ...defaultCurrentBatch(),
+      ...clone(recipe),
+      recipeId: recipe.id || "",
+      fermentNotes: recipe.notes || "",
+      stepFeedPoints: "30",
+      stepFeedHoneyPpg: "35",
+      stepFeedCount: "1",
+      stepFeedLog: [],
+      loadedAt: new Date().toISOString()
+    };
+    data.fermentationLogs = [];
+    data.fermentChecklist = defaultFermentChecklist();
+    data.cellar = { ...defaultCellar(), cellarGallons: recipe.batchGallons || "", backsweetenVolume: recipe.batchGallons || "", benchBatchGallons: recipe.batchGallons || "", backsweetenCurrentSg: recipe.targetFg || "" };
+    data.cellarChecklist = defaultCellarChecklist();
+    syncNutrientsFromRecipe(recipe, { force: true });
+    syncCurrentBatchDerived();
+    persistData();
+    populateNutrientForm();
+    populateCellarForm();
+    renderAll();
+    setActiveTab("ferment");
+  }
+
+  /* =========================================================
+     Event binding layer
+     ========================================================= */
+
+  function bindTabs(){
+    document.querySelectorAll("[data-tab].tab-btn").forEach((button) => {
+      button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+    });
+    document.querySelectorAll("[data-open-tab]").forEach((button) => {
+      button.addEventListener("click", () => setActiveTab(button.dataset.openTab));
+    });
+  }
+
+  function bindClock(){
+    $("batchClockBtn").addEventListener("click", () => {
+      if (data.clock.running){
+        if (data.clock.lastStartedAt){
+          data.clock.elapsedMs = (Number(data.clock.elapsedMs) || 0) + Math.max(0, Date.now() - data.clock.lastStartedAt);
+        }
+        data.clock.running = false;
+        data.clock.lastStartedAt = null;
+      } else {
+        data.clock.running = true;
+        data.clock.lastStartedAt = Date.now();
+      }
+      persistData();
+      startClockTicker();
+    });
+
+    $("batchClockResetBtn").addEventListener("click", () => {
+      data.clock.elapsedMs = 0;
+      data.clock.running = false;
+      data.clock.lastStartedAt = null;
+      persistData();
+      startClockTicker();
+    });
+  }
+
+  function bindRecipeFields(){
+    const mapping = {
+      recipeName: "name",
+      recipeStyle: "style",
+      recipeBatchGallons: "batchGallons",
+      recipeTargetAbv: "targetAbv",
+      recipeSweetness: "sweetness",
+      recipeCarbonation: "carbonation",
+      recipeDryYeast: "dryYeast",
+      recipeYeastTolerance: "yeastTolerance",
+      recipeTemp: "temp",
+      recipeNitrogenRequirement: "nitrogenRequirement",
+      recipeYeastOther: "yeastOther",
+      recipeTags: "tags",
+      recipeQuickNote: "quickNote",
+      recipeNotes: "notes"
+    };
+    $("recipeYeast").addEventListener("change", () => {
+      data.recipeDraft.yeast = $("recipeYeast").value;
+      applyYeastPresetToDraft(data.recipeDraft.yeast);
+      syncRecipeDerived();
+      syncNutrientsFromRecipe(data.recipeDraft, { force: true });
+      persistData();
+      renderRecipes();
+      renderCalcs();
+    });
+
+    Object.entries(mapping).forEach(([id, key]) => {
+      const el = $(id);
+      const handler = () => {
+        data.recipeDraft[key] = el.value;
+        syncRecipeDerived();
+        if (["batchGallons","targetAbv","dryYeast","nitrogenRequirement","yeastTolerance","temp"].includes(key)) syncNutrientsFromRecipe(data.recipeDraft, { force: true });
+        persistData();
+        renderRecipes();
+        renderCalcs();
+      };
+      el.addEventListener("input", handler);
+      el.addEventListener("change", handler);
+    });
+
+    $("addRecipeSourceBtn").addEventListener("click", () => {
+      data.recipeDraft.additions.push(defaultAdditionRow());
+      persistData();
+      renderRecipes();
+    });
+
+    $("recipeSourceList").addEventListener("input", (event) => {
+      const id = event.target.dataset.sourceId;
+      const field = event.target.dataset.sourceField;
+      if (!id || !RECIPE_SOURCE_FIELDS.has(field)) return;
+      const row = data.recipeDraft.additions.find((item) => item.id === id);
+      if (!row) return;
+      row[field] = event.target.value;
+      persistData();
+      renderRecipeComputed();
+    });
+    $("recipeSourceList").addEventListener("change", (event) => {
+      const id = event.target.dataset.sourceId;
+      const field = event.target.dataset.sourceField;
+      if (!id || !RECIPE_SOURCE_FIELDS.has(field)) return;
+      const row = data.recipeDraft.additions.find((item) => item.id === id);
+      if (!row) return;
+      row[field] = event.target.value;
+      if (field === "sourceType"){
+        row.ppg = sourceDefault(row.sourceType);
+        row.unit = sourceUnitDefault(row.sourceType);
+      }
+      persistData();
+      renderRecipes();
+    });
+    $("recipeSourceList").addEventListener("click", (event) => {
+      const id = event.target.dataset.sourceDelete;
+      if (!id) return;
+      data.recipeDraft.additions = data.recipeDraft.additions.filter((row) => row.id !== id);
+      if (!data.recipeDraft.additions.length) data.recipeDraft.additions = [defaultAdditionRow()];
+      persistData();
+      renderRecipes();
+    });
+
+    $("clearRecipeBtn").addEventListener("click", () => {
+      data.recipeDraft = defaultRecipeDraft();
+      data.ui.selectedRecipeId = null;
+      syncNutrientsFromRecipe(data.recipeDraft, { force: true });
+      populateRecipeForm();
+      persistData();
+      renderAll();
+    });
+
+    $("saveRecipeBtn").addEventListener("click", () => {
+      syncRecipeDerived();
+      if (!data.recipeDraft.name.trim()) return;
+      const existingId = data.ui.selectedRecipeId;
+      const record = recipeFromDraft();
+      if (existingId){
+        record.id = existingId;
+        record.createdAt = (data.recipes.find((item) => item.id === existingId) || {}).createdAt || record.createdAt;
+        data.recipes = data.recipes.map((item) => item.id === existingId ? record : item);
+      } else {
+        data.recipes.unshift(record);
+      }
+      data.ui.selectedRecipeId = record.id;
+      persistData();
+      renderAll();
+    });
+
+    $("loadDraftToBatchBtn").addEventListener("click", () => {
+      const recipe = recipeFromDraft();
+      applyRecipeToBatch(recipe);
+    });
+  }
+
+  function bindFerment(){
+    $("batchFermentNotes").addEventListener("input", () => {
+      data.currentBatch.fermentNotes = $("batchFermentNotes").value;
+      persistData();
+    });
+
+    $("copyRaptWebhookBtn").addEventListener("click", () => {
+      copyText(`${window.location.origin}/.netlify/functions/rapt-bridge`);
+    });
+    $("refreshRaptBtn").addEventListener("click", () => {
+      importRaptReadings();
+    });
+    $("toggleGravityLogBtn").addEventListener("click", () => {
+      data.ui.showAllFermentLogs = !data.ui.showAllFermentLogs;
+      persistData();
+      renderFerment();
+    });
+    $("fermentationTrendSummary").addEventListener("click", (event) => {
+      const toggle = event.target.closest("[data-trend-series-toggle]");
+      if (!toggle) return;
+      const key = toggle.dataset.trendSeriesToggle;
+      if (key === "gravity") data.rapt.showGravityTrend = !data.rapt.showGravityTrend;
+      if (key === "temp") data.rapt.showTempTrend = !data.rapt.showTempTrend;
+      if (key === "abv") data.rapt.showAbvTrend = !data.rapt.showAbvTrend;
+      persistData();
+      renderFerment();
+    });
+    $("fermentationTrendChart").addEventListener("mousemove", (event) => {
+      const hit = event.target.closest("[data-trend-point]");
+      if (!hit) {
+        hideTrendTooltip();
+        return;
+      }
+      const index = Number(hit.dataset.trendPoint);
+      const point = trendHoverPoints[index];
+      if (!point) {
+        hideTrendTooltip();
+        return;
+      }
+      const hostBounds = $("fermentationTrendChart").getBoundingClientRect();
+      const left = Math.max(12, Math.min(hostBounds.width - 180, event.clientX - hostBounds.left + 14));
+      const top = Math.max(12, Math.min(hostBounds.height - 92, event.clientY - hostBounds.top - 12));
+      renderTrendTooltip(point, left, top);
+    });
+    $("fermentationTrendChart").addEventListener("mouseleave", () => {
+      hideTrendTooltip();
+    });
+
+    $("fermentChecklist").addEventListener("change", (event) => {
+      const item = data.fermentChecklist.find((task) => task.id === event.target.dataset.taskToggle);
+      if (!item) return;
+      item.done = event.target.checked;
+      persistData();
+      renderDashboard();
+    });
+    $("dashboardReminders").addEventListener("change", (event) => {
+      const item = data.fermentChecklist.find((task) => task.id === event.target.dataset.dashTaskToggle);
+      if (!item) return;
+      item.done = event.target.checked;
+      persistData();
+      renderDashboard();
+      renderFerment();
+    });
+
+    $("logDate").value = todayStr();
+    $("addLogBtn").addEventListener("click", () => {
+      const gravity = $("logGravity").value;
+      if (!gravity) return;
+      data.fermentationLogs.push(normalizeLog({
+        date: $("logDate").value || todayStr(),
+        gravity,
+        temp: $("logTemp").value,
+        pH: $("logPH").value,
+        note: $("logNote").value
+      }));
+      $("logGravity").value = "";
+      $("logTemp").value = "";
+      $("logPH").value = "";
+      $("logNote").value = "";
+      persistData();
+      renderDashboard();
+      renderFerment();
+    });
+    $("clearLogsBtn").addEventListener("click", () => {
+      data.fermentationLogs = [];
+      persistData();
+      renderDashboard();
+      renderFerment();
+    });
+    $("gravityLog").addEventListener("click", (event) => {
+      const id = event.target.dataset.logDelete;
+      if (!id) return;
+      data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== id);
+      persistData();
+      renderDashboard();
+      renderFerment();
+    });
+
+    ["stepFeedPoints","stepFeedHoneyPpg","stepFeedCount"].forEach((id) => {
+      $(id).addEventListener("input", () => {
+        if (id === "stepFeedPoints") data.currentBatch.stepFeedPoints = $(id).value;
+        if (id === "stepFeedHoneyPpg") data.currentBatch.stepFeedHoneyPpg = $(id).value;
+        if (id === "stepFeedCount") data.currentBatch.stepFeedCount = $(id).value;
+        persistData();
+        renderFerment();
+      });
+    });
+    $("recordStepFeedBtn").addEventListener("click", () => {
+      const plan = calculateStepFeed({ volumeGallons: data.currentBatch.batchGallons, pointsPerFeed: data.currentBatch.stepFeedPoints, honeyPPG: data.currentBatch.stepFeedHoneyPpg, feedCount: 1 });
+      if (!plan) return;
+      data.currentBatch.stepFeedLog.push({ date: new Date().toISOString(), points: data.currentBatch.stepFeedPoints, honeyLb: plan.honeyLbPerFeed });
+      persistData();
+      renderFerment();
+    });
+
+    $("clearActiveBatchBtn").addEventListener("click", () => {
+      data.currentBatch = defaultCurrentBatch();
+      data.fermentationLogs = [];
+      data.fermentChecklist = defaultFermentChecklist();
+      persistData();
+      renderAll();
+    });
+
+    $("archiveBatchBtn").addEventListener("click", () => {
+      if (!batchHasData()) return;
+      data.archive.unshift(normalizeArchiveItem({
+        archivedAt: new Date().toISOString(),
+        batch: clone(data.currentBatch),
+        nutrients: clone(data.nutrients),
+        cellar: clone(data.cellar),
+        fermentChecklist: clone(data.fermentChecklist),
+        cellarChecklist: clone(data.cellarChecklist),
+        fermentationLogs: clone(data.fermentationLogs),
+        summary: data.cellar.tastingNotes || data.currentBatch.quickNote || data.currentBatch.notes || ""
+      }));
+      data.currentBatch = defaultCurrentBatch();
+      data.fermentationLogs = [];
+      data.fermentChecklist = defaultFermentChecklist();
+      data.cellar = defaultCellar();
+      data.cellarChecklist = defaultCellarChecklist();
+      persistData();
+      populateCellarForm();
+      renderAll();
+      setActiveTab("archive");
+    });
+  }
+
+  function bindNutrients(){
+    const mapping = {
+      nutrientBatchGallons: "batchGallons",
+      nutrientOg: "og",
+      nutrientBrix: "brix",
+      nutrientFruitOffset: "fruitOffsetPpm",
+      nutrientTargetYan: "targetYanPpm",
+      nutrientLimitO: "limitO",
+      nutrientLimitK: "limitK",
+      nutrientLimitD: "limitD",
+      nutrientRatioO: "ratioO",
+      nutrientRatioK: "ratioK",
+      nutrientRatioD: "ratioD",
+      nutrientNotes: "notes"
+    };
+    Object.entries(mapping).forEach(([id, key]) => {
+      const el = $(id);
+      if (!el) return;
+      const handler = () => {
+        data.nutrients[key] = el.value;
+        if (["batchGallons","og","brix"].includes(key) && data.nutrients.og) {
+          data.nutrients.targetYanPpm = String(suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }));
+          if ($("nutrientTargetYan")) $("nutrientTargetYan").value = data.nutrients.targetYanPpm;
+        }
+        persistData();
+        renderDashboard();
+        renderNutrients();
+      };
+      el.addEventListener("input", handler);
+      el.addEventListener("change", handler);
+    });
+    $("nutrientEnforceLimits").addEventListener("change", () => {
+      data.nutrients.enforceLimits = $("nutrientEnforceLimits").checked;
+      persistData();
+      renderDashboard();
+      renderNutrients();
+    });
+    document.querySelectorAll("[data-nutrient-protocol]").forEach((button) => {
+      button.addEventListener("click", () => {
+        data.nutrients.protocol = button.dataset.nutrientProtocol || "tosna";
+        if (data.nutrients.protocol !== "custom") applyNutrientProtocolDefaults(data.nutrients.protocol);
+        persistData();
+        renderDashboard();
+        renderNutrients();
+      });
+    });
+  }
+
+  function bindCellar(){
+    const mapping = {
+      finishPath: "finishPath",
+      stableSgA: "stableSgA",
+      stableDateA: "stableDateA",
+      stableSgB: "stableSgB",
+      stableDateB: "stableDateB",
+      cellarCurrentPh: "currentPh",
+      cellarCurrentTemp: "currentTemp",
+      kmetaAmount: "kmetaAmount",
+      sorbateAmount: "sorbateAmount",
+      backsweetenVolume: "backsweetenVolume",
+      backsweetenCurrentSg: "backsweetenCurrentSg",
+      backsweetenTargetSg: "backsweetenTargetSg",
+      backsweetenSourceType: "backsweetenSourceType",
+      backsweetenPpg: "backsweetenPpg",
+      benchBatchGallons: "benchBatchGallons",
+      benchSampleMl: "benchSampleMl",
+      benchAddition: "benchAddition",
+      benchUnit: "benchUnit",
+      blendVol1: "blendVol1",
+      blendSg1: "blendSg1",
+      blendVol2: "blendVol2",
+      blendSg2: "blendSg2",
+      cellarGallons: "cellarGallons",
+      cellarBottleOz: "cellarBottleOz",
+      cellarLossPct: "cellarLossPct",
+      stabilizationNotes: "stabilizationNotes",
+      packagingNotes: "packagingNotes",
+      tastingNotes: "tastingNotes",
+      cellarRating: "rating",
+      cellarTags: "tags"
+    };
+    Object.entries(mapping).forEach(([id, key]) => {
+      const el = $(id);
+      const handler = () => {
+        data.cellar[key] = el.value;
+        if (id === "backsweetenSourceType"){
+          const locked = sourceLocked(el.value);
+          data.cellar.backsweetenPpg = sourceDefault(el.value) || data.cellar.backsweetenPpg;
+          $("backsweetenPpg").value = data.cellar.backsweetenPpg;
+          $("backsweetenPpg").disabled = locked;
+        }
+        persistData();
+        renderCellar();
+      };
+      el.addEventListener("input", handler);
+      el.addEventListener("change", handler);
+    });
+    $("wouldMakeAgain").addEventListener("change", () => {
+      data.cellar.wouldMakeAgain = $("wouldMakeAgain").checked;
+      persistData();
+      renderCellar();
+    });
+    $("stabilizationChecklist").addEventListener("change", (event) => {
+      const item = data.cellarChecklist.find((task) => task.id === event.target.dataset.cellarTaskToggle);
+      if (!item) return;
+      item.done = event.target.checked;
+      persistData();
+    });
+    $("addCellarAdditionBtn").addEventListener("click", () => {
+      data.cellar.additions.push(defaultCellarAddition());
+      persistData();
+      renderCellar();
+    });
+    $("cellarAdditionList").addEventListener("input", (event) => {
+      const id = event.target.dataset.cellarAdditionId;
+      const field = event.target.dataset.cellarAdditionField;
+      if (!id || !CELLAR_ADDITION_FIELDS.has(field)) return;
+      const row = data.cellar.additions.find((item) => item.id === id);
+      if (!row) return;
+      row[field] = event.target.value;
+      persistData();
+    });
+    $("cellarAdditionList").addEventListener("change", (event) => {
+      const id = event.target.dataset.cellarAdditionId;
+      const field = event.target.dataset.cellarAdditionField;
+      if (!id || !CELLAR_ADDITION_FIELDS.has(field)) return;
+      const row = data.cellar.additions.find((item) => item.id === id);
+      if (!row) return;
+      row[field] = event.target.value;
+      persistData();
+      renderCellar();
+    });
+    $("cellarAdditionList").addEventListener("click", (event) => {
+      const id = event.target.dataset.cellarAdditionDelete;
+      if (!id) return;
+      data.cellar.additions = data.cellar.additions.filter((row) => row.id !== id);
+      if (!data.cellar.additions.length) data.cellar.additions = [defaultCellarAddition()];
+      persistData();
+      renderCellar();
+    });
+  }
+
+  function bindArchive(){
+    $("recipeSearch").addEventListener("input", () => {
+      data.ui.recipeSearch = $("recipeSearch").value;
+      persistData();
+      renderArchive();
+    });
+    $("archiveSearch").addEventListener("input", () => {
+      data.ui.archiveSearch = $("archiveSearch").value;
+      persistData();
+      renderArchive();
+    });
+
+    $("recipeList").addEventListener("click", (event) => {
+      const { recipeEdit, recipeLoad, recipeDelete, recipeCopy } = event.target.dataset;
+      if (recipeEdit){
+        const recipe = data.recipes.find((item) => item.id === recipeEdit);
+        if (!recipe) return;
+        data.recipeDraft = clone(recipe);
+        data.ui.selectedRecipeId = recipe.id;
+        populateRecipeForm();
+        persistData();
+        renderAll();
+        setActiveTab("recipes");
+      }
+      if (recipeLoad){
+        const recipe = data.recipes.find((item) => item.id === recipeLoad);
+        if (!recipe) return;
+        data.ui.selectedRecipeId = recipe.id;
+        applyRecipeToBatch(recipe);
+      }
+      if (recipeDelete){
+        data.recipes = data.recipes.filter((item) => item.id !== recipeDelete);
+        if (data.ui.selectedRecipeId === recipeDelete) data.ui.selectedRecipeId = null;
+        persistData();
+        renderAll();
+      }
+      if (recipeCopy){
+        const recipe = data.recipes.find((item) => item.id === recipeCopy);
+        if (!recipe) return;
+        copyText(`${recipe.name}\n${recipe.style}\n${recipe.honeyBase}\n${recipe.fruitAdjuncts}\n${recipe.notes}`);
+      }
+    });
+
+    $("archiveList").addEventListener("click", (event) => {
+      const { archiveLoad, archiveClone, archiveDelete } = event.target.dataset;
+      if (archiveLoad){
+        const item = data.archive.find((entry) => entry.id === archiveLoad);
+        if (!item) return;
+        data.currentBatch = clone(item.batch);
+        data.fermentationLogs = clone(item.fermentationLogs);
+        data.fermentChecklist = clone(item.fermentChecklist);
+        data.nutrients = clone(item.nutrients);
+        data.cellar = clone(item.cellar);
+        data.cellarChecklist = clone(item.cellarChecklist);
+        data.currentBatch.loadedAt = new Date().toISOString();
+        persistData();
+        populateNutrientForm();
+        populateCellarForm();
+        renderAll();
+        setActiveTab("ferment");
+      }
+      if (archiveClone){
+        const item = data.archive.find((entry) => entry.id === archiveClone);
+        if (!item) return;
+        const batch = item.batch;
+        data.recipeDraft = {
+          ...defaultRecipeDraft(),
+          ...clone(batch),
+          name: `${batch.name || "Archived batch"} clone`,
+          additions: clone(batch.additions || [defaultAdditionRow()])
+        };
+        data.ui.selectedRecipeId = null;
+        populateRecipeForm();
+        persistData();
+        renderAll();
+        setActiveTab("recipes");
+      }
+      if (archiveDelete){
+        data.archive = data.archive.filter((entry) => entry.id !== archiveDelete);
+        persistData();
+        renderArchive();
+      }
+    });
+  }
+
+  function bindCalcs(){
+    const mapping = {
+      calcTargetOg: "targetOg",
+      calcTargetBatch: "targetBatch",
+      calcTargetPpg: "targetPpg",
+      calcHoneyLb: "honeyLb",
+      calcHoneyBatch: "honeyBatch",
+      calcHoneyPpg: "honeyPpg",
+      calcAbvOg: "abvOg",
+      calcAbvFg: "abvFg",
+      calcBreakOg: "breakOg",
+      calcSgInput: "sgInput",
+      calcBrixInput: "brixInput",
+      calcRecipeBatch: "recipeBatch",
+      calcRecipeAbv: "recipeAbv",
+      calcRecipeSweetness: "recipeSweetness",
+      calcRecipeTolerance: "recipeTolerance"
+    };
+    Object.entries(mapping).forEach(([id, key]) => {
+      const el = $(id);
+      const handler = () => {
+        data.calcs[key] = el.value;
+        persistData();
+        renderCalcs();
+      };
+      el.addEventListener("input", handler);
+      el.addEventListener("change", handler);
+    });
+  }
+
+  function bindMentor(){
+    const mapping = {
+      mentorConceptName: "conceptName",
+      mentorStyle: "style",
+      mentorInspiration: "inspiration",
+      mentorVision: "vision",
+      mentorBatchSize: "batchSize",
+      mentorTargetAbv: "targetAbv",
+      mentorSweetness: "sweetness",
+      mentorCarbonation: "carbonation",
+      mentorHoney: "honey",
+      mentorYeast: "yeast",
+      mentorFruitSpiceOak: "fruitSpiceOak",
+      mentorStructure: "structure",
+      mentorMustHave: "mustHave",
+      mentorAvoid: "avoid",
+      mentorConstraints: "constraints"
+    };
+    Object.entries(mapping).forEach(([id, key]) => {
+      const el = $(id);
+      if (!el) return;
+      const handler = () => {
+        data.mentor[key] = el.value;
+        persistData();
+        renderMentor();
+      };
+      el.addEventListener("input", handler);
+      el.addEventListener("change", handler);
+    });
+    $("clearMentorBtn").addEventListener("click", () => {
+      data.mentor = defaultMentor();
+      populateMentorForm();
+      persistData();
+      renderMentor();
+    });
+    const demoButton = $("mentorDemoCocoBtn");
+    if (demoButton){
+      demoButton.addEventListener("click", () => {
+        data.mentor = mentorCocoDemoState();
+        populateMentorForm();
+        persistData();
+        renderMentor();
+      });
+    }
+    const applyKnowledgeBtn = $("mentorKnowledgeApplyBtn");
+    if (applyKnowledgeBtn){
+      applyKnowledgeBtn.addEventListener("click", () => {
+        applyMentorKnowledgeFromEditor({ pretty: true });
+      });
+    }
+    const prettyKnowledgeBtn = $("mentorKnowledgePrettyBtn");
+    if (prettyKnowledgeBtn){
+      prettyKnowledgeBtn.addEventListener("click", () => {
+        const editor = $("mentorKnowledgeEditor");
+        if (!editor) return;
+        try{
+          const parsed = JSON.parse(editor.value || "{}");
+          editor.value = JSON.stringify(normalizeMentorKnowledge(parsed), null, 2);
+          renderMentorKnowledgeStatus("Knowledge JSON formatted.");
+        } catch (error){
+          renderMentorKnowledgeStatus(`Invalid JSON: ${error.message}`, true);
+        }
+      });
+    }
+    const resetKnowledgeBtn = $("mentorKnowledgeLoadDefaultsBtn");
+    if (resetKnowledgeBtn){
+      resetKnowledgeBtn.addEventListener("click", () => {
+        data.mentorKnowledge = defaultMentorKnowledgeBase();
+        populateMentorKnowledgeEditor();
+        persistData();
+        renderMentor();
+        renderMentorKnowledgeStatus("Knowledge base reset to defaults.");
+      });
+    }
+    $("mentorToRecipeBtn").addEventListener("click", () => {
+      const built = buildMentor(data.mentor);
+      const blueprint = built.blueprint || {};
+      data.recipeDraft.name = data.mentor.conceptName || data.recipeDraft.name || "Unnamed mead";
+      data.recipeDraft.style = blueprint.style || data.recipeDraft.style;
+      data.recipeDraft.batchGallons = blueprint.batchGallons || data.mentor.batchSize || data.recipeDraft.batchGallons;
+      data.recipeDraft.targetAbv = blueprint.targetAbv || data.mentor.targetAbv || data.recipeDraft.targetAbv;
+      data.recipeDraft.sweetness = blueprint.sweetness || data.mentor.sweetness || data.recipeDraft.sweetness;
+      data.recipeDraft.carbonation = blueprint.carbonation || data.mentor.carbonation || data.recipeDraft.carbonation;
+      data.recipeDraft.yeast = blueprint.yeast || data.recipeDraft.yeast;
+      data.recipeDraft.yeastOther = blueprint.yeastOther || "";
+      data.recipeDraft.yeastTolerance = blueprint.yeastTolerance || data.recipeDraft.yeastTolerance;
+      data.recipeDraft.temp = blueprint.temp || data.recipeDraft.temp;
+      data.recipeDraft.nitrogenRequirement = blueprint.nitrogenRequirement || data.recipeDraft.nitrogenRequirement;
+      data.recipeDraft.honeyBase = blueprint.honeyBase || data.mentor.honey || data.recipeDraft.honeyBase;
+      data.recipeDraft.fruitAdjuncts = blueprint.fruitAdjuncts || data.mentor.fruitSpiceOak || data.recipeDraft.fruitAdjuncts;
+      data.recipeDraft.acidPlan = blueprint.acidPlan || data.mentor.structure || data.recipeDraft.acidPlan;
+      data.recipeDraft.tanninPlan = blueprint.tanninPlan || data.recipeDraft.tanninPlan;
+      data.recipeDraft.quickNote = blueprint.quickNote || data.mentor.mustHave || data.recipeDraft.quickNote;
+      data.recipeDraft.notes = blueprint.notes || [data.mentor.inspiration, data.mentor.vision, data.mentor.constraints].filter(Boolean).join("\n\n");
+      data.recipeDraft.targetOg = blueprint.targetOg || data.recipeDraft.targetOg;
+      data.recipeDraft.targetFg = blueprint.targetFg || data.recipeDraft.targetFg;
+      data.recipeDraft.estimatedAbv = blueprint.estimatedAbv || data.recipeDraft.estimatedAbv;
+      if (Array.isArray(blueprint.additions) && blueprint.additions.length){
+        data.recipeDraft.additions = blueprint.additions.map((row) => ({
+          ...defaultAdditionRow(),
+          ...row,
+          id: row.id || makeId("src"),
+          sourceType: row.sourceType || "Honey",
+          unit: row.unit || sourceUnitDefault(row.sourceType || "Honey"),
+          ppg: row.ppg || sourceDefault(row.sourceType || "Honey")
+        }));
+      }
+      syncRecipeDerived();
+      populateRecipeForm();
+      persistData();
+      renderAll();
+      setActiveTab("recipes");
+    });
+  }
+
+
+  function csvEscape(value){
+    const text = String(value ?? "");
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function parseCsv(text){
+    const rows = [];
+    let row = [];
+    let cell = "";
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i += 1){
+      const ch = text[i];
+      const next = text[i + 1];
+      if (inQuotes){
+        if (ch === '"' && next === '"'){
+          cell += '"';
+          i += 1;
+        } else if (ch === '"'){
+          inQuotes = false;
+        } else {
+          cell += ch;
+        }
+      } else if (ch === '"'){
+        inQuotes = true;
+      } else if (ch === ','){
+        row.push(cell);
+        cell = "";
+      } else if (ch === "\n"){
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+      } else if (ch === "\r"){
+        continue;
+      } else {
+        cell += ch;
+      }
+    }
+    if (cell.length || row.length) {
+      row.push(cell);
+      rows.push(row);
+    }
+    return rows.filter((r) => r.some((cellValue) => String(cellValue).trim() !== ""));
+  }
+
+  function recipeCsvHeaders(){
+    const base = ["name","style","batchGallons","targetAbv","sweetness","carbonation","yeast","dryYeast","nitrogenRequirement","yeastTolerance","temp","quickNote","notes","tags"];
+    for (let i = 1; i <= CSV_SOURCE_SLOTS; i += 1){
+      base.push(`source${i}Type`, `source${i}Description`, `source${i}Amount`, `source${i}Unit`, `source${i}Ppg`);
+    }
+    return base;
+  }
+
+  function recipeToCsvRow(recipe){
+    const row = {
+      name: recipe.name || "",
+      style: recipe.style || "",
+      batchGallons: recipe.batchGallons || "",
+      targetAbv: recipe.targetAbv || "",
+      sweetness: recipe.sweetness || "",
+      carbonation: recipe.carbonation || "",
+      yeast: displayYeastName(recipe) || "",
+      dryYeast: recipe.dryYeast || "",
+      nitrogenRequirement: recipe.nitrogenRequirement || "",
+      yeastTolerance: recipe.yeastTolerance || "",
+      temp: recipe.temp || "",
+      quickNote: recipe.quickNote || "",
+      notes: recipe.notes || "",
+      tags: recipe.tags || ""
+    };
+    const additions = Array.isArray(recipe.additions) ? recipe.additions : [];
+    for (let i = 0; i < CSV_SOURCE_SLOTS; i += 1){
+      const src = additions[i] || {};
+      row[`source${i + 1}Type`] = src.sourceType || "";
+      row[`source${i + 1}Description`] = src.description || "";
+      row[`source${i + 1}Amount`] = src.amount || "";
+      row[`source${i + 1}Unit`] = src.unit || "";
+      row[`source${i + 1}Ppg`] = src.ppg || "";
+    }
+    return row;
+  }
+
+  function downloadTextFile(filename, text, type = "text/plain"){
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadRecipeCsvTemplate(){
+    const headers = recipeCsvHeaders();
+    const example = {
+      name: "Velvet Guillotine",
+      style: "Melomel",
+      batchGallons: "3",
+      targetAbv: "12",
+      sweetness: "Semi-sweet",
+      carbonation: "Still",
+      yeast: "71B",
+      dryYeast: "6",
+      nitrogenRequirement: "low",
+      yeastTolerance: "14",
+      temp: "59–86°F",
+      quickNote: "Cherry-forward dessert mead with oak restraint",
+      notes: "Rack off fruit early if tannin is already where you want it.",
+      tags: "cherry,dessert,still",
+      source1Type: "Honey",
+      source1Description: "Orange blossom",
+      source1Amount: "7.5",
+      source1Unit: "lb",
+      source1Ppg: "35",
+      source2Type: "Fruit / Puree",
+      source2Description: "Tart cherry puree",
+      source2Amount: "3",
+      source2Unit: "lb",
+      source2Ppg: "10"
+    };
+    const csvText = [headers.join(","), headers.map((header) => csvEscape(example[header] || "")).join(",")].join("\n");
+    downloadTextFile("meadevil-recipes-template.csv", csvText, "text/csv");
+  }
+
+  function exportRecipesCsv(){
+    const headers = recipeCsvHeaders();
+    const lines = [headers.join(",")];
+    data.recipes.forEach((recipe) => {
+      const row = recipeToCsvRow(recipe);
+      lines.push(headers.map((header) => csvEscape(row[header] || "")).join(","));
+    });
+    downloadTextFile(`meadevil-recipes-${todayStr()}.csv`, lines.join("\n"), "text/csv");
+  }
+
+  function importRecipesFromCsv(text){
+    const rows = parseCsv(text);
+    if (!rows.length) return 0;
+    const headers = rows[0].map((header) => String(header || "").trim());
+    const body = rows.slice(1);
+    let imported = 0;
+    body.forEach((values) => {
+      const row = {};
+      headers.forEach((header, idx) => row[header] = String(values[idx] || "").trim());
+      if (!row.name) return;
+      const yeastLabel = row.yeast || "";
+      const preset = YEAST_PRESETS[yeastLabel];
+      const additions = [];
+      for (let i = 1; i <= CSV_SOURCE_SLOTS; i += 1){
+        const sourceType = row[`source${i}Type`] || "";
+        const description = row[`source${i}Description`] || "";
+        const amount = row[`source${i}Amount`] || "";
+        const unit = row[`source${i}Unit`] || "";
+        const ppg = row[`source${i}Ppg`] || "";
+        if (!(sourceType || description || amount)) continue;
+        additions.push({
+          ...defaultAdditionRow(),
+          sourceType: sourceType || "Honey",
+          description,
+          amount,
+          unit: unit || sourceUnitDefault(sourceType || "Honey"),
+          ppg: ppg || sourceDefault(sourceType || "Honey")
+        });
+      }
+      const recipe = normalizeRecipe({
+        name: row.name,
+        style: row.style || "Traditional",
+        batchGallons: row.batchGallons || "",
+        targetAbv: row.targetAbv || "",
+        sweetness: row.sweetness || "Dry",
+        carbonation: row.carbonation || "Still",
+        yeast: preset ? yeastLabel : (yeastLabel ? "Other / Custom" : ""),
+        yeastOther: preset ? "" : yeastLabel,
+        dryYeast: row.dryYeast || "",
+        nitrogenRequirement: row.nitrogenRequirement || (preset ? preset.nitrogenRequirement : "medium"),
+        yeastTolerance: row.yeastTolerance || (preset ? preset.tolerance : ""),
+        temp: row.temp || (preset ? preset.temp : ""),
+        quickNote: row.quickNote || "",
+        notes: row.notes || "",
+        tags: row.tags || "",
+        additions: additions.length ? additions : [defaultAdditionRow()]
+      });
+      const existing = data.recipes.find((item) => item.name.trim().toLowerCase() === recipe.name.trim().toLowerCase());
+      if (existing){
+        recipe.id = existing.id;
+        recipe.createdAt = existing.createdAt;
+        recipe.updatedAt = new Date().toISOString();
+        data.recipes = data.recipes.map((item) => item.id === existing.id ? recipe : item);
+      } else {
+        data.recipes.unshift(recipe);
+      }
+      imported += 1;
+    });
+    persistData();
+    renderAll();
+    return imported;
+  }
+
+  function bindUtilities(){
+    $("downloadRecipeCsvTemplateBtn").addEventListener("click", downloadRecipeCsvTemplate);
+    $("exportRecipeCsvBtn").addEventListener("click", exportRecipesCsv);
+    $("importRecipeCsvBtn").addEventListener("click", () => $("recipeCsvFileInput").click());
+    $("recipeCsvFileInput").addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      try{
+        const raw = await file.text();
+        importRecipesFromCsv(raw);
+      } catch(error){
+        console.error("Recipe CSV import failed", error);
+      }
+      event.target.value = "";
+    });
+    $("exportDataBtn").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `meadevilapp-backup-${todayStr()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    $("importDataBtn").addEventListener("click", () => $("importFileInput").click());
+    $("importFileInput").addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      try{
+        const raw = await file.text();
+        data = normalizeData(JSON.parse(raw));
+        populateRecipeForm();
+        populateNutrientForm();
+        populateCellarForm();
+        populateCalcForm();
+        populateMentorForm();
+        populateMentorKnowledgeEditor();
+        persistData();
+        renderAll();
+      } catch(error){
+        console.error("Import failed", error);
+      }
+      event.target.value = "";
+    });
+    $("resetAppBtn").addEventListener("click", () => {
+      data = normalizeData(null);
+      populateRecipeForm();
+      populateNutrientForm();
+      populateCellarForm();
+      populateCalcForm();
+      populateMentorForm();
+      populateMentorKnowledgeEditor();
+      persistData();
+      renderAll();
+    });
+  }
+
+  /* =========================================================
+     Application boot
+     ========================================================= */
+
+  function boot(){
+    populateRecipeForm();
+    populateNutrientForm();
+    populateCellarForm();
+    populateCalcForm();
+    populateMentorForm();
+    populateMentorKnowledgeEditor();
+    bindTabs();
+    bindClock();
+    bindRecipeFields();
+    bindFerment();
+    bindNutrients();
+    bindCellar();
+    bindArchive();
+    bindCalcs();
+    bindMentor();
+    bindUtilities();
+    startClockTicker();
+    startRaptAutoRefresh();
+    renderAll();
+    importRaptReadings({ silent: true }).catch((error) => {
+      console.warn("Initial RAPT refresh failed", error);
+    });
+  }
+
+  window.addEventListener("meadevil-cloud-restore", () => {
+    data = normalizeData(loadData());
+    populateRecipeForm();
+    populateNutrientForm();
+    populateCellarForm();
+    populateCalcForm();
+    populateMentorForm();
+    populateMentorKnowledgeEditor();
+    renderAll();
+  });
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();
