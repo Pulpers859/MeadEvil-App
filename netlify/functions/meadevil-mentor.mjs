@@ -17,6 +17,17 @@ Persona rules:
 - If a decision is already resolved, do not reopen it unless the user explicitly reopens it.
 - Yeast recommendations must stay within this set only: 71B, D47, QA23, EC-1118.
 
+Practical recipe knowledge:
+- Honey sizing: use approximately 1.5 lb honey per gallon of total must volume for a hydromel (~7% ABV, OG ~1.053-1.055). Quick batch references for a ~7% hydromel: 1 gal batch → ~1.5 lb honey; 2 gal batch → ~3.0 lb honey; 3 gal batch → ~4.5 lb honey; 5 gal batch → ~7.5 lb honey. For a standard mead (~12-14% ABV, OG ~1.090-1.110), use approximately 2.5-3 lb per gallon.
+- Honey displaces volume: ~1 lb honey ≈ 0.085 gal. For a 2 gal batch with 3 lb honey, the honey takes up ~0.25 gal, so start with ~1.75 gal water, dissolve honey, then top up to target total must volume. Never add the full water volume plus honey on top.
+- Always give the user an OG checkpoint when recommending honey amounts so they can verify with a hydrometer.
+- Cool fermentation (60-66°F) preserves delicate floral and fruit aromas. Warm fermentation risks fusel alcohols and hot/solventy character.
+- Staggered nutrient additions (Fermaid O split across 24h, 48h, 72h or 1/3 sugar break) are standard practice, not a single upfront dump.
+- Pectic enzyme in primary helps clarity, especially when fruit comes later in secondary.
+- For sparkling mead, force carbonation in a keg is the safest method. Standard wine bottles cannot handle carbonation pressure. Only use champagne bottles, Belgian bottles, thick beer bottles, or pressure-rated swing-tops.
+- Carbonation sharpens perceived acidity. Do not add acid upfront in sparkling meads — save it for bench trials after carbonation.
+- Fruit in secondary: for a restrained supporting role (blush, light aroma), use roughly 1-1.5 lb per gallon. For a prominent fruit character, use 2+ lb per gallon. Freeze fruit first if fresh, thaw, slice or lightly crush — do not puree. Contact time 5-7 days is typical; start tasting around day 4-5 and rack off when the aroma/color is right. Avoid extended contact (>10 days) without a clear reason.
+
 Workflow:
 1. Start with what the glass should feel like and what must not happen.
 2. Identify what carries the concept, what only supports it, and what gives lift or structure.
@@ -75,8 +86,10 @@ const THINKING_RAILS = `Before you answer, silently check:
 - Did I give a real lean before I asked for anything?
 - Did I protect the user's latest constraints?
 - Did I pick a lane when the user asked me to choose?
-- Did I avoid reopening solved decisions?
-- Did I avoid labels like "Next question" and "Next move"?`;
+- Did I avoid reopening solved decisions? If the conversation already settled honey, yeast, fruit timing, or any other lane, I must not re-ask about it.
+- Did I avoid labels like "Next question" and "Next move"?
+- If the user asked about amounts or sizing, did I give actual numbers grounded in honey-to-gravity math instead of vague ranges?
+- If I mentioned sparkling or carbonation, did I address bottle safety?`;
 
 function isLowInformationGreetingText(text) {
   const lower = String(text || "").trim().toLowerCase();
@@ -359,6 +372,25 @@ function buildGuidanceNote(userMessage) {
 
   if (/sparkling|petillant|carbonated/.test(textParts)) {
     bannedQuestions.push("Do not default to bottle-conditioning talk unless the user has actually chosen that path.");
+    rules.push("This is a sparkling concept. If discussing bottling for gifts, remind the user about pressure-safe bottles (champagne, Belgian, thick beer, or rated swing-tops). Standard wine bottles are unsafe for carbonation.");
+  }
+
+  const batchSizeVal = String(inputs.batchSize || "").trim();
+  if (batchSizeVal) {
+    rules.push(`The user's batch size is ${batchSizeVal} gallons. Use this number for any amount calculations — do not assume a different batch size.`);
+  }
+  const targetAbvVal = String(inputs.targetAbv || "").trim();
+  if (targetAbvVal) {
+    rules.push(`The user's target ABV is ~${targetAbvVal}%. Size the honey bill to hit this target using ~35 gravity points per pound per gallon. Give an OG checkpoint.`);
+  }
+
+  const isLightConcept = /\blight\b|session|refreshing|easy.?drinking|champagne|hydromel|low.?abv/.test(textParts);
+  if (isLightConcept && !targetAbvVal) {
+    rules.push("This concept reads like a hydromel or session mead (light, refreshing, easy-drinking). Target approximately 6-8% ABV (OG ~1.045-1.060) unless the user says otherwise. Do not default to 12-14% standard mead territory.");
+  }
+
+  if (/linden/.test(textParts) && hasHoney) {
+    rules.push("Linden honey has a distinctive herbaceous and slightly minty character with delicate floral notes. It is lighter-bodied than wildflower or buckwheat and pairs well with bright, fresh concepts.");
   }
 
   return [

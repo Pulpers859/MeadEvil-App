@@ -188,6 +188,62 @@ const KNOWLEDGE_ENTRIES = [
     guidance: "Primary-fermentation aromatic additions are not automatically wrong, but they are experimental because fermentation can strip aroma and hide timing mistakes until later.",
     validator: "If the reply recommends primary aroma additions, it should label the move as experimental or situational rather than gold-standard default.",
     sources: ["morewine_mead_manual"]
+  },
+  {
+    id: "hydromel_sizing",
+    tier: "gold_standard",
+    topics: ["honey", "dosing", "fermentation", "general"],
+    guidance: "Honey sizing: approximately 1.5 lb per gallon for a hydromel (~7% ABV, OG ~1.053-1.055). Quick references: 1 gal = 1.5 lb; 2 gal = 3.0 lb; 3 gal = 4.5 lb; 5 gal = 7.5 lb. For standard strength (~12-14%), use 2.5-3 lb per gallon. Honey displaces volume (~0.085 gal per lb), so dissolve honey first then top up water to target must volume.",
+    validator: "If the reply recommends honey amounts, verify the math: approximately 1.5 lb/gal for hydromels or 2.5-3 lb/gal for standard. For a 2-gallon hydromel, that means ~3 lb of honey, not 1.5 lb.",
+    sources: ["morewine_mead_manual"]
+  },
+  {
+    id: "carbonation_methods",
+    tier: "gold_standard",
+    topics: ["sparkling", "packaging", "carbonation"],
+    guidance: "For sparkling mead, force carbonation in a keg is the safest and most controllable method, especially for gifting. Bottle conditioning with priming sugar is viable but riskier because residual yeast activity is harder to predict in mead than in beer. If force carbonating, chill the keg cold before applying CO2 for cleaner carbonation. For a champagne-like sparkle, target 2.5-3.0 volumes CO2.",
+    validator: "If the concept is sparkling and the user is concerned about safety or gifting, lead with force carbonation as the safer path rather than defaulting to bottle conditioning.",
+    sources: ["morewine_mead_manual"]
+  },
+  {
+    id: "bottle_safety_sparkling",
+    tier: "gold_standard",
+    topics: ["sparkling", "packaging", "carbonation"],
+    guidance: "Sparkling mead must go into pressure-rated vessels. Champagne bottles, Belgian bottles, thick beer bottles, and truly pressure-rated swing-tops are safe. Standard wine bottles and decorative bottles are not rated for carbonation pressure and can shatter. When bottling from a keg, bottle cold to minimize foam and CO2 loss, and cap immediately.",
+    validator: "If the plan includes sparkling mead for gifting, the reply must address bottle safety. Do not casually say 'bottle it' without specifying pressure-safe containers.",
+    sources: ["morewine_mead_manual"]
+  },
+  {
+    id: "fermentation_temperature",
+    tier: "gold_standard",
+    topics: ["fermentation", "yeast", "general"],
+    guidance: "Fermentation temperature shapes the final character more than most beginners realize. Cooler fermentation (60-66°F) preserves delicate floral and fruit aromas and produces a cleaner finish. Warmer fermentation can produce fusel alcohols, solventy off-flavors, and an unpleasantly hot or sharp finish, especially in lighter meads and hydromels where there is less body to hide flaws.",
+    validator: "If the concept is a delicate floral or fruit-forward mead, recommend cool fermentation rather than ignoring temperature entirely.",
+    sources: ["scott_handbook", "morewine_mead_manual"]
+  },
+  {
+    id: "nutrient_staggering",
+    tier: "gold_standard",
+    topics: ["fermentation", "nutrition"],
+    guidance: "Staggered nutrient additions (SNA) are standard practice for healthy mead fermentation. A common approach: split the total Fermaid O dose into 3 equal additions at 24h, 48h, and 72h (or the 1/3 sugar break, whichever comes first). Avoid nutrient additions after the 1/3 sugar break. Degas gently at each nutrient addition.",
+    validator: "Do not present a single upfront nutrient dump as the standard approach. Staggered additions are the established practice.",
+    sources: ["morewine_mead_manual", "scott_handbook"]
+  },
+  {
+    id: "pectic_enzyme_fruit",
+    tier: "common_practice",
+    topics: ["fruit", "fermentation", "secondary"],
+    guidance: "Pectic enzyme helps break down pectin for better clarity, especially important when adding fruit. Add it in primary before pitching yeast for general haze prevention, and optionally add a small dose directly onto fruit in secondary if the fruit is pulpy or haze-prone.",
+    validator: "If fruit is part of the plan, mention pectic enzyme as a clarity tool rather than treating haze as an unavoidable surprise.",
+    sources: ["morewine_mead_manual"]
+  },
+  {
+    id: "acid_carbonation_interaction",
+    tier: "common_practice",
+    topics: ["acid", "sparkling", "finishing", "bench_trial"],
+    guidance: "Carbonation sharpens perceived acidity. In a sparkling mead, acid additions that taste right in a still sample may read too sharp once carbonated. For sparkling concepts, err on the side of less acid and only add it after bench-trialing the carbonated version if possible.",
+    validator: "If the mead is sparkling, do not recommend upfront acid additions without warning that carbonation will amplify them.",
+    sources: ["scott_handbook"]
   }
 ];
 
@@ -252,7 +308,11 @@ function inferTopics(userMessage) {
   if (/stabiliz|sorbate|sulfite|backsweet|bottle|packag/.test(text)) topics.push("stabilization", "packaging");
   if (/bench trial|bench-trial|dose|dosing|how much|amount|ounces|grams|ml|tsp|tbsp/.test(text)) topics.push("bench_trial", "dosing");
   if (/primary|secondary|ferment|timing|when do i add|when should i add/.test(text)) topics.push("timing", "fermentation");
-  if (/sparkling|petillant/.test(text)) topics.push("sparkling");
+  if (/sparkling|petillant|carbonat|force carb|keg/.test(text)) topics.push("sparkling", "carbonation");
+  if (/bottle|gift.*bottle|pressure.*bottle|champagne bottle/.test(text)) topics.push("packaging");
+  if (/pectic enzyme|pectin|haze|clarity/.test(text)) topics.push("fruit");
+  if (/nutrient|fermaid|go-ferm|sna|stagger/.test(text)) topics.push("nutrition");
+  if (/temperature|temp control|cool ferment|warm ferment/.test(text)) topics.push("fermentation");
   if (/process|step by step|plan the fermentation/.test(turn)) topics.push("fermentation");
 
   return unique(topics);
@@ -307,21 +367,33 @@ function detectResolvedState(userMessage) {
 function detectDecisionFocus(userMessage) {
   const turn = currentTurnText(userMessage);
   const snapshot = userMessage.concept_snapshot || {};
+  const honeyUnresolved = snapshot.unresolved && snapshot.unresolved.honey;
 
-  if (/yeast/.test(turn)) return "yeast_selection";
-  if (/petillant|sparkling|sparkle|youthful/.test(turn)) return "sparkling_profile";
-  if (/\btea\b/.test(turn)) return "tea_structure";
+  if (/hello|ready|lets get started|let s get started|let us get started|lets begin|ready when you are/.test(turn)) return "kickoff";
+  if (/i dont know|i don't know|you tell me|help me choose|recommend|what would you do/.test(turn)) return "decision_help";
+
+  if (honeyUnresolved && /honey|floral|varietal|which honey|what honey/.test(turn)) return "honey_lane";
+
+  const isFullProcessAsk = /full process|walk me through|everything i need|start to finish|must.*to.*bottl|fermentation schedule.*and|nutrient.*and.*stabili|the whole thing/.test(turn);
+  if (isFullProcessAsk) return "process_planning";
+
+  if (/what yeast|which yeast|pick.*yeast|choose.*yeast|yeast lane/.test(turn)) return "yeast_selection";
   if (/fruit belongs|primary or secondary|fresh skin|fresh seeds|fuller|rosier|fully primary|late-fruit|split/.test(turn)) return "fruit_expression";
   if (/lime|lemon|grapefruit|citrus|zest|peel|juice/.test(turn)) return "citrus_execution";
   if (/coconut/.test(turn)) return "coconut_execution";
   if (/agave/.test(turn)) return "agave_execution";
   if (/tequila|spirit/.test(turn)) return "spirit_execution";
-  if (/stabiliz|sulfite|sorbate|backsweet|bottle|packag/.test(turn)) return "stabilization";
+  if (/\btea\b/.test(turn)) return "tea_structure";
+  if (/stabiliz|sulfite|sorbate|backsweet/.test(turn)) return "stabilization";
+  if (/carbonate|carbonation|bottle bomb|force carb|keg/.test(turn)) return "carbonation_packaging";
+  if (/bottle.*safe|gift.*bottle|pressure.*bottle|champagne bottle/.test(turn)) return "carbonation_packaging";
+  if (/petillant|sparkling|sparkle|youthful/.test(turn)) return "sparkling_profile";
   if (/fermentation process|plan the fermentation|game plan|process lane|cleanest process|step by step|process/.test(turn)) return "process_planning";
   if (/how much|dose|dosing|ounces|grams|ml|tsp|tbsp/.test(turn)) return "dosing";
-  if (/i dont know|i don't know|you tell me|help me choose|recommend|what would you do/.test(turn)) return "decision_help";
-  if (/hello|ready|lets get started|let s get started|let us get started|lets begin|ready when you are/.test(turn)) return "kickoff";
-  if (snapshot.unresolved && snapshot.unresolved.honey) return "honey_lane";
+  if (/packag/.test(turn)) return "carbonation_packaging";
+
+  if (honeyUnresolved) return "honey_lane";
+  if (/yeast/.test(turn)) return "yeast_selection";
   return "general_progression";
 }
 
@@ -481,6 +553,9 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
   const nextQuestion = String(packet.nextQuestion || "").trim();
   const carries = Array.isArray(packet.ingredientRoles?.carries) ? packet.ingredientRoles.carries.join(" and ") : "";
   const supports = Array.isArray(packet.ingredientRoles?.supports) ? packet.ingredientRoles.supports.join(" and ") : "";
+  const honeyResolved = Boolean(resolved.honey);
+  const turn = currentTurnText(userMessage);
+  const hasCompoundQuestion = (turn.match(/\?/g) || []).length > 1 || /\band\b.*\?|how much.*\?/.test(turn);
 
   if (focus === "citrus_execution") {
     const turn = currentTurnText(userMessage);
@@ -533,7 +608,7 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
   }
 
   if (focus === "fruit_expression") {
-    const turn = currentTurnText(userMessage);
+    if (hasCompoundQuestion && /how much|how many|pounds|amount/.test(turn)) return "";
     const conceptText = textParts(userMessage);
     if (/fresh skin|seed|not fuller/.test(turn) && /strawberry/.test(conceptText)) {
       return [
@@ -566,10 +641,12 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
   }
 
   if (focus === "sparkling_profile") {
+    if (!honeyResolved) return "";
+    const carrierLine = carries ? `without blurring the ${carries.toLowerCase()} line` : "without blurring the core identity";
     return [
       "Good call. Then I would protect freshness over depth.",
-      "That means a clean base ferment, fruit later if the fruit aroma is supposed to feel youthful, and no extra sugar or soft floral clutter that starts pushing the drink toward wine-cooler territory. In plain English: this should drink brisk and alive, not rounded off.",
-      "So the next clean move is choosing the process lane that gets sparkle without blurring the strawberry and linden line."
+      "That means a clean base ferment, fruit later if the fruit aroma is supposed to feel youthful, and no extra sugar or soft floral clutter that starts pushing the drink toward wine-cooler territory. This should drink brisk and alive, not rounded off.",
+      `The next clean move is choosing the process lane that gets sparkle ${carrierLine}.`
     ].join("\n\n");
   }
 
@@ -594,10 +671,27 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
   }
 
   if (focus === "stabilization") {
+    if (!honeyResolved) return "";
     return [
       "Yes, potassium metabisulfite plus potassium sorbate is the standard hobby lane if you are going to backsweeten or add sugar-bearing finishing ingredients.",
       "That is the practical control path because sulfite protects the mead and sorbate helps stop renewed yeast reproduction. I still would not talk about it like magic. It only makes sense once fermentation is actually finished and you are treating the batch like a finished mead rather than an active ferment.",
       "The next real decision after stabilization is whether the sweetening or finishing addition belongs in the whole batch or only proves itself in a bench trial first."
+    ].join("\n\n");
+  }
+
+  if (focus === "carbonation_packaging") {
+    if (!honeyResolved) return "";
+    const conceptText = textParts(userMessage);
+    const isSparkling = /sparkling|petillant|carbonat/.test(conceptText);
+    if (!isSparkling) return "";
+    const giftLine = /gift|gifting|give|present/.test(conceptText)
+      ? "Since this is for gifting, bottle safety is non-negotiable. Use champagne bottles, Belgian bottles, thick beer bottles, or truly pressure-rated swing-tops. Standard wine bottles and decorative bottles are not built for carbonation pressure and can shatter."
+      : "Use pressure-rated bottles only: champagne bottles, Belgian bottles, thick beer bottles, or truly pressure-rated swing-tops. Standard wine bottles cannot handle carbonation pressure.";
+    return [
+      "Force carbonation in a keg is the safest and most controllable lane for sparkling mead, especially if you are bottling for other people.",
+      "Chill the keg cold before applying CO2 — colder liquid absorbs carbonation more cleanly. For a champagne-like sparkle, target around 2.7-2.8 volumes CO2. At 34-38°F that typically lands around 18-25 PSI depending on exact temperature. Use a carbonation chart rather than guessing.",
+      "Bottle cold from the keg to minimize foam and CO2 loss. A counter-pressure filler is ideal, but a picnic tap with a bottling wand can work with a bit more foam loss. Cap immediately.",
+      giftLine
     ].join("\n\n");
   }
 
@@ -610,12 +704,15 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
   }
 
   if (focus === "process_planning" && strongest.name) {
+    if (!honeyResolved) return "";
+    if (/full process|everything i need|step by step|detailed|schedule|timeline|nutrient timing/.test(turn)) return "";
     const text = textParts(userMessage);
+    const honeyName = resolved.honey || "the honey";
     if (/strawberry/.test(text)) {
       return [
         "My instinct is to run a boringly clean base ferment on purpose, then let the strawberry freshness happen later where you can actually control it.",
-        "That means no heroic flavor pile in primary. Keep the linden honey as support, put the strawberry in secondary if the goal is fresh skin and seed character, and keep any floral lift as an optional bench trial instead of acting like it is mandatory from the start.",
-        "Because you want petillant and youthful rather than wine-cooler sweet, the clean process lane is: clean base ferment, fresh-fruit secondary, fine-tuning only if needed, then package for sparkle once the flavor balance is actually where you want it. I would keep backsweetening off the default plan unless the finished mead proves it truly needs a little softening, and I would rather finish slightly lean than blur the whole thing trying to make it pretty."
+        `That means no heroic flavor pile in primary. Let ${honeyName} carry the base, put the strawberry in secondary if the goal is fresh skin and aroma, and keep any structure additions as optional bench trials instead of acting like they are mandatory from the start.`,
+        "The clean process lane is: clean base ferment, fresh-fruit secondary, fine-tuning only if needed, then package once the flavor balance is actually where you want it. I would keep backsweetening off the default plan unless the finished mead proves it truly needs a little softening, and I would rather finish slightly lean than blur the whole thing trying to make it pretty."
       ].join("\n\n");
     }
     if (/toasted coconut|agave|tequila/.test(text)) {
