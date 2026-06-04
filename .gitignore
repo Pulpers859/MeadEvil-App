@@ -30,3 +30,8 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# Local tooling / agent artifacts
+.claude/*
+!.claude/skills/
+!.claude/skills/**
