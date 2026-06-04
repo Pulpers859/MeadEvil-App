@@ -8,6 +8,13 @@ service-account*.json
 !.env.*.example
 *.local
 *.local.*
+meadevil-firebase-config.js
+meadevil-firebase-config.local.js
+config/firebase/meadevil-firebase-config.js
+config/firebase/meadevil-firebase-config.local.js
+
+# Optional local reference material
+docs/reference/*.pdf
 
 # Netlify local state
 .netlify/

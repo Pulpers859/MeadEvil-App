@@ -266,7 +266,6 @@ option{background:#140e1a;color:var(--cream)}
 .slim-list .check-item{padding:10px 12px}
 .mono-input{font-family:Consolas,Monaco,"Courier New",monospace;font-size:.82rem}
 #mentorKnowledgeEditor{min-height:240px;white-space:pre}
-#mentorKnowledgeStatus{min-height:56px}
 .source-row{display:grid;gap:10px}
 .source-row .form-grid-4{align-items:end}
 .kicker{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--cream-dim);font-weight:800}
@@ -483,11 +482,183 @@ input[readonly]{opacity:.92}
   color:var(--cream);
   border-color:rgba(244,230,208,.16);
 }
+.brainstorm-layout{
+  align-items:start;
+}
+.mentor-concept-preview{
+  display:grid;
+  gap:12px;
+  margin-bottom:14px;
+}
+.mentor-concept-title-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  align-items:center;
+}
+.mentor-concept-title{
+  color:var(--cream);
+  font-size:1.1rem;
+}
+.mentor-concept-style{
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:.78rem;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--cream-2);
+  background:rgba(255,255,255,.045);
+  border:1px solid rgba(244,230,208,.08);
+}
+.mentor-concept-summary{
+  margin:0;
+  color:var(--cream-2);
+  line-height:1.55;
+}
+.mentor-editor-card,
+.mentor-settings-card{
+  margin-top:10px;
+}
+.mentor-subhead{
+  margin:14px 0 10px;
+}
+.mentor-subhead h3{
+  font-size:1.02rem;
+  letter-spacing:.04em;
+}
 .mentor-reply-box{min-height:120px;line-height:1.55}
 .mentor-reply-box strong{color:var(--cream)}
+.mentor-reply-box p,
+.mentor-turn-text p{
+  margin:0 0 12px;
+}
+.mentor-reply-box p:last-child,
+.mentor-turn-text p:last-child{
+  margin-bottom:0;
+}
+.mentor-reply-box code,
+.mentor-turn-text code{
+  font-family:Consolas,Monaco,"Courier New",monospace;
+  font-size:.92em;
+  padding:1px 6px;
+  border-radius:999px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(244,230,208,.08);
+  color:var(--cream);
+}
+.mentor-rich-list{
+  margin:0 0 12px 20px;
+  padding:0;
+  display:grid;
+  gap:8px;
+}
+.mentor-rich-list:last-child{
+  margin-bottom:0;
+}
+.mentor-rich-list li{
+  padding-left:2px;
+}
 .mentor-status-good{color:var(--toxic);font-weight:800}
 .mentor-status-warn{color:var(--cream-2);font-weight:800}
 .mentor-status-bad{color:#ff8ea8;font-weight:800}
+.mentor-transcript{
+  display:grid;
+  gap:12px;
+  max-height:540px;
+  overflow:auto;
+}
+.mentor-transcript-inline{
+  max-height:420px;
+  margin-bottom:14px;
+}
+.mentor-transcript:empty::before,
+.mentor-direction-board:empty::before{
+  content:"Run the mentor and the collaborative loop will show up here.";
+  color:rgba(244,230,208,.56);
+}
+.mentor-turn{
+  display:grid;
+  gap:8px;
+  padding:12px 14px;
+  border-radius:16px;
+  border:1px solid rgba(244,230,208,.08);
+  background:linear-gradient(180deg, rgba(22,15,31,.92), rgba(12,9,18,.98));
+}
+.mentor-turn.user{
+  border-color:rgba(107,59,164,.24);
+  background:linear-gradient(180deg, rgba(44,24,58,.92), rgba(18,11,28,.98));
+}
+.mentor-turn.mentor{
+  border-color:rgba(163,38,73,.24);
+  background:linear-gradient(180deg, rgba(42,18,31,.92), rgba(16,9,17,.98));
+}
+.mentor-turn.concept{
+  border-color:rgba(255,188,128,.28);
+  background:linear-gradient(180deg, rgba(54,31,22,.92), rgba(21,13,11,.98));
+}
+.mentor-turn-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.mentor-turn-role{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border-radius:999px;
+  padding:5px 10px;
+  font-size:.76rem;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(244,230,208,.08);
+  color:var(--cream);
+}
+.mentor-turn-mode{
+  font-size:.74rem;
+  color:rgba(244,230,208,.68);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+.mentor-turn-text{
+  color:var(--cream-2);
+  line-height:1.6;
+  white-space:normal;
+}
+.mentor-turn-text strong{color:var(--cream)}
+.mentor-direction-board{
+  display:grid;
+  gap:12px;
+}
+.mentor-direction-card{
+  display:grid;
+  gap:8px;
+  padding:12px 14px;
+  border-radius:16px;
+  border:1px solid rgba(244,230,208,.08);
+  background:linear-gradient(180deg, rgba(14,10,21,.82), rgba(11,8,17,.98));
+}
+.mentor-direction-card.primary{
+  border-color:rgba(255,188,128,.28);
+  background:linear-gradient(180deg, rgba(59,28,26,.88), rgba(20,11,16,.99));
+}
+.mentor-direction-card h4{
+  margin:0;
+  font-size:1rem;
+  color:var(--cream);
+}
+.mentor-direction-card p{
+  margin:0;
+  color:var(--cream-2);
+  line-height:1.55;
+}
+.mentor-direction-card .muted{color:rgba(244,230,208,.68)}
 #recipeAdjunctList .source-row{border:1px solid rgba(244,230,208,.06)}
 .mentor-pill-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .mentor-pill{
@@ -501,4 +672,10 @@ input[readonly]{opacity:.92}
   background:rgba(255,255,255,.045);
   border:1px solid rgba(244,230,208,.08);
   color:var(--cream-2);
+}
+.mentor-pill strong{
+  color:var(--cream);
+}
+.card .notes-box + .toolbar.mentor-subhead{
+  margin-top:16px;
 }

@@ -334,9 +334,20 @@
   async function bootFirebaseSync(){
     updateSyncPill();
 
+    try{
+      if (window.MEADEVIL_FIREBASE_READY && typeof window.MEADEVIL_FIREBASE_READY.then === "function"){
+        await window.MEADEVIL_FIREBASE_READY;
+      }
+    } catch (error){
+      warn("Firebase config bootstrap failed", error);
+    }
+
     if (!hasFirebaseConfig()){
-      warn("No Firebase config found. Staying local-only.");
-      setStatus({ enabled: false, mode: "local" });
+      const localHtmlMessage = "Missing Firebase config. Copy config/firebase/meadevil-firebase-config.example.js to config/firebase/meadevil-firebase-config.local.js for local HTML use.";
+      const genericMessage = "No Firebase config found. Staying local-only.";
+      const message = window.location.protocol === "file:" ? localHtmlMessage : genericMessage;
+      warn(message);
+      setStatus({ enabled: false, mode: "local", lastError: message });
       return;
     }
 

@@ -22,14 +22,16 @@ The app should feel like MeadEvil, not like a generic recipe app and not like a 
 
 Current files and roles:
 - `index.html` - layout and semantic containers
-- `styles.css` - visual system, spacing, responsive behavior, button/card treatments
-- `app.js` - app state, renderers, event binding, tab behavior, persistence, import/export, recipe/batch/archive workflow
-- `mead-logic.js` - formulas and pure-ish helper logic
-- `meadevil-mentor.js` - mentor UI / local fallback logic
-- `firebase-sync.js` - sync layer if present in this build
+- `assets/css/styles.css` - visual system, spacing, responsive behavior, button/card treatments
+- `assets/js/app.js` - app state, renderers, event binding, tab behavior, persistence, import/export, recipe/batch/archive workflow
+- `assets/js/mead-logic.js` - formulas and pure-ish helper logic
+- `assets/js/meadevil-mentor.js` - mentor UI / local fallback logic
+- `assets/js/firebase-sync.js` - sync layer if present in this build
+- `assets/js/firebase-config-loader.js` - loads local or Netlify-served Firebase config into the browser
+- `config/firebase/` - example and local-only browser Firebase config helpers
 - `netlify/functions/meadevil-mentor.mjs` - server-side mentor path if deployed through Netlify Functions
 
-Do not split `app.js` further unless there is a real payoff.
+Do not split `assets/js/app.js` further unless there is a real payoff.
 There is no build step here, so unnecessary file splitting can create more fragility than value.
 
 ## 3) Current visual direction

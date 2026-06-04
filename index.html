@@ -11,18 +11,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png" />
-  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
-  <link rel="stylesheet" href="styles.css" />
-  <script src="mead-logic.js" defer></script>
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/icon-180.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+  <script src="assets/js/mead-logic.js" defer></script>
+  <script src="assets/js/firebase-config-loader.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="/.netlify/functions/firebase-config"></script>
-  <script src="firebase-sync.js" defer></script>
-  <script src="app.js" defer></script>
-  <script src="meadevil-mentor.js" defer></script>
+  <script src="assets/js/firebase-sync.js" defer></script>
+  <script src="assets/js/app.js" defer></script>
+  <script src="assets/js/meadevil-mentor.js" defer></script>
 </head>
 <body>
   <a class="skip-to-content" href="#main-content">Skip to content</a>
@@ -522,37 +522,45 @@
       <div class="container">
         <div class="section-head">
           <div><h2>Brainstorm</h2></div>
-          <p class="section-copy">Start in plain English. MeadEvil Mentor translates beginner intent into structure, risks, and a build lane without making you pretend you already think like an expert meadmaker.</p>
         </div>
-        <div class="grid-2">
+        <div class="grid-2 brainstorm-layout">
           <div class="stack">
             <div class="card">
               <div class="toolbar">
                 <h3>Concept spark</h3>
                 <div class="tag-row">
                   <button class="mini-btn" id="mentorDemoCocoBtn" type="button">Load El Coco Loco demo</button>
-                  <button class="mini-btn" id="clearMentorBtn" type="button">Clear</button>
+                  <button class="mini-btn" id="mentorClearThreadBtn" type="button">Fresh read</button>
+                  <button class="mini-btn" id="clearMentorBtn" type="button">New brew</button>
                   <button class="btn btn-primary" id="mentorToRecipeBtn" type="button">Send to Build</button>
                 </div>
               </div>
-              <p class="small helper-copy">Newer meadmaker mode: describe what you want in the glass, what you refuse to drink, and how risky you want the process to be. MeadEvil Mentor handles the expert translation.</p>
-              <div class="form-grid-2">
-                <div class="field"><label for="mentorConceptName">Project name</label><input id="mentorConceptName" placeholder="Code Blue" /></div>
-                <div class="field"><label for="mentorStyle">Style / lane</label><input id="mentorStyle" placeholder="Botanical melomel, metheglin, cyser, dark fruit still mead…" /></div>
-                <div class="field"><label for="mentorBatchSize">Batch size (gal)</label><input id="mentorBatchSize" type="number" step="0.1" /></div>
-                <div class="field"><label for="mentorTargetAbv">Target ABV</label><input id="mentorTargetAbv" type="number" step="0.1" /></div>
-                <div class="field"><label for="mentorSweetness">Sweetness</label><select id="mentorSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
-                <div class="field"><label for="mentorCarbonation">Packaging</label><select id="mentorCarbonation"><option>Still</option><option>Petillant</option><option>Sparkling</option></select></div>
-              </div>
-              <div class="field"><label for="mentorInspiration">What inspired this mead?</label><textarea id="mentorInspiration" placeholder="Mood, memory, place, season, soundtrack, job, event, ingredient obsession…"></textarea></div>
-              <div class="field"><label for="mentorVision">What should it feel like in the glass?</label><textarea id="mentorVision" placeholder="Dark, lifted, tense, easy-drinking, dangerous, clean, lush, bright, cold, celebratory…"></textarea></div>
-              <div class="form-grid-2">
-                <div class="field"><label for="mentorServeContext">When / where do you want to drink it?</label><input id="mentorServeContext" placeholder="Winter dinner, porch crusher, gift bottle, after-shift pour…" /></div>
-                <div class="field"><label for="mentorMustHaveSimple">Must-have flavors or ingredients</label><input id="mentorMustHaveSimple" placeholder="blueberry, elderflower, orange blossom honey" /></div>
-                <div class="field"><label for="mentorAvoidSimple">What do you want to avoid?</label><input id="mentorAvoidSimple" placeholder="jammy, hot alcohol, perfume, cloying sweetness" /></div>
-                <div class="field"><label for="mentorIngredientsOnHand">Ingredients on hand / willing to buy</label><input id="mentorIngredientsOnHand" placeholder="71B, D47, wildflower honey, black tea, juniper…" /></div>
-              </div>
-              <div class="field"><label for="mentorNoGo">What would ruin this mead for you?</label><textarea id="mentorNoGo" placeholder="What outcome would make you say this missed the whole point?"></textarea></div>
+              <div class="notes-box mentor-concept-preview" id="mentorConceptPreview"></div>
+              <details class="accord-card mentor-editor-card">
+                <summary class="accord-summary">
+                  <span class="accord-title">Edit concept</span>
+                  <span class="small">Open the full concept form</span>
+                </summary>
+                <div class="accord-body">
+                  <div class="form-grid-2">
+                    <div class="field"><label for="mentorConceptName">Project name</label><input id="mentorConceptName" placeholder="Code Blue" /></div>
+                    <div class="field"><label for="mentorStyle">Style / lane</label><input id="mentorStyle" placeholder="Botanical melomel, metheglin, cyser, dark fruit still mead…" /></div>
+                    <div class="field"><label for="mentorBatchSize">Batch size (gal)</label><input id="mentorBatchSize" type="number" step="0.1" /></div>
+                    <div class="field"><label for="mentorTargetAbv">Target ABV</label><input id="mentorTargetAbv" type="number" step="0.1" /></div>
+                    <div class="field"><label for="mentorSweetness">Sweetness</label><select id="mentorSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
+                    <div class="field"><label for="mentorCarbonation">Packaging</label><select id="mentorCarbonation"><option>Still</option><option>Petillant</option><option>Sparkling</option></select></div>
+                  </div>
+                  <div class="field"><label for="mentorInspiration">What inspired this mead?</label><textarea id="mentorInspiration" placeholder="Mood, memory, place, season, soundtrack, job, event, ingredient obsession…"></textarea></div>
+                  <div class="field"><label for="mentorVision">What should it feel like in the glass?</label><textarea id="mentorVision" placeholder="Dark, lifted, tense, easy-drinking, dangerous, clean, lush, bright, cold, celebratory…"></textarea></div>
+                  <div class="form-grid-2">
+                    <div class="field"><label for="mentorServeContext">When / where do you want to drink it?</label><input id="mentorServeContext" placeholder="Winter dinner, porch crusher, gift bottle, after-shift pour…" /></div>
+                    <div class="field"><label for="mentorMustHaveSimple">Must-have flavors or ingredients</label><input id="mentorMustHaveSimple" placeholder="blueberry, elderflower, orange blossom honey" /></div>
+                    <div class="field"><label for="mentorAvoidSimple">What do you want to avoid?</label><input id="mentorAvoidSimple" placeholder="jammy, hot alcohol, perfume, cloying sweetness" /></div>
+                    <div class="field"><label for="mentorIngredientsOnHand">Ingredients on hand / willing to buy</label><input id="mentorIngredientsOnHand" placeholder="71B, D47, wildflower honey, black tea, juniper…" /></div>
+                  </div>
+                  <div class="field"><label for="mentorNoGo">What would ruin this mead for you?</label><textarea id="mentorNoGo" placeholder="What outcome would make you say this missed the whole point?"></textarea></div>
+                </div>
+              </details>
               <div class="hidden-field" aria-hidden="true">
                 <input id="mentorHoney" />
                 <input id="mentorYeast" />
@@ -566,52 +574,75 @@
 
             <div class="card accent-card">
               <div class="toolbar">
-                <h3>MeadEvil Mentor</h3>
+                <h3>Brainstorm Partner</h3>
                 <div class="tag-row">
                   <button class="mini-btn mentor-mode-btn" data-mentor-mode="scout" type="button">Scout</button>
                   <button class="mini-btn mentor-mode-btn" data-mentor-mode="pushback" type="button">Pushback</button>
                   <button class="mini-btn mentor-mode-btn" data-mentor-mode="forge" type="button">Forge</button>
                 </div>
               </div>
-              <p class="small helper-copy">Brutally honest but helpful. Local fallback works right away. If you wire a backend endpoint later, this same panel can call a live LLM safely without exposing a key in the browser.</p>
-              <div class="form-grid-2">
-                <div class="field"><label for="mentorSkillLevel">Skill level</label><select id="mentorSkillLevel"><option value="beginner">Beginner</option><option value="comfortable">Comfortable</option><option value="advanced">Advanced</option></select></div>
-                <div class="field"><label for="mentorRiskTolerance">Risk tolerance</label><select id="mentorRiskTolerance"><option value="keep it safe">Keep it safe</option><option value="balanced risk">Balanced risk</option><option value="push it">Push it</option></select></div>
-                <div class="field"><label for="mentorProcessComfort">Process comfort</label><select id="mentorProcessComfort"><option value="simple fermentation only">Simple fermentation only</option><option value="secondary additions are fine">Secondary additions are fine</option><option value="bench trials are fine">Bench trials are fine</option><option value="stabilization and backsweetening are fine">Stabilization and backsweetening are fine</option></select></div>
-                <div class="field"><label for="mentorTimePatience">Time patience</label><select id="mentorTimePatience"><option value="drink young">Drink young</option><option value="a few months is fine">A few months is fine</option><option value="happy to age it">Happy to age it</option></select></div>
-              </div>
-              <div class="form-grid-2">
-                <div class="field"><label for="mentorBudget">Budget pressure</label><select id="mentorBudget"><option value="normal">Normal</option><option value="watching cost">Watching cost</option><option value="cost is not the issue">Cost is not the issue</option></select></div>
-                <div class="field checkbox-field"><label class="switch"><input id="mentorBluntMode" type="checkbox" checked /> Blunt coach mode</label></div>
-              </div>
-              <div class="form-grid-2">
-                <div class="field"><label for="mentorProvider">AI brain</label><select id="mentorProvider"><option value="openai">OpenAI GPT</option><option value="local">Local only (no API)</option></select></div>
-                <div class="field"><label for="mentorModel">Model</label><select id="mentorModel"><option value="gpt-4o-mini">gpt-4o-mini (cheap, fast)</option><option value="gpt-4o">gpt-4o (smart)</option><option value="gpt-4-turbo">gpt-4-turbo</option></select></div>
-              </div>
-              <p class="small helper-copy">API key lives safely in Netlify environment variables. Your phone never stores or sees it.</p>
-              <div class="tag-row">
-                <button class="btn btn-primary" id="mentorRunBtn" type="button">Ask MeadEvil Mentor</button>
-                <button class="mini-btn" id="mentorApplyBtn" type="button">Apply mentor advice to Build</button>
-              </div>
+              <details class="accord-card mentor-settings-card">
+                <summary class="accord-summary">
+                  <span class="accord-title">Mentor settings</span>
+                  <span class="small">Mode, skill, risk, and model</span>
+                </summary>
+                <div class="accord-body">
+                  <div class="form-grid-2">
+                    <div class="field"><label for="mentorSkillLevel">Skill level</label><select id="mentorSkillLevel"><option value="beginner">Beginner</option><option value="comfortable">Comfortable</option><option value="advanced">Advanced</option></select></div>
+                    <div class="field"><label for="mentorRiskTolerance">Risk tolerance</label><select id="mentorRiskTolerance"><option value="keep it safe">Keep it safe</option><option value="balanced risk">Balanced risk</option><option value="push it">Push it</option></select></div>
+                    <div class="field"><label for="mentorProcessComfort">Process comfort</label><select id="mentorProcessComfort"><option value="simple fermentation only">Simple fermentation only</option><option value="secondary additions are fine">Secondary additions are fine</option><option value="bench trials are fine">Bench trials are fine</option><option value="stabilization and backsweetening are fine">Stabilization and backsweetening are fine</option></select></div>
+                    <div class="field"><label for="mentorTimePatience">Time patience</label><select id="mentorTimePatience"><option value="drink young">Drink young</option><option value="a few months is fine">A few months is fine</option><option value="happy to age it">Happy to age it</option></select></div>
+                  </div>
+                  <div class="form-grid-2">
+                    <div class="field"><label for="mentorBudget">Budget pressure</label><select id="mentorBudget"><option value="normal">Normal</option><option value="watching cost">Watching cost</option><option value="cost is not the issue">Cost is not the issue</option></select></div>
+                    <div class="field checkbox-field"><label class="switch"><input id="mentorBluntMode" type="checkbox" checked /> Blunt coach mode</label></div>
+                  </div>
+                  <div class="form-grid-2">
+                    <div class="field"><label for="mentorProvider">AI brain</label><select id="mentorProvider"><option value="openai">OpenAI GPT</option><option value="local">Local only (no API)</option></select></div>
+                    <div class="field"><label for="mentorModel">Model</label><select id="mentorModel"><option value="gpt-4o-mini">gpt-4o-mini (cheap, fast)</option><option value="gpt-4o">gpt-4o (smart)</option><option value="gpt-4-turbo">gpt-4-turbo</option></select></div>
+                  </div>
+                  <div class="tag-row">
+                    <button class="mini-btn" id="mentorApplyBtn" type="button">Apply mentor advice to Build</button>
+                  </div>
+                </div>
+              </details>
               <div class="notes-box" id="mentorCoachStatus"></div>
+              <div class="toolbar mentor-subhead"><h3>Transcript</h3></div>
+              <div class="notes-box mentor-transcript mentor-transcript-inline" id="mentorTranscript"></div>
               <div class="notes-box mentor-reply-box" id="mentorCoachReply"></div>
-            </div>
-
-            <div class="card accent-soft">
-              <div class="toolbar">
-                <h3>Knowledge Base</h3>
+              <div class="field">
+                <textarea id="mentorFollowup" aria-label="Reply to the brainstorm partner" placeholder="Reply here..."></textarea>
               </div>
-              <p class="small helper-copy">Brainstorm status and mentor hook health.</p>
-              <div class="notes-box" id="mentorKnowledgeStatus"></div>
+              <div class="tag-row lower-toolbar">
+                <button class="btn btn-primary" id="mentorRunBtn" type="button">Send</button>
+              </div>
             </div>
           </div>
           <div class="stack">
-            <div class="card accent-card"><div class="toolbar"><h3>Concept read</h3></div><div class="notes-box" id="mentorSummary"></div></div>
-            <div class="card"><div class="toolbar"><h3>Flavor profile map</h3></div><div class="notes-box info-rows" id="mentorPairings"></div></div>
-            <div class="card"><div class="toolbar"><h3>Recipe skeleton</h3></div><div class="notes-box info-rows" id="mentorArchitecture"></div></div>
-            <div class="card"><div class="toolbar"><h3>Ingredient ranges</h3></div><div class="notes-box info-rows" id="mentorIngredientPlan"></div></div>
-            <div class="card"><div class="toolbar"><h3>Risk controls</h3></div><div class="notes-box info-rows" id="mentorConflicts"></div></div>
-            <div class="card"><div class="toolbar"><h3>Production sequence</h3></div><div class="notes-box info-rows" id="mentorFinishPlan"></div></div>
+            <div class="card accent-card"><div class="toolbar"><h3>Current Best Version</h3></div><div class="notes-box" id="mentorSummary"></div></div>
+            <div class="card accent-soft">
+              <div class="toolbar"><h3>Build Plan</h3></div>
+              <div class="notes-box mentor-direction-board" id="mentorDirectionBoard"></div>
+              <div class="toolbar mentor-subhead"><h3>Roles</h3></div>
+              <div class="notes-box info-rows" id="mentorPairings"></div>
+              <div class="toolbar mentor-subhead"><h3>Moves</h3></div>
+              <div class="notes-box info-rows" id="mentorIngredientPlan"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Risks</h3></div>
+              <div class="notes-box info-rows" id="mentorConflicts"></div>
+              <div class="toolbar mentor-subhead"><h3>If We Build It</h3></div>
+              <div class="notes-box info-rows" id="mentorFinishPlan"></div>
+            </div>
+            <details class="accord-card">
+              <summary class="accord-summary">
+                <span class="accord-title">Troubleshooting view</span>
+                <span class="small">Show internal recipe logic</span>
+              </summary>
+              <div class="accord-body">
+                <div class="notes-box info-rows" id="mentorArchitecture"></div>
+              </div>
+            </details>
           </div>
         </div>
       </div>

@@ -1114,6 +1114,7 @@
 
   function persistData(){
     try{
+      delete data.meadevilMentor;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch(error){
       console.error("Could not save app data", error);
