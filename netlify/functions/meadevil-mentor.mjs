@@ -34,15 +34,20 @@ Output rules:
 - Do not output JSON.
 - Do not label sections with "Next question:", "Next move:", "Assessment:", or similar report headings.
 - Do not open with a question.
+- Do not open with generic scene-setting filler like "Absolutely, let's get into it" or "Alright, let's map this out".
+- Do not open with soft validation like "You're right", "Great choice", or "That makes sense" unless it genuinely adds value.
+- Do not close with "Does this align with your vision?", "How does that sound?", or similar soft confirmation questions.
+- Do not end with broad menus like "what do you want to focus on next?" or "yeast, fermentation, or secondary additions?" Choose the next real downstream design decision yourself.
 - Usually end with one natural, focused question only if the concept truly needs one more decision.
 - If the user already gave enough to make the next decision, make it and move downstream instead of re-asking.
+- If the user already accepted the previous recommendation, do not re-sell the same concept from scratch. Move the thread forward.
 - If the concept is already coherent enough, start acting like a collaborator building a mead, not a gatekeeper asking permission.
-- Never end with a broad menu like "what do you want to focus on next?" or "yeast, fermentation, or secondary additions?" Choose the next real downstream design decision yourself.
 - If you just resolved the honey lane, the next question should usually be about citrus execution, agave illusion, structure, or anti-syrup control, not generic process.
 - If the user asks about dosing a potent finishing addition like tequila, spirits, oak extract, acid, or tannin, recommend a bench-trial style approach first and scaled whole-batch additions second.
 - Prefer tight conversational paragraphs over tidy classroom lists unless the user clearly needs a structured breakdown.
 - When comparing options, do not stop at "these all work." Name the winner and why the others are weaker or riskier in this exact mead.
 - Do not invent new identity ingredients, new flavor lanes, or cute add-ons during process-planning unless they solve a problem already identified in the concept.
+- Stay inside the established ingredient lane during process planning. Do not suddenly add random oak, off-list yeasts, or ingredients that the conversation never earned.
 - If the concept says no actual spirits by default, do not suggest tequila essence or actual tequila unless the user explicitly reopens that boundary.`;
 
 const STYLE_EXAMPLES = `Target rhythm examples:
@@ -123,73 +128,6 @@ Return this exact shape:
   }
 }`;
 
-const REPAIR_SYSTEM_PROMPT = `You are rewriting a mead-design assistant reply that violated live conversation constraints.
-
-Your job:
-- Keep the same helpful, collaborative voice.
-- Preserve any good recommendations that do not conflict with the current state.
-- Remove stale or contradictory advice.
-- Do not output JSON.
-- Do not add generic sign-off language.
-- Do not end with broad menus like "what do you want to focus on next?"
-- If the user just accepted a recommendation, either summarize the path cleanly or ask the single next downstream question.
-- If the current state forbids or avoids something, do not mention it as a recommended base.
-- If the user said they do not have time for a workaround, stop recommending that workaround.
-- Keep it concise and practical.`;
-
-const QUALITY_AUDIT_SYSTEM_PROMPT = `You are auditing a mead-design assistant reply against a specific target style.
-
-Target style:
-- sounds like a sharp collaborative recipe partner, not a polite brewing tutor
-- takes a stand early
-- compares lanes with real tradeoffs and risks
-- uses language like "my instinct", "brutally honest", "if forced to choose", "good call", "that changes things", or equivalent directness when it fits naturally
-- helps decide instead of handing decisions back
-- names the next real downstream decision, not a generic process menu
-- stays grounded in the actual concept and constraints
-
-Score these dimensions from 1 to 10:
-- content_usefulness
-- collaborative_feel
-- recipe_partner_confidence
-
-Return ONLY valid JSON:
-{
-  "scores": {
-    "content_usefulness": 0,
-    "collaborative_feel": 0,
-    "recipe_partner_confidence": 0
-  },
-  "needs_rewrite": true,
-  "problems": ["specific issue", "..."],
-  "missing_moves": ["specific move missing from the target style", "..."],
-  "rewrite_brief": "one paragraph telling the rewriter exactly how to fix the tone and behavior"
-}`;
-
-const REVISION_SYSTEM_PROMPT = `You are rewriting a mead-design assistant reply so it sounds like a high-quality collaborative recipe-design conversation.
-
-Non-negotiable behavior:
-- Lead with a real opinion or recommendation.
-- If the concept has multiple lanes, compare them and pick one.
-- Explain what carries the concept, what only supports it, and what could ruin it.
-- If the user asked for help deciding, do not ask them to make the same decision again.
-- Ask at most one focused downstream question, only after doing real design work.
-- Do not drift into generic consultant language or educational filler.
-- Do not open with soft validation like "you're right", "great choice", or "that makes sense" unless it adds real value.
-- Do not end with open coaching prompts like "what's your plan" or "what would you like to refine next".
-- Do not open with generic scene-setting filler like "Absolutely, let's get into it" or "Alright, let's map this out".
-- Do not close with "Does this align with your vision?" or similar soft confirmation questions.
-- If the user is asking about timing, dosage, or process sequence, answer with the winning lane and briefly say why the nearby alternatives lose.
-- If the user already accepted the previous recommendation, do not re-sell the same concept from scratch. Move the thread forward.
-- Stay inside the established ingredient lane during process planning. Do not suddenly add tequila essence, random oak, or off-list yeasts unless the user explicitly asked for them or the concept clearly requires them.
-- Do not output JSON.
-
-Voice target:
-- sharp, direct, practical, and a little opinionated
-- more "recipe partner thinking out loud with you"
-- less "organized brewing coach giving a nice answer"
-- prefer short paragraphs over polite explanatory blocks
-- when giving process detail, keep the list short and purposeful, not like a beginner brewing handout`;
 
 const THINKING_RAILS = `Before you answer, silently check:
 - Did I help make the mead instead of grading it?
@@ -599,13 +537,10 @@ function normalizeLowerList(values) {
     : [];
 }
 
-function buildReplyIssues(reply, userMessage) {
+function checkHardViolations(reply, userMessage) {
   const issues = [];
-  const text = String(reply || "").trim();
-  const lower = text.toLowerCase();
+  const lower = String(reply || "").toLowerCase();
   const snapshot = userMessage.concept_snapshot || {};
-  const establishedHoneys = establishedHoneyTerms(userMessage);
-  const replyHoneyTerms = Array.from(new Set(extractHoneyTerms(text)));
   const avoidTerms = normalizeLowerList(snapshot.avoid);
   const currentTurn = String(userMessage.current_user_turn || "").toLowerCase();
   const historyText = (Array.isArray(userMessage.conversation_history) ? userMessage.conversation_history : [])
@@ -615,68 +550,28 @@ function buildReplyIssues(reply, userMessage) {
 
   avoidTerms.forEach((term) => {
     if (term && lower.includes(term)) {
-      issues.push(`The reply recommends or affirms "${term}" even though it is on the avoid list.`);
+      issues.push(`Reply recommends "${term}" which is on the avoid list.`);
     }
   });
 
-  if ((/no time to soak|don't have time to soak|do not have time to soak|just have tequila/.test(currentTurn)
-      || /no time to soak|don't have time to soak|do not have time to soak|just have tequila/.test(historyText))
-    && /tequila-soaked oak|oak chips soaked in tequila|soaked oak chips/.test(lower)) {
-    issues.push("The reply recommends tequila-soaked oak even though the user said they do not have time for that and only have tequila.");
-  }
-
   if (/k1-v1116|k1v1116|tequila essence/.test(lower)) {
-    issues.push("The reply introduced an off-lane yeast or tequila essence that does not belong in the allowed or established concept lane.");
+    issues.push("Reply introduced an off-lane yeast or ingredient.");
   }
 
   if (/actual tequila|a touch of actual tequila/.test(lower) && /(no actual spirits|without actual spirits|no spirits)/.test(historyText)) {
-    issues.push("The reply suggests actual tequila even though the concept history said no actual spirits by default.");
+    issues.push("Reply suggests actual tequila despite no-spirits constraint.");
   }
 
-  if (/oak spirals|oak chips/.test(lower) && !/oak/.test(historyText) && !/oak/.test(currentTurn)) {
-    issues.push("The reply introduced oak as a new identity/process lane even though the conversation had not earned that move.");
+  const establishedHoneys = establishedHoneyTerms(userMessage);
+  if (establishedHoneys.length) {
+    const replyHoneyTerms = Array.from(new Set(extractHoneyTerms(reply)));
+    if (replyHoneyTerms.some((term) => !establishedHoneys.includes(term))) {
+      issues.push("Reply introduced a honey not in the concept state.");
+    }
   }
 
-  if (/what do you want to focus on next|yeast selection, fermentation strategy, or any secondary additions|do you need guidance on|feel free to reach out|enjoy crafting this unique mead/i.test(text)) {
-    issues.push("The reply falls into generic consultant handoff language instead of continuing the concrete collaboration.");
-  }
-
-  if (/^absolutely, let'?s get into it\.?|^alright, let'?s /i.test(text)) {
-    issues.push("The reply opens with generic filler instead of making a concrete recipe-design move.");
-  }
-
-  if (/does this .*align with your vision|does this direction fit your vision|are we ready to/i.test(text)) {
-    issues.push("The reply closes with a soft confirmation question instead of a sharper downstream decision.");
-  }
-
-  if (/here'?s a potential lane:|1\.\s+\*\*primary fermentation\*\*|2\.\s+\*\*citrus lift\*\*|3\.\s+\*\*agave illusion\*\*/i.test(text)) {
-    issues.push("The reply slipped into a classroom-style build handout instead of sounding like a collaborator thinking through the next best move.");
-  }
-
-  if (/^perfect\.|^great choice|^excellent choice/i.test(text) && /that makes sense|sounds good|okay|makes sense/.test(currentTurn)) {
-    issues.push("The reply opens with generic praise after the user simply acknowledged the last recommendation.");
-  }
-
-  if ((/^yes\b|this is great|sounds good|that works/i.test(currentTurn)) && /wildflower honey|agave nectar|lime peel|lime zest/i.test(lower)) {
-    issues.push("After the user accepted the lane, the reply restarted the same concept explanation instead of advancing to the next real decision.");
-  }
-  if (isLowInformationGreetingText(currentTurn) && /pounds per gallon|lb per gallon|secondary fermentation|primary fermentation|qa23|d47|ec-1118|71b|freeze-dried|stabiliz|bottl|fermentation/i.test(lower)) {
-    issues.push("The user only greeted the assistant, but the reply jumped straight into process, dosage, or yeast detail.");
-  }
-  if (isLowInformationGreetingText(currentTurn) && /^absolutely|^let'?s dive in|^you'?re working on/i.test(lower)) {
-    issues.push("A greeting turn should get a concise collaborator response, not a canned scene-setting opener.");
-  }
-  if (isSimpleAckText(currentTurn) && /which honey are you leaning toward|do you have another in mind|what honey/i.test(lower)) {
-    issues.push("The user only acknowledged the last lane, but the reply reopened the honey decision instead of moving forward.");
-  }
-  if (/orange blossom honey|clover honey/.test(lower) && /(wildflower honey|linden honey|buckwheat honey|clove honey)/.test(historyText + "\n" + JSON.stringify(snapshot))) {
-    issues.push("The reply invented a different honey lane even though a specific honey was already on hand or established.");
-  }
-  if (establishedHoneys.length && replyHoneyTerms.some((term) => !establishedHoneys.includes(term))) {
-    issues.push(`The reply introduced a honey lane that was never in the user's concept state: ${replyHoneyTerms.filter((term) => !establishedHoneys.includes(term)).join(", ")}.`);
-  }
-  if (/avoid wildflower|wildflower honey could ruin|we should definitely avoid wildflower/i.test(text) && !avoidTerms.some((term) => term.includes("wildflower"))) {
-    issues.push("The reply treated wildflower honey like an avoid lane even though the user did not mark it as an avoid.");
+  if (isLowInformationGreetingText(currentTurn) && /pounds per gallon|lb per gallon|secondary fermentation|primary fermentation|stabiliz|bottl|fermentation/i.test(lower)) {
+    issues.push("Reply jumped into process detail on a greeting turn.");
   }
 
   return issues;
@@ -768,122 +663,6 @@ function buildPacketDrivenReply(userMessage) {
   return "";
 }
 
-async function auditCollaboratorReply({ apiKey, model, userMessage, collaboratorReply, knowledgePromptBlock }) {
-  const content = await callOpenAI({
-    apiKey,
-    model,
-    temperature: 0.1,
-    responseFormat: { type: "json_object" },
-    messages: [
-      { role: "system", content: QUALITY_AUDIT_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Audit this mentor reply against the target conversation style.
-
-Current concept state:
-${JSON.stringify({
-  mode: userMessage.mode || "scout",
-  concept_snapshot: userMessage.concept_snapshot || {},
-  beginner_inputs: userMessage.inputs || {},
-  current_user_turn: userMessage.current_user_turn || ""
-}, null, 2)}
-
-${knowledgePromptBlock || ""}
-
-Reply to audit:
-${collaboratorReply}`
-      }
-    ]
-  });
-
-  return JSON.parse(content);
-}
-
-function replyNeedsRewrite(audit) {
-  const scores = isPlainObject(audit && audit.scores) ? audit.scores : {};
-  const contentUsefulness = Number(scores.content_usefulness || 0);
-  const collaborativeFeel = Number(scores.collaborative_feel || 0);
-  const recipePartnerConfidence = Number(scores.recipe_partner_confidence || 0);
-  return Boolean(audit && audit.needs_rewrite)
-    || contentUsefulness < 8
-    || collaborativeFeel < 8
-    || recipePartnerConfidence < 8;
-}
-
-async function reviseCollaboratorReply({ apiKey, model, userMessage, collaboratorReply, audit, issues, knowledgePromptBlock }) {
-  const problemLines = [
-    ...(Array.isArray(issues) ? issues : []),
-    ...(Array.isArray(audit && audit.problems) ? audit.problems : []),
-    ...(Array.isArray(audit && audit.missing_moves) ? audit.missing_moves : [])
-  ];
-
-  const content = await callOpenAI({
-    apiKey,
-    model,
-    temperature: 0.45,
-    messages: [
-      { role: "system", content: REVISION_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Rewrite this mentor reply so it is much closer to the target collaborative style.
-
-Current concept state:
-${JSON.stringify({
-  mode: userMessage.mode || "scout",
-  concept_snapshot: userMessage.concept_snapshot || {},
-  beginner_inputs: userMessage.inputs || {},
-  current_user_turn: userMessage.current_user_turn || ""
-}, null, 2)}
-
-${knowledgePromptBlock || ""}
-
-What is wrong with the current reply:
-${problemLines.map((item) => `- ${item}`).join("\n") || "- The reply is too generic or too tutor-like."}
-
-Rewrite brief:
-${String(audit && audit.rewrite_brief || "Lead with a stronger opinion, compare lanes with tradeoffs, make the decision if the user asked for help, and only then ask one sharp downstream question.").trim()}
-
-Current reply:
-${collaboratorReply}`
-      }
-    ]
-  });
-
-  return sanitizeCollaboratorReply(content);
-}
-
-async function repairCollaboratorReply({ apiKey, model, userMessage, collaboratorReply, issues, knowledgePromptBlock }) {
-  const content = await callOpenAI({
-    apiKey,
-    model,
-    temperature: 0.35,
-    messages: [
-      { role: "system", content: REPAIR_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Rewrite this mentor reply so it obeys the live constraints and fixes the listed problems.
-
-Current concept state:
-${JSON.stringify({
-  mode: userMessage.mode || "scout",
-  concept_snapshot: userMessage.concept_snapshot || {},
-  beginner_inputs: userMessage.inputs || {},
-  current_user_turn: userMessage.current_user_turn || ""
-}, null, 2)}
-
-${knowledgePromptBlock || ""}
-
-Problems to fix:
-${issues.map((item) => `- ${item}`).join("\n")}
-
-Reply to repair:
-${collaboratorReply}`
-      }
-    ]
-  });
-
-  return sanitizeCollaboratorReply(content);
-}
 
 async function callOpenAI({ apiKey, model, temperature, responseFormat, messages }) {
   const body = {
@@ -1067,11 +846,9 @@ export async function handler(event) {
 
   try {
     let collaboratorReply = buildPacketDrivenReply(userMessage);
-    const usedPacketReply = Boolean(collaboratorReply);
     if (!collaboratorReply) {
       collaboratorReply = buildEvidenceDrivenReply(userMessage, knowledgeContext);
     }
-    const usedEvidenceReply = Boolean(collaboratorReply) && !usedPacketReply;
     if (!collaboratorReply) {
       collaboratorReply = await generateCollaboratorReply({
         apiKey,
@@ -1080,66 +857,13 @@ export async function handler(event) {
         guidanceNote,
         knowledgePromptBlock
       });
-    }
-
-    if (!usedPacketReply && !usedEvidenceReply) {
-      const issues = [
-        ...buildReplyIssues(collaboratorReply, userMessage),
+      const violations = [
+        ...checkHardViolations(collaboratorReply, userMessage),
         ...buildKnowledgeIssues(collaboratorReply, userMessage, knowledgeContext)
       ];
-      let audit = null;
-
-      try {
-        audit = await auditCollaboratorReply({
-          apiKey,
-          model,
-          userMessage,
-          collaboratorReply,
-          knowledgePromptBlock
-        });
-      } catch {
-        audit = null;
-      }
-
-      try {
-        collaboratorReply = await reviseCollaboratorReply({
-          apiKey,
-          model,
-          userMessage,
-          collaboratorReply,
-          audit,
-          issues,
-          knowledgePromptBlock
-        });
-      } catch {
-        collaboratorReply = sanitizeCollaboratorReply(collaboratorReply);
-      }
-
-      const revisedIssues = [
-        ...buildReplyIssues(collaboratorReply, userMessage),
-        ...buildKnowledgeIssues(collaboratorReply, userMessage, knowledgeContext)
-      ];
-      if (revisedIssues.length) {
-        try {
-          collaboratorReply = await repairCollaboratorReply({
-            apiKey,
-            model,
-            userMessage,
-            collaboratorReply,
-            issues: revisedIssues,
-            knowledgePromptBlock
-          });
-        } catch {
-          collaboratorReply = sanitizeCollaboratorReply(collaboratorReply);
-        }
-        const repairedIssues = [
-          ...buildReplyIssues(collaboratorReply, userMessage),
-          ...buildKnowledgeIssues(collaboratorReply, userMessage, knowledgeContext)
-        ];
-        if (repairedIssues.length) {
-          const evidenceReply = buildEvidenceDrivenReply(userMessage, knowledgeContext);
-          if (evidenceReply) collaboratorReply = evidenceReply;
-        }
+      if (violations.length) {
+        const evidenceReply = buildEvidenceDrivenReply(userMessage, knowledgeContext);
+        if (evidenceReply) collaboratorReply = evidenceReply;
       }
     }
 

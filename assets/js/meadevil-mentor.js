@@ -992,62 +992,6 @@
     return source.includes(target);
   }
 
-  function polishCollaborativeReplyText(rawText, { provisionalTake, assessment, packet, mode }){
-    const safePacket = normalizeMentorPacket(packet);
-    const strongest = safePacket.strongestDirection || {};
-    const firstAlt = (safePacket.alternateDirections || [])[0] || {};
-    const dangers = humanJoin(safePacket.ingredientRoles.dangerNotes.length ? safePacket.ingredientRoles.dangerNotes : safePacket.ruiners);
-    const lead = sanitizeProvisionalTakeText(provisionalTake) || buildDefaultProvisionalTake(safePacket, assessment);
-    let text = String(rawText || "").replace(/\r/g, "").trim();
-
-    if (!text) {
-      return buildCollaborativeReplyText({ headline: "", provisionalTake, assessment, packet: safePacket, mode });
-    }
-
-    text = text
-      .replace(/^you're right[^.?!]*[.?!]\s*/i, "")
-      .replace(/^great choice[^.?!]*[.?!]\s*/i, "")
-      .replace(/^that makes sense[^.?!]*[.?!]\s*/i, "")
-      .replace(/^absolutely, let'?s get into it\.?\s*/i, "")
-      .replace(/^alright, let'?s [^.?!]*[.?!]\s*/i, "")
-      .replace(/^you'?ve got a solid concept[^.?!]*[.?!]\s*/i, "")
-      .replace(/^let'?s make it happen[^.?!]*[.?!]\s*/i, "")
-      .replace(/^here('?s| is) how to (do it|tackle it):\s*/i, "")
-      .replace(/^here('?s| is) the lane we'?ll take:\s*/i, "")
-      .replace(/^here('?s| is) a practical approach:\s*/i, "")
-      .replace(/\bbench trials are your friend here\.?\s*/ig, "Bench trials are the safer move here. ")
-      .trim();
-
-    const genericEndingPattern = /(what'?s your plan[^?]*\??|what do you want to focus on next[^?]*\??|are you leaning towards[^?]*\??|is there another aspect you'd like to refine[^?]*\??|do you need guidance on[^?]*\??|does this .*align with your vision[^?]*\??|are we ready to[^?]*\??|what'?s your take on[^?]*\??|if you'?re good with it[^?]*\??)\s*$/i;
-    text = text.replace(genericEndingPattern, "").trim();
-
-    const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
-    const refined = [];
-
-    if (!includesLooseText(paragraphs[0] || "", lead) && !includesLooseText(lead, paragraphs[0] || "") && !/^(my instinct|brutally honest|if forced to choose|i would|ready\b|good\.)/i.test(paragraphs[0] || "")) {
-      refined.push(lead);
-    }
-
-    refined.push(...paragraphs);
-
-    if (strongest.name && !includesLooseText(text, strongest.name)) {
-      refined.push(`If forced to choose, I would build around ${strongest.name.toLowerCase()}. ${strongest.why || strongest.buildSignal || ""}`.trim());
-    }
-
-    if (firstAlt.name && firstAlt.risk && !/tempting miss|risk:/i.test(text) && !includesLooseText(text, firstAlt.risk)) {
-      refined.push(`The tempting miss here is ${firstAlt.name.toLowerCase()}. ${firstAlt.risk}`);
-    }
-
-    if (dangers && !includesLooseText(text, dangers.split(",")[0].trim())) {
-      refined.push(`The thing I would watch is ${dangers}.`);
-    }
-
-    if (safePacket.nextQuestion && !includesLooseText(text, safePacket.nextQuestion)) {
-      refined.push(`The next real decision is this: ${sentenceCaseFirst(safePacket.nextQuestion)}`);
-    }
-
-    return refined.filter(Boolean).join("\n\n").trim();
-  }
 
   function buildCollaborativeReplyText({ headline, provisionalTake, assessment, packet, mode }){
     const safePacket = normalizeMentorPacket(packet);
@@ -1106,71 +1050,6 @@
     return paragraphs.filter(Boolean).join("\n\n");
   }
 
-  function remoteReplyNeedsFallback(text, localPacket){
-    const lower = String(text || "").toLowerCase();
-    const followupLower = String($("mentorFollowup")?.value || "").trim().toLowerCase();
-    const conceptText = [
-      localPacket.conceptName,
-      localPacket.inspiration,
-      localPacket.vision,
-      localPacket.beginner.mustHaveSimple,
-      localPacket.beginner.avoidSimple,
-      localPacket.beginner.ingredientsOnHand,
-      localPacket.beginner.noGo
-    ].join(" ").toLowerCase();
-    const establishedHoneyText = [
-      conceptText,
-      localPacket.snapshot && localPacket.snapshot.summary,
-      ...(localPacket.snapshot && Array.isArray(localPacket.snapshot.mustHave) ? localPacket.snapshot.mustHave : []),
-      ...(localPacket.snapshot && Array.isArray(localPacket.snapshot.avoid) ? localPacket.snapshot.avoid : []),
-      ...(localPacket.snapshot && Array.isArray(localPacket.snapshot.onHand) ? localPacket.snapshot.onHand : []),
-      ...(localPacket.snapshot && Array.isArray(localPacket.snapshot.honeyMentions) ? localPacket.snapshot.honeyMentions : [])
-    ].filter(Boolean).join(" ").toLowerCase();
-    const establishedHoneyTerms = Array.from(new Set(extractHoneyTerms(establishedHoneyText)));
-    const replyHoneyTerms = Array.from(new Set(extractHoneyTerms(text)));
-
-    if (!lower.trim()) return true;
-    if (/^absolutely, let'?s get into it|^alright, let'?s |^you'?ve got a solid concept|you'?re working on a fun and intriguing|let'?s make sure it delivers|let'?s make it happen|does this .*align with your vision|are there any other elements|do you have any thoughts on|what do you want to focus on next|what'?s your take on|if you'?re good with it|here'?s the lane we'?ll take/i.test(lower)) {
-      return true;
-    }
-    if (/k1-v1116|k1v1116|wyeast 1388|tequila essence|acid blend|oak spirals|jalape[nñ]o|smoked paprika/.test(lower)) {
-      return true;
-    }
-    if (/how does that sound|are you ready to proceed|does this align with your vision|what do you think about the zest addition/.test(lower)) {
-      return true;
-    }
-    if (/1\.\s+\*\*honey base\*\*|2\.\s+\*\*agave illusion\*\*|3\.\s+\*\*citrus lift\*\*|4\.\s+\*\*yeast\*\*/i.test(text)) {
-      return true;
-    }
-    if (/primary: [^\n]*toasted coconut|start primary with [^\n]*toasted coconut|toasted coconut flakes\.\s*add [^\n]*primary/i.test(lower)) {
-      return true;
-    }
-    if (/lime zest in primary|add(?:ing)? lime (?:zest|juice) in primary/i.test(lower)) {
-      return true;
-    }
-    if (isLowInformationGreetingText(followupLower) && /pounds per gallon|lb per gallon|secondary fermentation|primary fermentation|qa23|d47|ec-1118|71b|freeze-dried|bench trial|stabiliz|bottl/i.test(lower)) {
-      return true;
-    }
-    if (!/how much|dose|dosing|ounces|grams|ml|tsp|tbsp|primary|secondary|stabiliz|backsweet|bottle|process|ferment/.test(followupLower) && /\b\d+(\.\d+)?\s*(lb|oz|g|ml|tsp|tbsp|pounds|ounces|grams)\b/.test(lower)) {
-      return true;
-    }
-    if (isSimpleAckText(followupLower) && /which honey are you leaning toward|do you have another in mind|what honey/i.test(lower)) {
-      return true;
-    }
-    if (/orange blossom honey|clover honey/.test(lower) && /wildflower honey|linden honey|buckwheat honey|clove honey/.test(conceptText)) {
-      return true;
-    }
-    if (establishedHoneyTerms.length && replyHoneyTerms.some((term) => !establishedHoneyTerms.includes(term))) {
-      return true;
-    }
-    if (/avoid wildflower|wildflower honey could ruin|we should definitely avoid wildflower/i.test(lower) && !/avoid:\s*wildflower|avoid wildflower/.test(establishedHoneyText)) {
-      return true;
-    }
-    if (/(no actual spirits|without actual spirits|no spirits)/.test(conceptText) && /actual tequila|tequila essence|blanco tequila/.test(lower)) {
-      return true;
-    }
-    return false;
-  }
 
   function buildCoachReplyHtml(headline, provisionalTake, assessment, packet, blunt){
     const safePacket = normalizeMentorPacket(packet);
@@ -1787,47 +1666,27 @@
       buildDefaultProvisionalTake(mergedPacket, pickText(reply.assessment, localPacket.assessment, safeLocalPacket.leadImpression))
     ));
     const assessment = pickText(reply.assessment, localPacket.assessment, safeLocalPacket.leadImpression);
-    const generatedConversationReply = buildCollaborativeReplyText({
-      headline: pickText(reply.headline, localPacket.headline),
-      provisionalTake,
-      assessment,
-      packet: mergedPacket,
-      mode: loadEnhancement().mentor.mode || "scout"
-    });
-    const rawConversationReply = pickText(
+    const conversationReply = pickText(
       reply.conversation_reply,
       reply.conversationReply,
-      generatedConversationReply
-    );
-    const needsFallback = remoteReplyNeedsFallback(rawConversationReply, localPacket);
-    const fallbackPacket = needsFallback ? safeLocalPacket : mergedPacket;
-    const finalHeadline = needsFallback ? localPacket.headline : headline;
-    const finalProvisionalTake = needsFallback ? localPacket.provisionalTake : provisionalTake;
-    const finalAssessment = needsFallback ? localPacket.assessment : assessment;
-    const conversationReply = polishCollaborativeReplyText(
-      needsFallback ? buildCollaborativeReplyText({
-        headline: finalHeadline,
-        provisionalTake: finalProvisionalTake,
-        assessment: finalAssessment,
-        packet: fallbackPacket,
+      buildCollaborativeReplyText({
+        headline,
+        provisionalTake,
+        assessment,
+        packet: mergedPacket,
         mode: loadEnhancement().mentor.mode || "scout"
-      }) : rawConversationReply,
-      {
-      provisionalTake: finalProvisionalTake,
-      assessment: finalAssessment,
-      packet: fallbackPacket,
-      mode: loadEnhancement().mentor.mode || "scout"
-    });
+      })
+    );
     const conversationReplyHtml = formatTurnText(conversationReply);
     return {
-      headline: finalHeadline,
+      headline,
       conversationReply,
       conversationReplyHtml,
-      provisionalTake: finalProvisionalTake,
-      assessment: finalAssessment,
-      summaryHtml: buildSummaryHtml(finalHeadline, finalAssessment, fallbackPacket),
-      coachReplyHtml: buildCoachReplyHtml(finalHeadline, finalProvisionalTake, finalAssessment, fallbackPacket, Boolean($("mentorBluntMode")?.checked)),
-      packet: fallbackPacket
+      provisionalTake,
+      assessment,
+      summaryHtml: buildSummaryHtml(headline, assessment, mergedPacket),
+      coachReplyHtml: buildCoachReplyHtml(headline, provisionalTake, assessment, mergedPacket, Boolean($("mentorBluntMode")?.checked)),
+      packet: mergedPacket
     };
   }
 
@@ -1896,11 +1755,12 @@
       enhancement.mentor.status = {
         ...enhancement.mentor.status,
         mode: provider === "openai" ? "remote" : "local",
-        message: provider === "openai" ? "Asking GPT…" : "Thinking through the concept locally…",
+        message: provider === "openai" ? "Sending concept to GPT…" : "Thinking through the concept locally…",
         lastError: ""
       };
     });
     renderAll();
+    if ($("mentorRunBtn")) $("mentorRunBtn").disabled = true;
 
     const payload = buildMentorPayload(localPacket, workingConversation, userTurnText);
     let finalOutput = {
@@ -1917,6 +1777,7 @@
 
     if (provider === "openai"){
       try {
+        if ($("mentorCoachStatus")) $("mentorCoachStatus").innerHTML = `<span class="mentor-status-warn">Designing the mead with GPT…</span>`;
         const json = await callMentorFunction(payload, model);
         if (json.error){
           throw new Error(json.error);
@@ -1944,6 +1805,7 @@
       enhancement.mentor.blunt = Boolean($("mentorBluntMode")?.checked);
     });
     if ($("mentorFollowup")) $("mentorFollowup").value = "";
+    if ($("mentorRunBtn")) $("mentorRunBtn").disabled = false;
     syncLegacyBridge(finalOutput);
     renderAll();
   }
