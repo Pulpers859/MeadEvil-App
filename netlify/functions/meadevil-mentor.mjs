@@ -68,65 +68,6 @@ Example 4
 User: help me plan the fermentation process in detail
 Assistant: Good. Now we stop brainstorming in circles and make the process serve the concept. My instinct is to keep the process cleaner than the flavor fantasy. I would ferment the base clean, keep the coconut in secondary, and leave any risky finishing move for bench trials. If forced to choose, I would rather under-build the clever add-ons than let them blur the core drink.`;
 
-const EXTRACTION_SYSTEM_PROMPT = `You are a precise parser that converts a collaborative mead-design reply into structured JSON for a UI.
-
-Source-of-truth order:
-1. concept_snapshot and beginner inputs for facts and constraints
-2. collaborator_reply for the mentor's actual current recommendation
-3. fallback_packet only as a last-resort fill-in when the collaborator reply did not specify something
-
-Rules:
-- Preserve the collaborator's actual recommendation and direction.
-- Do not invent unsupported ingredients or ingredient forms.
-- Do not pollute fermentables with non-fermentables.
-- If a key fermentable choice is unresolved, source_bill_candidates can be empty.
-- If the collaborator reply asks no question, next_question can be an empty string.
-- Keep next_step short and practical.
-- Return ONLY valid JSON in the exact shape requested.
-
-Return this exact shape:
-{
-  "mentor_reply": {
-    "headline": "one short punchy sentence",
-    "conversation_reply": "the collaborator reply verbatim",
-    "provisional_take": "1-2 declarative sentences naming the current lean",
-    "assessment": "2-4 sentences of honest read",
-    "pushback": ["blunt challenge 1","..."],
-    "strongest_direction": {
-      "name": "short direction name",
-      "why": "why this is the best lane",
-      "build_signal": "what to do next with it"
-    },
-    "alternate_directions": [
-      {"name":"alternate lane","why":"what it would emphasize","risk":"why it is weaker or riskier"}
-    ],
-    "ingredient_roles": {
-      "carries": ["what owns the concept"],
-      "supports": ["what stays subordinate"],
-      "lift_or_structure": ["what keeps it from going soft or vague"],
-      "danger_notes": ["what could ruin it"]
-    },
-    "next_question": "the single most useful question to ask next, or empty string",
-    "next_step": "one sentence telling the user what to do next",
-    "risk_controls": ["thing that could ruin this and how to avoid it","..."],
-    "production_sequence": ["step 1","step 2","..."]
-  },
-  "concept_outputs": {
-    "lead_impression": "one-line sensory read",
-    "dominant_notes": ["..."],
-    "support_notes": ["..."],
-    "tension_sources": ["what keeps this from going soft/vague"],
-    "ruiners": ["outcome that would make this miss"],
-    "style_lane": "Traditional | Melomel | Hydromel | Metheglin | Sack Mead | Cyser | Pyment | Bochet | Acerglyn | Braggot",
-    "finish_direction": "Dry | Off-dry | Semi-sweet | Sweet finish",
-    "decision_stage": "concept shaping | constraint lock | structure pass | batch ready"
-  },
-  "build_mapping": {
-    "yeast": "71B | D47 | QA23 | EC-1118 | ",
-    "source_bill_candidates": [{"type":"Honey|Juice (single strength)|Juice Concentrate|Fruit / Puree|Maple Syrup|Table Sugar|Custom","name":"specific ingredient"}],
-    "adjunct_candidates": [{"phase":"primary|secondary|bench trial|packaging","category":"botanical|citrus|tea|oak|acid|tannin|spice|fruit|other","ingredient":"name","purpose":"what this does","notes":"how easy to overdo, when to pull"}]
-  }
-}`;
 
 
 const THINKING_RAILS = `Before you answer, silently check:
@@ -716,36 +657,6 @@ async function generateCollaboratorReply({ apiKey, model, userMessage, guidanceN
   return sanitizeCollaboratorReply(content);
 }
 
-async function extractMentorStructure({ apiKey, model, userMessage, collaboratorReply }) {
-  const extractionPayload = {
-    mode: userMessage.mode || "scout",
-    blunt: userMessage.blunt ?? true,
-    beginner_inputs: userMessage.inputs || {},
-    concept_snapshot: userMessage.concept_snapshot || {},
-    current_user_turn: userMessage.current_user_turn || "",
-    collaborator_reply: collaboratorReply,
-    fallback_packet: userMessage.fallback_packet || {}
-  };
-
-  const content = await callOpenAI({
-    apiKey,
-    model,
-    temperature: 0.15,
-    responseFormat: { type: "json_object" },
-    messages: [
-      { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Extract the mentor turn into the JSON schema exactly as requested.
-
-${JSON.stringify(extractionPayload, null, 2)}`
-      }
-    ]
-  });
-
-  return JSON.parse(content);
-}
-
 function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
   const packet = isPlainObject(userMessage.fallback_packet) ? userMessage.fallback_packet : {};
   const strongestDirection = isPlainObject(packet.strongestDirection) ? packet.strongestDirection : {};
@@ -802,12 +713,6 @@ function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
       adjunct_candidates: normalizeObjectArray(build.adjunct_candidates, packet.adjunctCandidates)
     }
   };
-}
-
-function mergeMentorResponse(extracted, userMessage, collaboratorReply) {
-  const merged = buildFallbackResponse(userMessage, collaboratorReply, extracted);
-  merged.mentor_reply.conversation_reply = collaboratorReply;
-  return merged;
 }
 
 export async function handler(event) {
@@ -867,17 +772,7 @@ export async function handler(event) {
       }
     }
 
-    try {
-      const extracted = await extractMentorStructure({
-        apiKey,
-        model,
-        userMessage,
-        collaboratorReply
-      });
-      return respond(200, mergeMentorResponse(extracted, userMessage, collaboratorReply));
-    } catch {
-      return respond(200, buildFallbackResponse(userMessage, collaboratorReply));
-    }
+    return respond(200, buildFallbackResponse(userMessage, collaboratorReply));
   } catch (err) {
     return respond(502, { error: `Mentor function error: ${err.message || err}` });
   }
