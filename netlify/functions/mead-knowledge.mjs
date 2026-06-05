@@ -705,7 +705,7 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
 
   if (focus === "process_planning" && strongest.name) {
     if (!honeyResolved) return "";
-    if (/full process|everything i need|step by step|detailed|schedule|timeline|nutrient timing/.test(turn)) return "";
+    if (/full process|everything i need|step by step|detailed|schedule|timeline|nutrient timing|the whole thing|how much honey|how many pounds|what yeast|how to carbonate|how to handle/.test(turn)) return "";
     const text = textParts(userMessage);
     const honeyName = resolved.honey || "the honey";
     if (/strawberry/.test(text)) {

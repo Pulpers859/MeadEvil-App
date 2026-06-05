@@ -21,12 +21,14 @@ Practical recipe knowledge:
 - Honey sizing: use approximately 1.5 lb honey per gallon of total must volume for a hydromel (~7% ABV, OG ~1.053-1.055). Quick batch references for a ~7% hydromel: 1 gal batch → ~1.5 lb honey; 2 gal batch → ~3.0 lb honey; 3 gal batch → ~4.5 lb honey; 5 gal batch → ~7.5 lb honey. For a standard mead (~12-14% ABV, OG ~1.090-1.110), use approximately 2.5-3 lb per gallon.
 - Honey displaces volume: ~1 lb honey ≈ 0.085 gal. For a 2 gal batch with 3 lb honey, the honey takes up ~0.25 gal, so start with ~1.75 gal water, dissolve honey, then top up to target total must volume. Never add the full water volume plus honey on top.
 - Always give the user an OG checkpoint when recommending honey amounts so they can verify with a hydrometer.
+- Account for racking and fruit losses: build 10-15% extra must volume beyond the target final volume. For a 2 gal final package, build ~2.25 gal of starting must. Adjust honey proportionally to the actual must volume.
 - Cool fermentation (60-66°F) preserves delicate floral and fruit aromas. Warm fermentation risks fusel alcohols and hot/solventy character.
 - Staggered nutrient additions (Fermaid O split across 24h, 48h, 72h or 1/3 sugar break) are standard practice, not a single upfront dump.
 - Pectic enzyme in primary helps clarity, especially when fruit comes later in secondary.
 - For sparkling mead, force carbonation in a keg is the safest method. Standard wine bottles cannot handle carbonation pressure. Only use champagne bottles, Belgian bottles, thick beer bottles, or pressure-rated swing-tops.
 - Carbonation sharpens perceived acidity. Do not add acid upfront in sparkling meads — save it for bench trials after carbonation.
-- Fruit in secondary: for a restrained supporting role (blush, light aroma), use roughly 1-1.5 lb per gallon. For a prominent fruit character, use 2+ lb per gallon. Freeze fruit first if fresh, thaw, slice or lightly crush — do not puree. Contact time 5-7 days is typical; start tasting around day 4-5 and rack off when the aroma/color is right. Avoid extended contact (>10 days) without a clear reason.
+- Fruit in secondary: for a restrained but visible supporting role (blush, light aroma, color tint), use roughly 1.5 lb per gallon. For a prominent fruit-forward character, use 2-3 lb per gallon. Freeze fruit first if fresh, thaw, slice or lightly crush — do not puree. Contact time 5-7 days is typical; start tasting around day 4-5 and rack off when the aroma/color is right. Avoid extended contact (>10 days) without a clear reason.
+- For sparkling meads, target 2.7-2.8 volumes CO2 for a champagne-like sparkle. At 34-38°F keg temp this typically requires 18-25 PSI. Use a carbonation chart for exact PSI at your serving temp.
 
 Workflow:
 1. Start with what the glass should feel like and what must not happen.
@@ -89,7 +91,8 @@ const THINKING_RAILS = `Before you answer, silently check:
 - Did I avoid reopening solved decisions? If the conversation already settled honey, yeast, fruit timing, or any other lane, I must not re-ask about it.
 - Did I avoid labels like "Next question" and "Next move"?
 - If the user asked about amounts or sizing, did I give actual numbers grounded in honey-to-gravity math instead of vague ranges?
-- If I mentioned sparkling or carbonation, did I address bottle safety?`;
+- If I mentioned sparkling or carbonation, did I address bottle safety?
+- If the user asked for a process plan or recipe, did I give actual pounds, gallons, grams, temperatures, and timelines instead of staying abstract?`;
 
 function isLowInformationGreetingText(text) {
   const lower = String(text || "").trim().toLowerCase();
@@ -286,7 +289,7 @@ function buildGuidanceNote(userMessage) {
     rules.push("A meaningful constraint changed. Rebuild around the new reality instead of defending the older ideal.");
   }
   if (userNeed === "build_request") {
-    rules.push("The user wants real build help. If the concept is coherent, start behaving like a build partner instead of staying abstract.");
+    rules.push("The user wants real build help with specific numbers. Give honey amount in pounds with OG checkpoint, yeast choice with brief rationale, fruit amount and timing, fermentation temperature, nutrient schedule, and packaging plan. Do not stay abstract or philosophical — give the actual recipe.");
   }
 
   if (!hasHoney) {
@@ -327,6 +330,9 @@ function buildGuidanceNote(userMessage) {
   }
   if (/^yes\b|this is great|sounds good|that works|let's start|lets start/i.test(latestTurn)) {
     rules.push("The user is affirming the current lane or asking to continue. Do not restart the same explanation from zero. Advance the thread.");
+  }
+  if (/how much honey|how many pounds|what yeast|how to handle|how to carbonate|plan the whole|the whole thing|full process|walk me through|everything i need|start to finish/i.test(latestTurn)) {
+    rules.push("The user is asking for specific process details. Answer with actual numbers: honey in pounds with must volume, OG target, yeast name, fruit pounds per gallon with timing, fermentation temperature range, nutrient grams and staggered schedule, pectic enzyme if fruit is involved, carbonation volumes and PSI, and bottle safety. Also mention acid and structure additions as bench-trial-only if relevant. Do not give a philosophical overview — give the buildable recipe.");
   }
   if (/fermentation process in detail|plan the fermentation process|start planning/i.test(latestTurn)) {
     rules.push("The user is asking for process detail. Stay inside the already established ingredient lane and do not introduce new identity ingredients or off-list yeasts.");
@@ -371,17 +377,28 @@ function buildGuidanceNote(userMessage) {
   }
 
   if (/sparkling|petillant|carbonated/.test(textParts)) {
-    bannedQuestions.push("Do not default to bottle-conditioning talk unless the user has actually chosen that path.");
-    rules.push("This is a sparkling concept. If discussing bottling for gifts, remind the user about pressure-safe bottles (champagne, Belgian, thick beer, or rated swing-tops). Standard wine bottles are unsafe for carbonation.");
+    bannedQuestions.push("Do not mention bottle-conditioning or priming sugar unless the user explicitly asks about it. Default to force carbonation in a keg as the recommended method.");
+    rules.push("This is a sparkling concept. Recommend force carbonation in a keg as the safest and most controllable method. If discussing bottling for gifts, remind the user to bottle cold from the keg into pressure-safe bottles (champagne, Belgian, thick beer, or rated swing-tops). Standard wine bottles are unsafe for carbonation.");
+    rules.push("For sparkling meads, do not add acid upfront — carbonation sharpens perceived acidity. Save acid and structure additions (like white tea or tannin) for bench trials after the mead is carbonated.");
   }
 
   const batchSizeVal = String(inputs.batchSize || "").trim();
   if (batchSizeVal) {
-    rules.push(`The user's batch size is ${batchSizeVal} gallons. Use this number for any amount calculations — do not assume a different batch size.`);
+    rules.push(`The user's batch size is ${batchSizeVal} gallons final volume. Build about 10-15% extra must to account for racking and fruit losses. Use the actual must volume for honey calculations.`);
   }
   const targetAbvVal = String(inputs.targetAbv || "").trim();
   if (targetAbvVal) {
     rules.push(`The user's target ABV is ~${targetAbvVal}%. Size the honey bill to hit this target using ~35 gravity points per pound per gallon. Give an OG checkpoint.`);
+  }
+  if (batchSizeVal && targetAbvVal) {
+    const batchGal = parseFloat(batchSizeVal);
+    const abv = parseFloat(targetAbvVal);
+    if (batchGal > 0 && abv > 0) {
+      const ogDry = (1 + abv / 131.25).toFixed(3);
+      const mustVol = (batchGal * 1.125).toFixed(2);
+      const honeyLb = ((abv / 131.25 * 1000) * parseFloat(mustVol) / 35).toFixed(1);
+      rules.push(`Computed targets: build ~${mustVol} gal of must, use ~${honeyLb} lb honey, expect OG ~${ogDry}, ferment at 60-66°F. Do not cite a significantly different OG — that would miss the ${abv}% ABV target.`);
+    }
   }
 
   const isLightConcept = /\blight\b|session|refreshing|easy.?drinking|champagne|hydromel|low.?abv/.test(textParts);
@@ -391,6 +408,12 @@ function buildGuidanceNote(userMessage) {
 
   if (/linden/.test(textParts) && hasHoney) {
     rules.push("Linden honey has a distinctive herbaceous and slightly minty character with delicate floral notes. It is lighter-bodied than wildflower or buckwheat and pairs well with bright, fresh concepts.");
+  }
+
+  const yeastPreferenceMatch = String(inputs.ingredientsOnHand || "").match(/\b(71B|D47|QA23|EC-1118)\b/i);
+  if (yeastPreferenceMatch) {
+    const preferredYeast = yeastPreferenceMatch[1].toUpperCase().replace("EC-1118", "EC-1118");
+    rules.push(`The user has ${preferredYeast} on hand or preferred. Use ${preferredYeast} as the yeast recommendation unless there is a strong technical reason not to (e.g., ABV exceeds tolerance). Briefly explain why it fits this concept.`);
   }
 
   return [
