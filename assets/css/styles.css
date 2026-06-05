@@ -570,9 +570,11 @@ input[readonly]{opacity:.92}
   max-height:540px;
   overflow:auto;
 }
-.mentor-transcript-inline{
-  max-height:420px;
-  margin-bottom:14px;
+.mentor-transcript-card{
+  margin-top:14px;
+}
+.mentor-transcript-card .accord-body{
+  padding:0;
 }
 .mentor-transcript:empty::before,
 .mentor-direction-board:empty::before{

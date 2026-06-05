@@ -69,7 +69,7 @@
   }
 
   function normalizeConceptTerm(term){
-    const raw = String(term || "").trim();
+    const raw = String(term || "").trim().replace(/[.,;:!?]+$/, "");
     const lower = raw.toLowerCase();
     if (!lower) return [];
     if (/agave\s*\/\s*tequila|tequila\s*\/\s*agave/.test(lower)) return ["agave character", "tequila-style lift"];
@@ -150,6 +150,13 @@
     const lower = String(term || "").toLowerCase();
     if (/toasted coconut|coconut|tequila-style lift|agave character|lime|zest|peel|tea|oak|acid|tannin|juniper|elderflower|hibiscus|spice|vanilla/.test(lower)) return false;
     return /honey|maple|sugar|juice|cider|must|nectar|syrup|fruit|puree|berries|blueberry|cherry|apple|pear|peach|plum|fig/.test(lower);
+  }
+
+  function isDescriptorPhrase(term){
+    const lower = String(term || "").toLowerCase();
+    if (/carbonation|effervescence|sparkl|fizz|bubbl/.test(lower)) return true;
+    if (/\baroma\b|\bfinish\b|\bmouthfeel\b|\bcharacter\b|\bprofile\b|\bimpression\b|\bexperience\b|\benergy\b/.test(lower)) return true;
+    return false;
   }
 
   function buildDirectionName(carries, supports){
@@ -993,7 +1000,7 @@
   }
 
 
-  function buildCollaborativeReplyText({ headline, provisionalTake, assessment, packet, mode }){
+  function buildCollaborativeReplyText({ headline, provisionalTake, assessment, packet, mode, userNeed }){
     const safePacket = normalizeMentorPacket(packet);
     const strongest = safePacket.strongestDirection || {};
     const alternates = (safePacket.alternateDirections || []).slice(0, 2);
@@ -1002,6 +1009,24 @@
     const lift = humanJoin(safePacket.ingredientRoles.liftStructure);
     const dangers = humanJoin(safePacket.ingredientRoles.dangerNotes.length ? safePacket.ingredientRoles.dangerNotes : safePacket.ruiners);
     const take = sanitizeProvisionalTakeText(provisionalTake) || buildDefaultProvisionalTake(safePacket, assessment);
+
+    if (userNeed === "help_me_choose"){
+      const helpParts = [];
+      helpParts.push("Alright, let me make the call instead of bouncing the question back.");
+      if (strongest.name){
+        helpParts.push(`I would go with ${strongest.name.toLowerCase()}. ${strongest.why || ""}`);
+      }
+      const steps = [];
+      if (carries) steps.push(`keep ${carries} as the lead voice`);
+      if (supports) steps.push(`let ${supports} play backup`);
+      if (lift) steps.push(`use ${lift} to keep the finish defined`);
+      if (steps.length) helpParts.push(`In practice: ${steps.join(", ")}.`);
+      if (dangers) helpParts.push(`Watch out for ${dangers}.`);
+      if (safePacket.nextStep) helpParts.push(safePacket.nextStep);
+      else if (safePacket.nextQuestion) helpParts.push(`The next thing to sort out: ${safePacket.nextQuestion}`);
+      return helpParts.filter(Boolean).join("\n\n");
+    }
+
     const paragraphs = [];
 
     if (take) paragraphs.push(take);
@@ -1164,8 +1189,11 @@
       else styleLane = "Traditional mead";
     }
 
+    const yeastNameMap = { "71b": "71B", "d47": "D47", "qa23": "QA23", "ec-1118": "EC-1118" };
+    const yeastMention = combinedText.match(/\b(71b|d47|qa23|ec-1118)\b/i);
     let yeastLane = "71B";
-    if (targetAbv >= 15 || combinedText.toLowerCase().includes("sparkling")) yeastLane = "EC-1118";
+    if (yeastMention) yeastLane = yeastNameMap[yeastMention[1].toLowerCase()] || yeastMention[1];
+    else if (targetAbv >= 15 || combinedText.toLowerCase().includes("sparkling")) yeastLane = "EC-1118";
     else if (k.bright.length && combinedText.toLowerCase().includes("tropical")) yeastLane = "QA23";
     else if (k.dark.length && !k.fruit.length) yeastLane = "D47";
 
@@ -1178,9 +1206,10 @@
       }));
     const adjunctCandidates = preferredConceptTerms(mustHave.filter((item) => !isLikelyFermentableTerm(item)))
       .filter((item) => !/tequila-style lift|agave character/.test(item))
+      .filter((item) => !isDescriptorPhrase(item))
       .map((item) => ({
         phase: /tea/.test(item) ? "bench trial" : "secondary",
-        category: /tea/.test(item) ? "tea" : /oak/.test(item) ? "oak" : /zest|peel|citrus|lime|lemon|grapefruit/.test(item) ? "citrus" : /acid/.test(item) ? "acid" : /tannin/.test(item) ? "tannin" : "botanical",
+        category: /tea/.test(item) ? "tea" : /oak/.test(item) ? "oak" : /zest|peel|citrus|lime|lemon|grapefruit/.test(item) ? "citrus" : /acid/.test(item) ? "acid" : /tannin/.test(item) ? "tannin" : /strawberry|blueberry|cherry|raspberry|blackberry|berry|fruit/.test(item) ? "fruit" : "botanical",
         ingredient: displayConceptTerm(item),
         purpose: /tea/.test(item)
           ? "add structure only if the finished mead still feels too soft"
@@ -1234,10 +1263,11 @@
     ]).slice(0, 3).map(displayConceptTerm);
     const liftStructure = uniq(tensionSources.length ? tensionSources : [sweetness === "Dry" ? "dry finish discipline" : "a drier or brighter line than the concept currently has"]);
     const dangerNotes = ruiners.length ? ruiners.slice(0, 3) : pushback.slice(0, 1);
+    const mentorTurnCount = conversation.filter((t) => t.role === "mentor").length;
     const strongestDirection = {
       name: buildDirectionName(carries, supports),
       why: `This keeps ${humanJoin(carries) || "the main note"} carrying the concept while ${humanJoin(supports) || "everything else"} ${chooseVerb(supports, "stays", "stay")} in support and ${humanJoin(liftStructure) || "a cleaner finish"} ${chooseVerb(liftStructure, "keeps", "keep")} it from going soft.`,
-      buildSignal: mode === "forge" ? "This is coherent enough to map into a disciplined batch build." : "Do not turn this into a full recipe yet. First make sure the supporting notes stay subordinate."
+      buildSignal: (mode === "forge" || mentorTurnCount >= 3) ? "This is coherent enough to map into a disciplined batch build." : "Do not turn this into a full recipe yet. First make sure the supporting notes stay subordinate."
     };
     const alternateDirections = [
       {
@@ -1345,7 +1375,8 @@
         provisionalTake,
         assessment,
         packet,
-        mode
+        mode,
+        userNeed: snapshot.userNeed
       }),
       summaryHtml: buildSummaryHtml(headline, assessment, packet),
       coachReplyHtml: buildCoachReplyHtml(headline, provisionalTake, assessment, packet, blunt),
