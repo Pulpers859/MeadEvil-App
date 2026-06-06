@@ -369,7 +369,8 @@ function detectDecisionFocus(userMessage) {
   const snapshot = userMessage.concept_snapshot || {};
   const honeyUnresolved = snapshot.unresolved && snapshot.unresolved.honey;
 
-  if (/hello|ready|lets get started|let s get started|let us get started|lets begin|ready when you are/.test(turn)) return "kickoff";
+  if (/hello|ready|lets get started|let s get started|let us get started|lets begin|ready when you are|get started on this|new mead idea|start.*this.*mead|begin.*this.*mead/.test(turn)) return "kickoff";
+  if (/where did you get|where did that come from|when did we mention|why did you say|you mentioned.*but|that was wrong|that.s wrong|do not lie|be honest|answer me|what are you talking about|i never said/.test(turn)) return "general_progression";
   if (/i dont know|i don't know|you tell me|help me choose|recommend|what would you do/.test(turn)) return "decision_help";
 
   if (honeyUnresolved && /honey|floral|varietal|which honey|what honey/.test(turn)) return "honey_lane";
@@ -509,7 +510,7 @@ function numericBatchSize(userMessage) {
 }
 
 function chooseYeastForContext(conceptText) {
-  if (/juniper|lifted aromatics|dry snap|alert/.test(conceptText)) {
+  if (/juniper|lifted aromatics|dry snap|alert|bright|crisp|floral|delicate|champagne|sparkling/.test(conceptText)) {
     return {
       pick: "QA23",
       why: "it keeps the lane brighter and more aromatic instead of softening the whole frame",
@@ -595,15 +596,17 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
 
   if (focus === "tea_structure") {
     const turn = currentTurnText(userMessage);
+    const carriesLabel = carries || "the main note";
+    const supportsLabel = supports || "the supporting notes";
     if (/sharpen it more with tea|tea and dryness discipline/.test(turn)) {
       return [
         "Good. Then tea should stay a structure tool, not part of the identity.",
-        "That means blueberry still carries the glass, juniper stays like a cold accent, and tea only earns its place if the finished mead still needs a drier snap."
+        `That means ${carriesLabel} still carries the glass, ${supportsLabel} stays in support, and tea only earns its place if the finished mead still needs a drier snap.`
       ].join("\n\n");
     }
     return [
-      "Tea belongs here only if the finished mead still feels too soft after the fruit and juniper are already doing their job.",
-      "So I would not build the whole batch around tea. I would keep it as a bench-trial structure tool, because that lets you sharpen the finish without flattening the blueberry or turning the juniper into background noise."
+      `Tea belongs here only if the finished mead still feels too soft after ${carriesLabel} and the rest of the concept are already doing their job.`,
+      `So I would not build the whole batch around tea. I would keep it as a bench-trial structure tool, because that lets you sharpen the finish without flattening ${carriesLabel} or turning ${supportsLabel} into background noise.`
     ].join("\n\n");
   }
 
@@ -654,9 +657,7 @@ export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKn
     const conceptText = textParts(userMessage);
     const yeast = chooseYeastForContext(conceptText);
     const explicitPick = /pick.*yeast|choose.*yeast|what yeast|which yeast|yeast lane/.test(currentTurnText(userMessage));
-    const nextLine = explicitPick ? "" : /blueberry|juniper/.test(conceptText)
-      ? "The next real decision after yeast is whether you want the blueberry more integrated through fermentation, or fresher with at least some late-fruit energy left in the glass."
-      : /toasted coconut|agave|tequila/.test(conceptText)
+    const nextLine = explicitPick ? "" : /toasted coconut|agave|tequila/.test(conceptText)
         ? "The next real decision after yeast is how visible you want the toasted coconut once the lime and agave are both doing their jobs."
       : /strawberry|linden/.test(conceptText)
         ? "The next real decision after yeast is whether the strawberry should stay all in the fresh lane, or have just a little more body without drifting jammy."

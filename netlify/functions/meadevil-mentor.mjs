@@ -97,6 +97,8 @@ const THINKING_RAILS = `Before you answer, silently check:
 function isLowInformationGreetingText(text) {
   const lower = String(text || "").trim().toLowerCase();
   if (!lower) return false;
+  if (/^(so\s+)?(let'?s|let us)\s+(get started|begin|do this|do it|go|start)/i.test(lower)) return true;
+  if (/get started on this|new mead idea|start.*this.*mead|begin.*this.*mead/i.test(lower)) return true;
   const normalized = lower.replace(/[^a-z0-9]+/g, " ").trim();
   return [
     "hi",
