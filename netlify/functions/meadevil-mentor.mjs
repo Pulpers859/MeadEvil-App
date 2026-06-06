@@ -649,15 +649,6 @@ function buildPacketDrivenReply(userMessage) {
     ].filter(Boolean).join("\n\n"));
   }
 
-  if (String(snapshot.userNeed || "").trim() === "help_me_choose" && strongestName) {
-    return sanitizeCollaboratorReply([
-      `If I had to lean right now, I would build around ${strongestName.toLowerCase()}.`,
-      strongest.why || buildSignal,
-      dangers ? `The thing I would watch is ${dangers}.` : "",
-      nextQuestion ? `The next real decision is this: ${sentenceCaseFirst(nextQuestion)}` : ""
-    ].filter(Boolean).join("\n\n"));
-  }
-
   return "";
 }
 

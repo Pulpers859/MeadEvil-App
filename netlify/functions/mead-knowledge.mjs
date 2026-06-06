@@ -546,6 +546,12 @@ function chooseYeastForContext(conceptText) {
 }
 
 export function buildEvidenceDrivenReply(userMessage, knowledgeContext = buildKnowledgeContext(userMessage)) {
+  // All conversational replies go to GPT. Evidence-based knowledge is
+  // injected into GPT context via buildKnowledgePromptBlock instead of
+  // replacing GPT with canned text. This prevents hardcoded ingredient
+  // references, repetitive templated responses, and inability to adapt
+  // to nuanced questions.
+  return "";
   const focus = knowledgeContext.focus || "";
   const resolved = knowledgeContext.resolved || {};
   const batchSize = numericBatchSize(userMessage);
