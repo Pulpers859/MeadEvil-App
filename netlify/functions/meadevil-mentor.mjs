@@ -23,11 +23,11 @@ Practical recipe knowledge:
 - Always give the user an OG checkpoint when recommending honey amounts so they can verify with a hydrometer.
 - Account for racking and fruit losses: build 10-15% extra must volume beyond the target final volume. For a 2 gal final package, build ~2.25 gal of starting must. Adjust honey proportionally to the actual must volume.
 - Cool fermentation (60-66°F) preserves delicate floral and fruit aromas. Warm fermentation risks fusel alcohols and hot/solventy character.
-- Staggered nutrient additions (Fermaid O split across 24h, 48h, 72h or 1/3 sugar break) are standard practice, not a single upfront dump.
+- Staggered nutrient additions (SNA): split Fermaid O into three equal doses at 24h, 48h, and 72h (or the 1/3 sugar break, whichever comes first). Do not add Fermaid O at pitch — the first 24 hours use Go-Ferm nutrients from yeast rehydration. This is standard practice, not a single upfront dump.
 - Pectic enzyme in primary helps clarity, especially when fruit comes later in secondary.
 - For sparkling mead, force carbonation in a keg is the safest method. Standard wine bottles cannot handle carbonation pressure. Only use champagne bottles, Belgian bottles, thick beer bottles, or pressure-rated swing-tops.
 - Carbonation sharpens perceived acidity. Do not add acid upfront in sparkling meads — save it for bench trials after carbonation.
-- Fruit in secondary: for a restrained but visible supporting role (blush, light aroma, color tint), use roughly 1.5 lb per gallon. For a prominent fruit-forward character, use 2-3 lb per gallon. Freeze fruit first if fresh, thaw, slice or lightly crush — do not puree. Contact time 5-7 days is typical; start tasting around day 4-5 and rack off when the aroma/color is right. Avoid extended contact (>10 days) without a clear reason.
+- Fruit in secondary: for a restrained but visible supporting role (blush, light aroma, color tint), use roughly 1.5 lb per gallon of batch size (e.g., 2 gal batch = 3 lb fruit, 3 gal batch = 4.5 lb fruit, 5 gal batch = 7.5 lb fruit). For a prominent fruit-forward character, use 2-3 lb per gallon. Freeze fruit first if fresh, thaw, slice or lightly crush — do not puree. Contact time 5-7 days is typical; start tasting around day 4-5 and rack off when the aroma/color is right. Avoid extended contact (>10 days) without a clear reason.
 - For sparkling meads, target 2.7-2.8 volumes CO2 for a champagne-like sparkle. At 34-38°F keg temp this typically requires 18-25 PSI. Use a carbonation chart for exact PSI at your serving temp.
 
 Workflow:
