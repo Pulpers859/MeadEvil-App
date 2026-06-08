@@ -961,13 +961,6 @@
       targetAbv: "",
       sweetness: "Dry",
       carbonation: "Still",
-      honey: "",
-      yeast: "",
-      fruitSpiceOak: "",
-      structure: "",
-      mustHave: "",
-      avoid: "",
-      constraints: ""
     };
   }
 
@@ -2172,18 +2165,22 @@
   }
 
   function mentorKeywordBag(state){
+    let beginner = {};
+    try {
+      const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
+      const enh = enhRaw ? JSON.parse(enhRaw) : null;
+      beginner = (enh && enh.mentor && enh.mentor.beginner) || {};
+    } catch(e) {}
     return [
       state.conceptName,
       state.style,
       state.inspiration,
       state.vision,
-      state.honey,
-      state.yeast,
-      state.fruitSpiceOak,
-      state.structure,
-      state.mustHave,
-      state.avoid,
-      state.constraints
+      beginner.mustHaveSimple,
+      beginner.avoidSimple,
+      beginner.ingredientsOnHand,
+      beginner.serveContext,
+      beginner.noGo
     ].join(" ").toLowerCase();
   }
 
@@ -2259,27 +2256,6 @@
     const minTotal = round(perGalMin * gallons, precision);
     const maxTotal = round(perGalMax * gallons, precision);
     return `${adjunct.stage}: ${perGalMin}-${perGalMax} ${adjunct.unit}/gal (${minTotal}-${maxTotal} ${adjunct.unit} for ${round(gallons, 1)} gal). ${adjunct.role}.`;
-  }
-
-  function mentorCocoDemoState(){
-    return {
-      ...defaultMentor(),
-      conceptName: "The Blood of El Coco Loco",
-      style: "Metheglin / tropical lane",
-      inspiration: "Tequila-inspired coconut mead with agave-like lift and no actual spirits.",
-      vision: "Toasted coconut nose, citrus lift, agave illusion in the mid-palate, and a clean non-syrupy finish.",
-      batchSize: "3",
-      targetAbv: "12.5",
-      sweetness: "Semi-sweet",
-      carbonation: "Still",
-      honey: "Orange blossom with a touch of meadowfoam",
-      yeast: "QA23",
-      fruitSpiceOak: "Toasted coconut, lime zest, vanilla bean, tiny amount of medium-toast American oak",
-      structure: "Bright acid line, light tannin, polished finish",
-      mustHave: "No sunscreen coconut. No pithy bitterness. No hot alcohol.",
-      avoid: "waxy coconut, syrupy finish, bitter lime pith",
-      constraints: "No actual tequila in the package. Must taste premium and clean."
-    };
   }
 
   function buildMentor(state){
@@ -2562,13 +2538,6 @@
     setField("mentorTargetAbv", m.targetAbv || "");
     setField("mentorSweetness", m.sweetness || "Dry");
     setField("mentorCarbonation", m.carbonation || "Still");
-    setField("mentorHoney", m.honey || "");
-    setField("mentorYeast", m.yeast || "");
-    setField("mentorFruitSpiceOak", m.fruitSpiceOak || "");
-    setField("mentorStructure", m.structure || "");
-    setField("mentorMustHave", m.mustHave || "");
-    setField("mentorAvoid", m.avoid || "");
-    setField("mentorConstraints", m.constraints || "");
   }
 
   function mentorKnowledgeCounts(kb){
@@ -3313,13 +3282,6 @@
       mentorTargetAbv: "targetAbv",
       mentorSweetness: "sweetness",
       mentorCarbonation: "carbonation",
-      mentorHoney: "honey",
-      mentorYeast: "yeast",
-      mentorFruitSpiceOak: "fruitSpiceOak",
-      mentorStructure: "structure",
-      mentorMustHave: "mustHave",
-      mentorAvoid: "avoid",
-      mentorConstraints: "constraints"
     };
     Object.entries(mapping).forEach(([id, key]) => {
       const el = $(id);
@@ -3344,15 +3306,6 @@
       persistData();
       renderMentor();
     });
-    const demoButton = $("mentorDemoCocoBtn");
-    if (demoButton){
-      demoButton.addEventListener("click", () => {
-        data.mentor = mentorCocoDemoState();
-        populateMentorForm();
-        persistData();
-        renderMentor();
-      });
-    }
     const applyKnowledgeBtn = $("mentorKnowledgeApplyBtn");
     if (applyKnowledgeBtn){
       applyKnowledgeBtn.addEventListener("click", () => {
@@ -3402,12 +3355,12 @@
       data.recipeDraft.yeastTolerance = blueprint.yeastTolerance || data.recipeDraft.yeastTolerance;
       data.recipeDraft.temp = blueprint.temp || data.recipeDraft.temp;
       data.recipeDraft.nitrogenRequirement = blueprint.nitrogenRequirement || data.recipeDraft.nitrogenRequirement;
-      data.recipeDraft.honeyBase = blueprint.honeyBase || data.mentor.honey || data.recipeDraft.honeyBase;
-      data.recipeDraft.fruitAdjuncts = blueprint.fruitAdjuncts || data.mentor.fruitSpiceOak || data.recipeDraft.fruitAdjuncts;
-      data.recipeDraft.acidPlan = blueprint.acidPlan || data.mentor.structure || data.recipeDraft.acidPlan;
+      data.recipeDraft.honeyBase = blueprint.honeyBase || data.recipeDraft.honeyBase;
+      data.recipeDraft.fruitAdjuncts = blueprint.fruitAdjuncts || data.recipeDraft.fruitAdjuncts;
+      data.recipeDraft.acidPlan = blueprint.acidPlan || data.recipeDraft.acidPlan;
       data.recipeDraft.tanninPlan = blueprint.tanninPlan || data.recipeDraft.tanninPlan;
-      data.recipeDraft.quickNote = blueprint.quickNote || data.mentor.mustHave || data.recipeDraft.quickNote;
-      data.recipeDraft.notes = blueprint.notes || [data.mentor.inspiration, data.mentor.vision, data.mentor.constraints].filter(Boolean).join("\n\n");
+      data.recipeDraft.quickNote = blueprint.quickNote || data.recipeDraft.quickNote;
+      data.recipeDraft.notes = blueprint.notes || data.recipeDraft.notes;
       data.recipeDraft.targetOg = blueprint.targetOg || data.recipeDraft.targetOg;
       data.recipeDraft.targetFg = blueprint.targetFg || data.recipeDraft.targetFg;
       data.recipeDraft.estimatedAbv = blueprint.estimatedAbv || data.recipeDraft.estimatedAbv;
