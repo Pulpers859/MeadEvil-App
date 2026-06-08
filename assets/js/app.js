@@ -1758,10 +1758,6 @@
 
     const warnings = [];
     const greenlights = [];
-    const missingSourceAmounts = (Array.isArray(recipe.additions) ? recipe.additions : []).filter((row) => String(row.description || "").trim() && !String(row.amount || "").trim());
-    const structureAdds = Array.isArray(recipe.structureAdditions) ? recipe.structureAdditions : [];
-    const missingAdjunctAmounts = structureAdds.filter((row) => String(row.ingredient || "").trim() && !String(row.amount || "").trim());
-    const agaveOutsideBench = structureAdds.filter((row) => /\bagave\b/i.test(String(row.ingredient || "")) && !/bench trial|packaging/i.test(String(row.phase || "")));
     if (!recipe.name) warnings.push("Name the batch so the recipe stops living as anonymous sludge in the vault.");
     if (!recipe.targetAbv) warnings.push("Set the ABV target. Without it, the rest of the design has no spine.");
     if (!displayYeastName(recipe)) warnings.push("Choose a yeast so tolerance, temp, and nutrient expectations stop being vague.");
@@ -1774,9 +1770,6 @@
     if ((bill?.lineItems || []).length >= 3 && !recipe.quickNote) warnings.push("This is a multi-source build with no quick note. Future-you will forget what the actual intent was.");
     const customCount = (bill?.lineItems || []).filter((item) => item.description.toLowerCase().includes("custom")).length;
     if (customCount) warnings.push("Custom source rows are in play. That is fine, but make sure the PPG values are measured or intentionally assumed.");
-    if (missingSourceAmounts.length) warnings.push(`At least one source bill ingredient is listed without an amount (${missingSourceAmounts.map((row) => row.description).join(", ")}). That should never sneak past the recipe math.`);
-    if (missingAdjunctAmounts.length) warnings.push(`At least one structure addition is listed without an amount (${missingAdjunctAmounts.map((row) => row.ingredient).join(", ")}). That is how adjuncts get missed.`);
-    if (agaveOutsideBench.length) warnings.push("Agave is parked outside bench-trial / packaging. Double-check that timing, because it usually belongs in finish tuning rather than a blind secondary dump.");
     if (plan && bill && Math.abs(ogDeltaPoints || 0) <= 5) greenlights.push("The source bill is landing close to the design target.");
     if (displayYeastName(recipe) && recipe.batchGallons && bill && bill.lineItems.length) greenlights.push("The recipe has enough structure to become a real batch instead of a rough concept.");
     if ((bill?.lineItems || []).some((item) => item.perGallonPoints > 45)) warnings.push("At least one source is carrying a huge share of the gravity. Make sure that is intentional and not a unit or entry mistake.");
