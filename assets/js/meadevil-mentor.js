@@ -7,6 +7,17 @@
   const ADJUNCT_UNITS = ["g","mL","oz","lb","tsp","tbsp","each","drops","berries","zest of 1 fruit","whole fruit","sticks","pods","bags","days"];
   const ADJUNCT_PHASES = ["primary","secondary","bench trial","packaging"];
   const ADJUNCT_CATEGORIES = ["botanical","citrus","tea","oak","acid","tannin","spice","fruit","other"];
+  const MENTOR_ADJUNCT_TERMS = [
+    "toasted coconut", "coconut", "lime zest", "lime", "orange peel", "orange zest",
+    "vanilla bean", "vanilla", "oak", "american oak", "french oak", "agave syrup", "agave nectar", "agave",
+    "sea salt", "cinnamon", "star anise", "clove", "ginger", "nutmeg",
+    "blackberry", "blueberry", "raspberry", "cherry", "tart cherry",
+    "peach", "mango", "pineapple", "passion fruit", "fig", "plum",
+    "sage", "rosemary", "lavender", "hibiscus", "rose", "chamomile",
+    "black tea", "green tea", "earl grey", "rooibos",
+    "cacao", "cocoa nibs", "coffee", "espresso",
+    "juniper", "cardamom", "peppercorn", "chili", "habanero", "jalapeno"
+  ];
 
   const $ = (id) => document.getElementById(id);
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -1865,6 +1876,188 @@
     return null;
   }
 
+  function escapeRegex(value){
+    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function normalizeIngredientKey(value){
+    return String(value || "")
+      .toLowerCase()
+      .replace(/\b(the|and|of|for|with)\b/g, " ")
+      .replace(/\b(toasted|fresh|dried|whole|raw|lightly|medium|heavy)\b/g, " ")
+      .replace(/\b(syrup|nectar|flakes|flake|zest|peel|juice)\b/g, " ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function pickPreferredIngredientLabel(current, incoming){
+    const currentLabel = String(current || "").trim();
+    const incomingLabel = String(incoming || "").trim();
+    const formatLabel = (label) => label === label.toLowerCase()
+      ? label.charAt(0).toUpperCase() + label.slice(1)
+      : label;
+    if (!currentLabel) return formatLabel(incomingLabel);
+    if (!incomingLabel) return formatLabel(currentLabel);
+    const preferred = incomingLabel.length > currentLabel.length ? incomingLabel : currentLabel;
+    return formatLabel(preferred);
+  }
+
+  function guessAdjunctCategory(ingredient){
+    const lower = String(ingredient || "").toLowerCase();
+    if (/tea/.test(lower)) return "tea";
+    if (/oak/.test(lower)) return "oak";
+    if (/zest|peel|citrus|lime|lemon|orange|grapefruit/.test(lower)) return "citrus";
+    if (/acid/.test(lower)) return "acid";
+    if (/tannin/.test(lower)) return "tannin";
+    if (/cinnamon|star anise|clove|ginger|nutmeg|cardamom|peppercorn|chili|habanero|jalapeno/.test(lower)) return "spice";
+    if (/blackberry|blueberry|raspberry|cherry|peach|mango|pineapple|passion fruit|fig|plum|fruit/.test(lower)) return "fruit";
+    if (/agave/.test(lower)) return "other";
+    return "botanical";
+  }
+
+  function normalizeAdjunctCategory(category, ingredient){
+    const normalized = String(category || "").trim().toLowerCase();
+    return ADJUNCT_CATEGORIES.includes(normalized) ? normalized : guessAdjunctCategory(ingredient);
+  }
+
+  function splitMentorTextSegments(text){
+    return String(text || "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[*_`>#]+/g, " ")
+      .split(/(?:\r?\n)+|(?<=[.!?])\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function resolveAdjunctPhase(text){
+    const lower = String(text || "").toLowerCase();
+    if (/\bbench[\s-]?trial\b|\bbacksweeten(?:ing)?\b|\bafter stabilization\b|\bpost[-\s]?stabilization\b/.test(lower)) return "bench trial";
+    if (/\bpackag(?:e|ing)\b|\bbottl(?:e|ing)\b/.test(lower)) return "packaging";
+    if (/\bsecondary\b/.test(lower)) return "secondary";
+    if (/\bprimary\b/.test(lower)) return "primary";
+    return "";
+  }
+
+  function buildAdjunctTermPool(seedCandidates = []){
+    return uniq([
+      ...seedCandidates.flatMap((item) => [item && item.ingredient, item && item.name]),
+      ...MENTOR_ADJUNCT_TERMS
+    ].map((item) => String(item || "").trim()).filter(Boolean)).sort((left, right) => right.length - left.length);
+  }
+
+  function findMentionedAdjunctTerms(text, termPool){
+    const source = String(text || "");
+    const matchesByKey = new Map();
+    termPool.forEach((term) => {
+      const escaped = escapeRegex(term).replace(/\s+/g, "\\s+");
+      if (!escaped) return;
+      if (!new RegExp(`\\b${escaped}\\b`, "i").test(source)) return;
+      const key = normalizeIngredientKey(term) || String(term || "").toLowerCase().trim();
+      const current = matchesByKey.get(key);
+      if (!current || String(term).length > String(current).length) matchesByKey.set(key, term);
+    });
+    return [...matchesByKey.values()];
+  }
+
+  function chooseAdjunctAmountHit(entry){
+    const hits = Array.isArray(entry.amountHits) ? entry.amountHits : [];
+    if (!hits.length) return null;
+    if (entry.phase){
+      const phaseHits = hits.filter((hit) => hit.phase === entry.phase);
+      if (phaseHits.length) return phaseHits[phaseHits.length - 1];
+    }
+    if (entry.phase === "bench trial") return null;
+    return hits[hits.length - 1];
+  }
+
+  function extractAdjunctDirectivesFromConversation(conversation, seedCandidates = []){
+    const termPool = buildAdjunctTermPool(seedCandidates);
+    const directives = new Map();
+    let order = 0;
+    normalizeMentorConversation(conversation).forEach((turn) => {
+      const cleanText = String(turn.text || "").replace(/<[^>]+>/g, " ");
+      const turnPhase = resolveAdjunctPhase(cleanText);
+      splitMentorTextSegments(cleanText).forEach((segment) => {
+        const segmentPhase = resolveAdjunctPhase(segment);
+        findMentionedAdjunctTerms(segment, termPool).forEach((term) => {
+          const key = normalizeIngredientKey(term) || String(term || "").toLowerCase().trim();
+          if (!key) return;
+          order += 1;
+          const entry = directives.get(key) || {
+            ingredient: String(term || "").trim(),
+            category: normalizeAdjunctCategory("", term),
+            phase: "",
+            phasePriority: 0,
+            phaseOrder: 0,
+            amountHits: []
+          };
+          entry.ingredient = pickPreferredIngredientLabel(entry.ingredient, String(term || "").trim());
+          entry.category = normalizeAdjunctCategory(entry.category, entry.ingredient);
+          if (segmentPhase) {
+            const phasePriority = turn.role === "user" ? 2 : 1;
+            if (phasePriority > entry.phasePriority || (phasePriority === entry.phasePriority && order >= entry.phaseOrder)) {
+              entry.phase = segmentPhase;
+              entry.phasePriority = phasePriority;
+              entry.phaseOrder = order;
+            }
+          }
+          const amount = extractAmountFromText(segment, term) || extractAmountFromText(cleanText, term);
+          if (amount) {
+            entry.amountHits.push({
+              ...amount,
+              phase: segmentPhase || turnPhase || "",
+              order
+            });
+          }
+          directives.set(key, entry);
+        });
+      });
+    });
+    return [...directives.values()]
+      .map((entry) => {
+        const amountHit = chooseAdjunctAmountHit(entry);
+        return {
+          ingredient: entry.ingredient,
+          category: normalizeAdjunctCategory(entry.category, entry.ingredient),
+          phase: entry.phase,
+          amount: amountHit ? amountHit.amount : "",
+          unit: amountHit ? amountHit.unit : ""
+        };
+      })
+      .filter((item) => item.ingredient && (item.phase || item.amount));
+  }
+
+  function mergeAdjunctCandidates(packetAdjuncts, conversationAdjuncts){
+    const merged = new Map();
+    const upsert = (item) => {
+      if (!isPlainObject(item)) return;
+      const ingredient = String(item.ingredient || "").trim();
+      const key = normalizeIngredientKey(ingredient);
+      if (!key) return;
+      const prev = merged.get(key) || {};
+      const amount = String(item.amount || prev.amount || "").trim();
+      const unit = String(item.unit || prev.unit || "").trim();
+      merged.set(key, {
+        ...prev,
+        ...item,
+        ingredient: pickPreferredIngredientLabel(prev.ingredient, ingredient),
+        category: normalizeAdjunctCategory(item.category || prev.category, ingredient || prev.ingredient),
+        phase: item.phase || prev.phase || "",
+        amount,
+        unit: amount ? (unit || "g") : unit
+      });
+    };
+    (Array.isArray(packetAdjuncts) ? packetAdjuncts : []).forEach(upsert);
+    (Array.isArray(conversationAdjuncts) ? conversationAdjuncts : []).forEach(upsert);
+    return [...merged.values()].map((item) => ({
+      ...item,
+      phase: ADJUNCT_PHASES.includes(item.phase) ? item.phase : "secondary",
+      category: normalizeAdjunctCategory(item.category, item.ingredient),
+      unit: item.amount ? (item.unit || "g") : (item.unit || "")
+    }));
+  }
+
   function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance){
     if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
     const currentMain = getMainState();
@@ -1955,6 +2148,10 @@
       .filter((turn) => turn.role === "mentor" && turn.text)
       .map((turn) => turn.text.replace(/<[^>]+>/g, ""))
       .join("\n");
+    const conversationAdjuncts = extractAdjunctDirectivesFromConversation(
+      enhancement.mentor.conversation || [],
+      output.packet.adjunctCandidates || []
+    );
 
     const cleanedPacket = { ...output.packet };
     if (cleanedPacket.sourceBillCandidates) {
@@ -1969,9 +2166,10 @@
 
     seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance);
 
-    const enrichedAdjuncts = (output.packet.adjunctCandidates || []).map((item) => {
+    const mergedAdjuncts = mergeAdjunctCandidates(output.packet.adjunctCandidates || [], conversationAdjuncts);
+    const enrichedAdjuncts = mergedAdjuncts.map((item) => {
       const amount = item.amount || "";
-      const unit = item.unit || "g";
+      const unit = amount ? (item.unit || "g") : (item.unit || "");
       if (amount) return { ...item, amount, unit };
       const extracted = extractAmountFromText(mentorProseText, item.ingredient || "");
       return extracted ? { ...item, amount: extracted.amount, unit: extracted.unit } : item;
