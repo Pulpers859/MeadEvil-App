@@ -1994,12 +1994,19 @@
         blankMentorLegacyBridge(main);
       });
       if ($("mentorFollowup")) $("mentorFollowup").value = "";
+      window.dispatchEvent(new Event("meadevil-cloud-restore"));
       setTimeout(renderAll, 60);
     });
 
     $("clearRecipeBtn")?.addEventListener("click", () => {
-      saveMergedMain((enh) => { enh.recipeDraft.structureAdditions = [defaultAdjunctRow()]; });
-      setTimeout(renderAll, 60);
+      setTimeout(() => {
+        const main = getMainState();
+        const draft = (main && main.recipeDraft) || {};
+        const cleared = !draft.name && !draft.targetAbv && !draft.batchGallons;
+        if (!cleared) return;
+        saveMergedMain((enh) => { enh.recipeDraft.structureAdditions = [defaultAdjunctRow()]; });
+        renderAll();
+      }, 20);
     });
 
     $("loadDraftToBatchBtn")?.addEventListener("click", () => {

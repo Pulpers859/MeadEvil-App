@@ -784,6 +784,7 @@
       sweetness: "Dry",
       carbonation: "Still",
       yeast: "",
+      yeastOther: "",
       yeastTolerance: "",
       temp: "",
       nitrogenRequirement: "low",
@@ -814,6 +815,7 @@
       sweetness: "Dry",
       carbonation: "Still",
       yeast: "",
+      yeastOther: "",
       yeastTolerance: "",
       temp: "",
       nitrogenRequirement: "low",
@@ -3000,11 +3002,16 @@
     });
 
     $("clearActiveBatchBtn").addEventListener("click", () => {
-      if (!confirm("Clear the active batch? All gravity logs and fermentation data will be lost. This cannot be undone.")) return;
+      if (!confirm("Clear the active batch? All gravity logs, nutrient plan, fermentation data, and cellar notes will be lost. This cannot be undone.")) return;
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
+      data.nutrients = defaultNutrients();
+      data.cellar = defaultCellar();
+      data.cellarChecklist = defaultCellarChecklist();
       persistData();
+      populateNutrientForm();
+      populateCellarForm();
       renderAll();
     });
 
@@ -3023,9 +3030,11 @@
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
+      data.nutrients = defaultNutrients();
       data.cellar = defaultCellar();
       data.cellarChecklist = defaultCellarChecklist();
       persistData();
+      populateNutrientForm();
       populateCellarForm();
       renderAll();
       setActiveTab("archive");
@@ -3215,7 +3224,8 @@
       if (recipeCopy){
         const recipe = data.recipes.find((item) => item.id === recipeCopy);
         if (!recipe) return;
-        copyText(`${recipe.name}\n${recipe.style}\n${recipe.honeyBase}\n${recipe.fruitAdjuncts}\n${recipe.notes}`);
+        const summary = recipeSourceSummary(recipe);
+        copyText([recipe.name, recipe.style, summary.honey ? `Honey: ${summary.honey}` : "", summary.other ? `Other: ${summary.other}` : "", recipe.quickNote, recipe.notes].filter(Boolean).join("\n"));
       }
     });
 
@@ -3323,6 +3333,12 @@
       el.addEventListener("change", handler);
     });
     $("clearMentorBtn").addEventListener("click", () => {
+      try {
+        const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
+        const enh = enhRaw ? JSON.parse(enhRaw) : null;
+        if (enh && enh.mentor) return;
+      } catch(e) { /* fall through to legacy path */ }
+      if (!confirm("Start a completely new brew? All concept fields will be reset.")) return;
       data.mentor = defaultMentor();
       populateMentorForm();
       persistData();
@@ -3503,7 +3519,7 @@
     a.href = url;
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function downloadRecipeCsvTemplate(){
@@ -3585,7 +3601,7 @@
     a.href = url;
     a.download = `${(r.name || "recipe").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-card.txt`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function exportRecipesCsv(){
@@ -3678,13 +3694,18 @@
       event.target.value = "";
     });
     $("exportDataBtn").addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const exportPayload = clone(data);
+      try {
+        const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
+        if (enhRaw) exportPayload._enhancement = JSON.parse(enhRaw);
+      } catch(e) {}
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `meadevilapp-backup-${todayStr()}.json`;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
     $("importDataBtn").addEventListener("click", () => $("importFileInput").click());
     $("importFileInput").addEventListener("change", async (event) => {
@@ -3692,7 +3713,12 @@
       if (!file) return;
       try{
         const raw = await file.text();
-        data = normalizeData(JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        if (parsed._enhancement) {
+          try { localStorage.setItem(ENHANCEMENT_KEY, JSON.stringify(parsed._enhancement)); } catch(e) {}
+          delete parsed._enhancement;
+        }
+        data = normalizeData(parsed);
         populateRecipeForm();
         populateNutrientForm();
         populateCellarForm();
@@ -3707,6 +3733,8 @@
       event.target.value = "";
     });
     $("resetAppBtn").addEventListener("click", () => {
+      if (!confirm("Reset the entire app to factory defaults? All recipes, batches, archive, mentor history, and settings will be permanently lost.")) return;
+      try { localStorage.removeItem(ENHANCEMENT_KEY); } catch(e) {}
       data = normalizeData(null);
       populateRecipeForm();
       populateNutrientForm();
