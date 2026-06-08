@@ -449,6 +449,23 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function mergeIngredientDecisionLists(primary = [], fallback = []) {
+  const merged = new Map();
+  [...(Array.isArray(fallback) ? fallback : []), ...(Array.isArray(primary) ? primary : [])]
+    .filter(isPlainObject)
+    .forEach((item) => {
+      const key = [
+        String(item.lane || "").toLowerCase(),
+        String(item.ingredient || item.name || "").toLowerCase(),
+        String(item.sourceType || item.type || "").toLowerCase(),
+        String(item.phase || "").toLowerCase()
+      ].join("|");
+      if (!key.replace(/\|/g, "")) return;
+      merged.set(key, { ...item });
+    });
+  return Array.from(merged.values());
+}
+
 function buildCollaboratorContext(userMessage, guidanceNote, knowledgePromptBlock) {
   const snapshot = userMessage.concept_snapshot || {};
   const inputs = userMessage.inputs || {};
@@ -723,10 +740,10 @@ const KNOWN_ADJUNCT_TERMS = [
 function extractAmountNear(text, term) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const weightPatterns = [
-    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b[^.]{0,80}${escaped}`, "i"),
-    new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)`, "i"),
+    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,80}${escaped}`, "i"),
+    new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[\\s\\S]{0,120}${escaped}`, "i"),
-    new RegExp(`${escaped}[\\s\\S]{0,120}?(?:around|total|about|approximately|roughly|use)?\\s*(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b(?!\\s*per\\b)`, "i"),
+    new RegExp(`${escaped}[\\s\\S]{0,120}?(?:around|total|about|approximately|roughly|use)?\\s*(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b(?!\\s*per\\b)`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,20}honey`, "i")
   ];
   for (const pattern of weightPatterns) {
@@ -759,6 +776,105 @@ function extractAmountNear(text, term) {
   return null;
 }
 
+function preferTotalWeightFromContext(context, fallback) {
+  const source = String(context || "").toLowerCase();
+  if (!source) return fallback;
+  const matches = Array.from(source.matchAll(/(\d+\.?\d*)\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\b/g));
+  if (!matches.length) return fallback;
+  const normalized = matches.map((match) => ({
+    amount: match[1],
+    unit: /^(lb|lbs|pound|pounds)$/.test(match[2]) ? "lb" : /^(oz|ounces)$/.test(match[2]) ? "oz" : /^(kg)$/.test(match[2]) ? "kg" : "g",
+    after: source.slice(match.index, match.index + 30)
+  }));
+  if (/per gallon|\/gal/.test(source)) {
+    const nonPer = normalized.filter((item) => !/per\b|\/gal/.test(item.after));
+    if (nonPer.length) return { amount: nonPer[nonPer.length - 1].amount, unit: nonPer[nonPer.length - 1].unit };
+  }
+  return fallback;
+}
+
+function containsNamedTerm(text, term) {
+  const source = String(text || "").toLowerCase();
+  const escaped = String(term || "").toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!source || !escaped) return false;
+  return new RegExp(`(^|[^a-z0-9])${escaped}(?=$|[^a-z0-9])`, "i").test(source);
+}
+
+function extractTermWindow(text, term, radius = 120) {
+  const source = String(text || "").toLowerCase();
+  const needle = String(term || "").toLowerCase();
+  if (!source || !needle) return "";
+  const index = source.indexOf(needle);
+  if (index === -1) return "";
+  return source.slice(Math.max(0, index - radius), Math.min(source.length, index + needle.length + radius));
+}
+
+function normalizeAdjunctCandidate(name, extracted, text) {
+  const lowerName = String(name || "").toLowerCase();
+  const context = extractTermWindow(text, name);
+  const isAgave = /\bagave\b/.test(lowerName);
+  const isTea = /\btea\b|rooibos|earl grey/.test(lowerName);
+  const isOak = /\boak\b/.test(lowerName);
+  const isAcid = /\bacid\b/.test(lowerName);
+  const isTannin = /\btannin\b/.test(lowerName);
+  const isCitrus = /lime|lemon|grapefruit|orange/.test(lowerName);
+  const isFruit = /berry|cherry|peach|mango|plum|fig|fruit|pineapple|passion fruit/.test(lowerName);
+  const isBenchOnly = isAgave || /bench.?trial|backsweeten|stabiliz|packag|bottl/.test(context);
+  const hasOptionalCue = /optional|if needed|if the finished mead|consider|could|maybe/.test(context);
+  const preferredExtracted = preferTotalWeightFromContext(context, extracted);
+  const safeExtracted = isAgave && preferredExtracted && (/^(lb|kg|g)$/i.test(preferredExtracted.unit) || !/\d/.test(context))
+    ? null
+    : preferredExtracted;
+  const phase = isBenchOnly ? "bench trial" : "secondary";
+  const intent = phase === "bench trial" ? "bench_trial_only" : (safeExtracted || !hasOptionalCue ? "committed_addition" : "candidate_addition");
+
+  return {
+    ingredient: name,
+    amount: safeExtracted ? safeExtracted.amount : "",
+    unit: safeExtracted ? safeExtracted.unit : isAgave ? "oz" : isCitrus ? "each" : "g",
+    phase,
+    category: isTea || isOak ? "structure" : isAcid ? "acid" : isTannin ? "tannin" : isCitrus ? "citrus" : isFruit ? "fruit" : "botanical",
+    intent,
+    amountStatus: safeExtracted ? "present" : "missing",
+    purpose: isAgave ? "support the agave illusion without turning the finish syrupy" : "",
+    notes: isAgave ? "Bench-trial this after stabilization or during backsweetening tests so the dose earns its place." : ""
+  };
+}
+
+function buildFermentableDecision(candidate = {}) {
+  const type = String(candidate.type || candidate.sourceType || "Honey").trim() || "Honey";
+  const ingredient = String(candidate.name || candidate.ingredient || "").trim();
+  const amount = String(candidate.amount || "").trim();
+  const unit = String(candidate.unit || "lb").trim() || "lb";
+  return {
+    lane: "fermentable",
+    ingredient,
+    sourceType: type,
+    amount,
+    unit,
+    intent: "committed_addition",
+    amountStatus: amount ? "present" : (/honey/i.test(type) ? "derived" : "missing"),
+    why: "This belongs in the source bill if the concept moves into Build.",
+    confidence: "medium"
+  };
+}
+
+function buildAdjunctDecision(candidate = {}) {
+  return {
+    lane: "adjunct",
+    ingredient: String(candidate.ingredient || "").trim(),
+    phase: String(candidate.phase || "secondary").trim() || "secondary",
+    category: String(candidate.category || "other").trim() || "other",
+    amount: String(candidate.amount || "").trim(),
+    unit: String(candidate.unit || "g").trim() || "g",
+    intent: String(candidate.intent || (String(candidate.phase || "").trim() === "bench trial" ? "bench_trial_only" : "candidate_addition")).trim(),
+    amountStatus: String(candidate.amountStatus || (candidate.amount ? "present" : "missing")).trim(),
+    why: String(candidate.purpose || candidate.why || "").trim(),
+    notes: String(candidate.notes || "").trim(),
+    confidence: "medium"
+  };
+}
+
 function extractStructuredFromProse(prose, userMessage) {
   const lower = String(prose || "").toLowerCase();
   const allContext = [
@@ -777,7 +893,7 @@ function extractStructuredFromProse(prose, userMessage) {
   const yeast = KNOWN_YEAST_NAMES.find((y) => lower.includes(y.toLowerCase())) || "";
 
   const adjuncts = KNOWN_ADJUNCT_TERMS
-    .filter((term) => allContext.includes(term))
+    .filter((term) => containsNamedTerm(allContext, term))
     .filter((term, _, list) => !list.some((other) => other !== term && other.includes(term)));
 
   const sourceBill = honeys.map((h) => {
@@ -787,16 +903,12 @@ function extractStructuredFromProse(prose, userMessage) {
 
   const adjunctCandidates = adjuncts.map((name) => {
     const extracted = extractAmountNear(lower, name);
-    return {
-      ingredient: name,
-      amount: extracted ? extracted.amount : "",
-      unit: extracted ? extracted.unit : "g",
-      phase: /bench.?trial|backsweeten/i.test(lower) ? "bench trial" : "secondary",
-      category: /oak|tannin|tea/.test(name) ? "structure" : /honey|sugar|agave|maple/.test(name) ? "fermentable" : "botanical",
-      purpose: "",
-      notes: ""
-    };
+    return normalizeAdjunctCandidate(name, extracted, lower);
   });
+  const ingredientDecisions = [
+    ...sourceBill.map(buildFermentableDecision),
+    ...adjunctCandidates.map(buildAdjunctDecision)
+  ].filter((item) => item.ingredient);
 
   const styleLane = (() => {
     if (/metheglin/i.test(allContext)) return "Metheglin";
@@ -826,7 +938,8 @@ function extractStructuredFromProse(prose, userMessage) {
     build_mapping: {
       yeast: yeast,
       source_bill_candidates: sourceBill,
-      adjunct_candidates: adjunctCandidates
+      adjunct_candidates: adjunctCandidates,
+      ingredient_decisions: ingredientDecisions
     },
     mentor_reply: {}
   };
@@ -885,7 +998,17 @@ function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
     build_mapping: {
       yeast: pickFirstString(build.yeast, packet.yeastLane),
       source_bill_candidates: normalizeObjectArray(build.source_bill_candidates, packet.sourceBillCandidates),
-      adjunct_candidates: normalizeObjectArray(build.adjunct_candidates, packet.adjunctCandidates)
+      adjunct_candidates: normalizeObjectArray(build.adjunct_candidates, packet.adjunctCandidates),
+      ingredient_decisions: (() => {
+        const direct = mergeIngredientDecisionLists(
+          normalizeObjectArray(build.ingredient_decisions ?? build.ingredientDecisions, []),
+          normalizeObjectArray(packet.ingredientDecisions || packet.ingredient_decisions, [])
+        );
+        if (direct.length) return direct;
+        const fermentables = normalizeObjectArray(build.source_bill_candidates, packet.sourceBillCandidates).map(buildFermentableDecision);
+        const adjuncts = normalizeObjectArray(build.adjunct_candidates, packet.adjunctCandidates).map(buildAdjunctDecision);
+        return [...fermentables, ...adjuncts].filter((item) => item.ingredient);
+      })()
     }
   };
 }

@@ -210,6 +210,133 @@
     return value.map((item) => String(item ?? "").trim()).filter(Boolean);
   }
 
+  const INGREDIENT_INTENTS = ["concept_only", "candidate_addition", "bench_trial_only", "committed_addition"];
+  const INGREDIENT_AMOUNT_STATUSES = ["present", "missing", "derived"];
+
+  function defaultIngredientDecision(){
+    return {
+      lane: "adjunct",
+      ingredient: "",
+      sourceType: "",
+      phase: "secondary",
+      category: "other",
+      amount: "",
+      unit: "",
+      intent: "candidate_addition",
+      amountStatus: "missing",
+      why: "",
+      confidence: "medium"
+    };
+  }
+
+  function inferIngredientAmountStatus(decision){
+    if (decision.amount) return "present";
+    if (decision.amountStatus === "derived") return "derived";
+    if (decision.lane === "fermentable" && String(decision.sourceType || "").toLowerCase() === "honey") return "derived";
+    return "missing";
+  }
+
+  function normalizeIngredientDecision(value){
+    const source = isPlainObject(value) ? value : {};
+    const lane = source.lane === "fermentable" ? "fermentable" : "adjunct";
+    const ingredient = String(source.ingredient || source.name || "").trim();
+    const sourceType = String(source.sourceType || source.type || "").trim();
+    const intent = INGREDIENT_INTENTS.includes(source.intent)
+      ? source.intent
+      : (lane === "fermentable" ? "committed_addition" : "candidate_addition");
+    let phase = String(source.phase || "").trim();
+    if (!ADJUNCT_PHASES.includes(phase)) phase = intent === "bench_trial_only" ? "bench trial" : "secondary";
+    let category = String(source.category || "").trim();
+    if (!ADJUNCT_CATEGORIES.includes(category)) category = lane === "fermentable" ? "other" : "other";
+    const normalized = {
+      ...defaultIngredientDecision(),
+      ...source,
+      lane,
+      ingredient,
+      sourceType,
+      phase,
+      category,
+      amount: String(source.amount || "").trim(),
+      unit: String(source.unit || "").trim(),
+      intent,
+      why: String(source.why || source.rationale || source.purpose || "").trim(),
+      confidence: String(source.confidence || "").trim() || "medium"
+    };
+    normalized.amountStatus = INGREDIENT_AMOUNT_STATUSES.includes(source.amountStatus)
+      ? source.amountStatus
+      : inferIngredientAmountStatus(normalized);
+    if (!normalized.unit) normalized.unit = lane === "fermentable" ? sourcePresetUnit(sourceType || "Honey") : "g";
+    return normalized;
+  }
+
+  function buildLegacyIngredientDecisions(sourceBillCandidates, adjunctCandidates){
+    const fermentableDecisions = Array.isArray(sourceBillCandidates)
+      ? sourceBillCandidates.filter(isPlainObject).map((item) => normalizeIngredientDecision({
+          lane: "fermentable",
+          ingredient: item.name || item.ingredient || "",
+          sourceType: item.type || item.sourceType || "Honey",
+          amount: item.amount || "",
+          unit: item.unit || sourcePresetUnit(item.type || item.sourceType || "Honey"),
+          intent: "committed_addition",
+          amountStatus: item.amount ? "present" : (/honey/i.test(item.type || item.sourceType || "") ? "derived" : "missing"),
+          why: item.why || ""
+        }))
+      : [];
+    const adjunctDecisions = Array.isArray(adjunctCandidates)
+      ? adjunctCandidates.filter(isPlainObject).map((item) => normalizeIngredientDecision(normalizeMentorAdjunctCandidate(item) || item))
+      : [];
+    return [...fermentableDecisions, ...adjunctDecisions].filter((item) => item.ingredient);
+  }
+
+  function mentorDecisionLists(decisions){
+    const normalized = Array.isArray(decisions) ? decisions.map(normalizeIngredientDecision).filter((item) => item.ingredient) : [];
+    return {
+      sourceBillCandidates: normalized
+        .filter((item) => item.lane === "fermentable" && item.intent !== "concept_only")
+        .map((item) => ({
+          type: item.sourceType || "Honey",
+          name: item.ingredient,
+          amount: item.amount,
+          unit: item.unit,
+          intent: item.intent,
+          amountStatus: item.amountStatus,
+          why: item.why,
+          confidence: item.confidence
+        })),
+      adjunctCandidates: normalized
+        .filter((item) => item.lane !== "fermentable" && item.intent !== "concept_only")
+        .map((item) => ({
+          phase: item.phase,
+          category: item.category,
+          ingredient: item.ingredient,
+          amount: item.amount,
+          unit: item.unit,
+          purpose: item.why || "",
+          notes: item.notes || "",
+          intent: item.intent,
+          amountStatus: item.amountStatus,
+          confidence: item.confidence
+        }))
+    };
+  }
+
+  function mergeIngredientDecisions(primary, fallback = []){
+    const merged = new Map();
+    [...(Array.isArray(fallback) ? fallback : []), ...(Array.isArray(primary) ? primary : [])]
+      .map(normalizeIngredientDecision)
+      .filter((item) => item.ingredient)
+      .forEach((item) => {
+        const key = [
+          item.lane,
+          item.ingredient.toLowerCase(),
+          (item.sourceType || "").toLowerCase(),
+          (item.phase || "").toLowerCase()
+        ].join("|");
+        merged.set(key, item);
+      });
+    return Array.from(merged.values());
+  }
+
   function defaultMentorPacket(){
     return {
       leadImpression: "",
@@ -220,6 +347,7 @@
       styleLane: "",
       finishDirection: "",
       yeastLane: "",
+      ingredientDecisions: [],
       sourceBillCandidates: [],
       adjunctCandidates: [],
       pushback: [],
@@ -270,6 +398,10 @@
     const source = isPlainObject(value) ? value : {};
     const strongestDirection = normalizeDirectionCard(source.strongestDirection || source.strongest_direction);
     const ingredientRolesRaw = isPlainObject(source.ingredientRoles || source.ingredient_roles) ? (source.ingredientRoles || source.ingredient_roles) : {};
+    const ingredientDecisions = Array.isArray(source.ingredientDecisions || source.ingredient_decisions)
+      ? (source.ingredientDecisions || source.ingredient_decisions).filter(isPlainObject).map(normalizeIngredientDecision).filter((item) => item.ingredient)
+      : buildLegacyIngredientDecisions(source.sourceBillCandidates, source.adjunctCandidates);
+    const legacyLists = mentorDecisionLists(ingredientDecisions);
     return {
       ...defaults,
       ...source,
@@ -277,8 +409,9 @@
       supportNotes: normalizeStringList(source.supportNotes, defaults.supportNotes),
       tensionSources: normalizeStringList(source.tensionSources, defaults.tensionSources),
       ruiners: normalizeStringList(source.ruiners, defaults.ruiners),
-      sourceBillCandidates: Array.isArray(source.sourceBillCandidates) ? source.sourceBillCandidates.filter(isPlainObject).map((item) => ({ ...item })) : [],
-      adjunctCandidates: Array.isArray(source.adjunctCandidates) ? source.adjunctCandidates.filter(isPlainObject).map((item) => ({ ...item })) : [],
+      ingredientDecisions,
+      sourceBillCandidates: legacyLists.sourceBillCandidates,
+      adjunctCandidates: legacyLists.adjunctCandidates,
       pushback: normalizeStringList(source.pushback, defaults.pushback),
       riskControls: normalizeStringList(source.riskControls, defaults.riskControls),
       productionSequence: normalizeStringList(source.productionSequence, defaults.productionSequence),
@@ -594,6 +727,23 @@
 
   function formatIngredientList(list){
     return list && list.length ? list.map(escapeHTML).join(", ") : "Still undefined";
+  }
+
+  function ingredientIntentLabel(intent){
+    if (intent === "bench_trial_only") return "bench trial only";
+    if (intent === "committed_addition") return "build-ready";
+    if (intent === "candidate_addition") return "candidate";
+    if (intent === "concept_only") return "concept only";
+    return "candidate";
+  }
+
+  function formatIngredientDecision(decision){
+    const safe = normalizeIngredientDecision(decision);
+    const tags = [];
+    if (safe.intent) tags.push(ingredientIntentLabel(safe.intent));
+    if (safe.phase && safe.lane !== "fermentable") tags.push(safe.phase);
+    if (safe.amountStatus === "missing") tags.push("amount TBD");
+    return `${safe.ingredient}${tags.length ? ` (${tags.join(", ")})` : ""}`;
   }
 
   function detectKeywords(text){
@@ -1234,6 +1384,28 @@
             ? "Taste early and pull before it starts muting the rest of the glass."
             : "Taste early and pull before it gets loud."
       }));
+    const ingredientDecisions = [
+      ...sourceBillCandidates.map((item) => normalizeIngredientDecision({
+        lane: "fermentable",
+        ingredient: item.name || "",
+        sourceType: item.type || "Honey",
+        unit: sourcePresetUnit(item.type || "Honey"),
+        intent: "committed_addition",
+        amountStatus: /honey/i.test(item.type || "") ? "derived" : "missing",
+        why: "This is part of the fermentable lane, even if the exact amount still needs recipe math."
+      })),
+      ...adjunctCandidates.map((item) => normalizeIngredientDecision({
+        lane: "adjunct",
+        ingredient: item.ingredient || "",
+        phase: item.phase || "secondary",
+        category: item.category || "other",
+        amount: item.amount || "",
+        unit: item.unit || "",
+        intent: item.phase === "bench trial" ? "bench_trial_only" : "candidate_addition",
+        amountStatus: item.amount ? "present" : "missing",
+        why: item.purpose || item.notes || ""
+      }))
+    ];
 
     const riskControls = uniq([
       beginner.skillLevel === "beginner" ? "Keep the ingredient list tighter than your imagination wants." : "",
@@ -1352,6 +1524,7 @@
       styleLane,
       finishDirection,
       yeastLane,
+      ingredientDecisions,
       sourceBillCandidates,
       adjunctCandidates,
       riskControls,
@@ -1431,6 +1604,8 @@
   function renderMentorOutputs(output){
     if (!output) return;
     const safePacket = normalizeMentorPacket(output.packet);
+    const fermentableDecisions = (safePacket.ingredientDecisions || []).filter((item) => item.lane === "fermentable");
+    const adjunctDecisions = (safePacket.ingredientDecisions || []).filter((item) => item.lane !== "fermentable");
     if ($("mentorCoachReply")) $("mentorCoachReply").innerHTML = output.conversationReplyHtml || output.coachReplyHtml || "";
     renderRows("mentorPairings", [
       ["What carries the concept", formatIngredientList(safePacket.ingredientRoles.carries)],
@@ -1440,9 +1615,9 @@
       ["Serve context", escapeHTML((loadEnhancement().mentor.beginner || {}).serveContext || "Not specified")]
     ]);
     renderRows("mentorIngredientPlan", [
-      ["Fermentable candidates", formatIngredientList((safePacket.sourceBillCandidates || []).map((item) => item.name))],
-      ["Structure additions", formatIngredientList((safePacket.adjunctCandidates || []).map((item) => `${item.ingredient} (${item.phase})`))],
-      ["Keep optional", safePacket.adjunctCandidates && safePacket.adjunctCandidates.some((item) => item.phase === "bench trial") ? "Bench-trial items stay optional until the base mead proves it needs them." : "No bench-trial-only items flagged yet"]
+      ["Fermentable candidates", formatIngredientList(fermentableDecisions.map(formatIngredientDecision))],
+      ["Structure additions", formatIngredientList(adjunctDecisions.map(formatIngredientDecision))],
+      ["Keep optional", adjunctDecisions.some((item) => item.intent === "bench_trial_only" || item.intent === "candidate_addition") ? "Bench-trial and candidate items stay visible, but only build-ready / bench-trial decisions should cross into Build automatically." : "No bench-trial-only items flagged yet"]
     ]);
   }
 
@@ -1622,8 +1797,14 @@
       styleLane: pickText(concept.style_lane, concept.styleLane, localPacket.packet.styleLane),
       finishDirection: pickText(concept.finish_direction, concept.finishDirection, localPacket.packet.finishDirection),
       yeastLane: pickText(build.yeast, concept.yeast_lane, concept.yeastLane, localPacket.packet.yeastLane),
+      ingredientDecisions: mergeIngredientDecisions(
+        objectList(build.ingredient_decisions ?? build.ingredientDecisions, []),
+        localPacket.packet.ingredientDecisions
+      ),
       sourceBillCandidates: objectList(build.source_bill_candidates ?? build.sourceBillCandidates, localPacket.packet.sourceBillCandidates),
-      adjunctCandidates: objectList(build.adjunct_candidates ?? build.adjunctCandidates, localPacket.packet.adjunctCandidates),
+      adjunctCandidates: objectList(build.adjunct_candidates ?? build.adjunctCandidates, localPacket.packet.adjunctCandidates)
+        .map((item) => normalizeMentorAdjunctCandidate(item))
+        .filter(Boolean),
       riskControls: normalizeStringList(reply.risk_controls ?? json.risk_controls, localPacket.packet.riskControls),
       productionSequence: normalizeStringList(reply.production_sequence ?? json.production_sequence, localPacket.packet.productionSequence),
       pushback,
@@ -1865,8 +2046,110 @@
     return null;
   }
 
+  function preferTotalWeightFromContext(context, fallback){
+    const source = String(context || "").toLowerCase();
+    if (!source) return fallback;
+    const matches = Array.from(source.matchAll(/(\d+\.?\d*)\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\b/g));
+    if (!matches.length) return fallback;
+    const normalized = matches.map((match) => ({
+      amount: match[1],
+      unit: /^(lb|lbs|pound|pounds)$/.test(match[2]) ? "lb" : /^(oz|ounces)$/.test(match[2]) ? "oz" : /^(kg)$/.test(match[2]) ? "kg" : "g",
+      after: source.slice(match.index, match.index + 30)
+    }));
+    if (/per gallon|\/gal/.test(source)) {
+      const nonPer = normalized.filter((item) => !/per\b|\/gal/.test(item.after));
+      if (nonPer.length) return { amount: nonPer[nonPer.length - 1].amount, unit: nonPer[nonPer.length - 1].unit };
+    }
+    return fallback;
+  }
+
+  function extractTermWindow(text, term, radius = 120){
+    const source = String(text || "").toLowerCase();
+    const needle = String(term || "").toLowerCase();
+    if (!source || !needle) return "";
+    const index = source.indexOf(needle);
+    if (index === -1) return "";
+    return source.slice(Math.max(0, index - radius), Math.min(source.length, index + needle.length + radius));
+  }
+
+  function normalizeMentorAdjunctCandidate(item, mentorProseText = ""){
+    const source = isPlainObject(item) ? item : {};
+    const ingredient = String(source.ingredient || "").trim();
+    if (!ingredient) return null;
+    const lowerIngredient = ingredient.toLowerCase();
+    const extracted = !source.amount && mentorProseText ? extractAmountFromText(mentorProseText, ingredient) : null;
+    const context = extractTermWindow(mentorProseText, ingredient);
+    const isAgave = /\bagave\b/.test(lowerIngredient);
+    const isTea = /\btea\b|rooibos|earl grey/.test(lowerIngredient);
+    const isOak = /\boak\b/.test(lowerIngredient);
+    const isAcid = /\bacid\b/.test(lowerIngredient);
+    const isTannin = /\btannin\b/.test(lowerIngredient);
+    const isCitrus = /lime|lemon|grapefruit|orange/.test(lowerIngredient);
+    const isSpice = /cinnamon|clove|ginger|nutmeg|cardamom|peppercorn|chili|jalapeno|habanero|star anise/.test(lowerIngredient);
+    const isFruit = /berry|cherry|peach|mango|plum|fig|fruit|pineapple|passion fruit/.test(lowerIngredient);
+    const hasBenchCue = /bench.?trial|backsweeten|stabiliz|packag|bottl/.test(context);
+    const hasOptionalCue = /optional|if needed|if the finished mead|consider|could|maybe/.test(context);
+    const preferredExtracted = preferTotalWeightFromContext(context, extracted);
+    const safeExtracted = isAgave && preferredExtracted && (/^(lb|kg|g)$/i.test(preferredExtracted.unit) || !/\d/.test(context))
+      ? null
+      : preferredExtracted;
+    const unit = safeExtracted ? safeExtracted.unit : source.unit || (isAgave ? "oz" : isCitrus ? "each" : "g");
+    const phase = isAgave
+      ? "bench trial"
+      : (ADJUNCT_PHASES.includes(source.phase) ? source.phase : (hasBenchCue ? "bench trial" : "secondary"));
+    let category = source.category || "";
+    if (!ADJUNCT_CATEGORIES.includes(category)) {
+      category = isTea ? "tea" : isOak ? "oak" : isAcid ? "acid" : isTannin ? "tannin" : isCitrus ? "citrus" : isSpice ? "spice" : isFruit ? "fruit" : "other";
+    }
+    const intent = INGREDIENT_INTENTS.includes(source.intent)
+      ? source.intent
+      : (phase === "bench trial" ? "bench_trial_only" : (safeExtracted || !hasOptionalCue ? "committed_addition" : "candidate_addition"));
+    const amountStatus = INGREDIENT_AMOUNT_STATUSES.includes(source.amountStatus)
+      ? source.amountStatus
+      : (safeExtracted ? "present" : "missing");
+    return {
+      ...source,
+      ingredient,
+      amount: safeExtracted ? safeExtracted.amount : (source.amount || ""),
+      unit,
+      phase,
+      category,
+      intent,
+      amountStatus,
+      purpose: source.purpose || (isAgave ? "support the agave illusion without turning the finish syrupy" : ""),
+      notes: source.notes || (isAgave ? "Bench-trial this after stabilization or during backsweetening tests so the dose earns its place." : "")
+    };
+  }
+
+  function resolvePacketIngredientDecisions(packet, mentorProseText = ""){
+    const safePacket = normalizeMentorPacket(packet);
+    return (safePacket.ingredientDecisions || [])
+      .map((decision) => {
+        if (decision.lane === "fermentable") {
+          if (decision.amount || !mentorProseText) return normalizeIngredientDecision(decision);
+          const extracted = extractAmountFromText(mentorProseText, decision.ingredient || "");
+          if (!extracted) return normalizeIngredientDecision(decision);
+          return normalizeIngredientDecision({
+            ...decision,
+            amount: extracted.amount,
+            unit: extracted.unit,
+            amountStatus: "present"
+          });
+        }
+        return normalizeIngredientDecision(normalizeMentorAdjunctCandidate(decision, mentorProseText) || decision);
+      })
+      .filter((decision) => decision.ingredient);
+  }
+
+  function importableBuildDecisions(decisions, lane){
+    return (Array.isArray(decisions) ? decisions : [])
+      .filter((decision) => decision.lane === lane)
+      .filter((decision) => ["committed_addition", "bench_trial_only"].includes(decision.intent));
+  }
+
   function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance){
-    if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
+    const decisions = importableBuildDecisions(resolvePacketIngredientDecisions(packet), "fermentable");
+    if (!decisions.length) return;
     const currentMain = getMainState();
     const currentRows = (((currentMain || {}).recipeDraft || {}).additions) || [];
     const trulyBlank = !currentRows.length || currentRows.every((row) => {
@@ -1883,17 +2166,20 @@
       if (projected && projected.honeyLb) honeyLb = projected.honeyLb;
     }
 
-    const rows = packet.sourceBillCandidates.map((candidate) => {
-      const type = candidate.type || "Custom";
-      const amount = candidate.amount
+    const rows = decisions.map((decision) => {
+      const type = decision.sourceType || "Custom";
+      const amount = decision.amount
         || (type === "Honey" && honeyLb ? String(Math.round(honeyLb * 100) / 100) : "");
       return {
         id: makeId("src"),
         sourceType: type,
-        description: candidate.name || "",
+        description: decision.ingredient || "",
         amount: amount,
-        unit: candidate.unit || sourcePresetUnit(type),
-        ppg: sourcePresetPpg(type)
+        unit: decision.unit || sourcePresetUnit(type),
+        ppg: sourcePresetPpg(type),
+        intent: decision.intent,
+        amountStatus: decision.amount ? "present" : (amount ? "derived" : decision.amountStatus),
+        why: decision.why || ""
       };
     });
 
@@ -1956,26 +2242,17 @@
       .map((turn) => turn.text.replace(/<[^>]+>/g, ""))
       .join("\n");
 
-    const cleanedPacket = { ...output.packet };
-    if (cleanedPacket.sourceBillCandidates) {
-      cleanedPacket.sourceBillCandidates = cleanedPacket.sourceBillCandidates
-        .filter((c) => !avoidText || !avoidText.includes(String(c.name || "").toLowerCase()))
-        .map((c) => {
-          if (c.amount) return c;
-          const extracted = extractAmountFromText(mentorProseText, c.name || "");
-          return extracted ? { ...c, amount: extracted.amount, unit: extracted.unit } : c;
-        });
+    const cleanedPacket = normalizeMentorPacket(output.packet);
+    if (cleanedPacket.ingredientDecisions) {
+      cleanedPacket.ingredientDecisions = cleanedPacket.ingredientDecisions.filter((decision) => {
+        if (decision.lane !== "fermentable") return true;
+        return !avoidText || !avoidText.includes(String(decision.ingredient || "").toLowerCase());
+      });
     }
 
     seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance);
 
-    const enrichedAdjuncts = (output.packet.adjunctCandidates || []).map((item) => {
-      const amount = item.amount || "";
-      const unit = item.unit || "g";
-      if (amount) return { ...item, amount, unit };
-      const extracted = extractAmountFromText(mentorProseText, item.ingredient || "");
-      return extracted ? { ...item, amount: extracted.amount, unit: extracted.unit } : item;
-    });
+    const enrichedAdjuncts = importableBuildDecisions(resolvePacketIngredientDecisions(cleanedPacket, mentorProseText), "adjunct");
 
     saveMergedMain((enh) => {
       const adjunctRows = enrichedAdjuncts.length
@@ -1985,8 +2262,11 @@
             ingredient: item.ingredient || "",
             amount: item.amount || "",
             unit: item.unit || "g",
-            purpose: item.purpose || "",
-            notes: item.notes || ""
+            purpose: item.why || item.purpose || "",
+            notes: item.notes || "",
+            intent: item.intent,
+            amountStatus: item.amountStatus,
+            confidence: item.confidence
           }))
         : enh.recipeDraft.structureAdditions;
       enh.recipeDraft.structureAdditions = adjunctRows.length ? adjunctRows : [defaultAdjunctRow()];
