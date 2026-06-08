@@ -2400,12 +2400,8 @@
 
   function renderMentor(){
     const built = buildMentor(data.mentor);
-    $("mentorSummary").innerHTML = built.summary;
     renderRows("mentorPairings", built.pairings);
-    renderRows("mentorArchitecture", built.architecture);
     renderRows("mentorIngredientPlan", built.ingredientPlan);
-    renderRows("mentorConflicts", built.conflicts);
-    renderRows("mentorFinishPlan", built.finish);
   }
 
   function renderAll(){
@@ -2538,60 +2534,6 @@
     setField("mentorTargetAbv", m.targetAbv || "");
     setField("mentorSweetness", m.sweetness || "Dry");
     setField("mentorCarbonation", m.carbonation || "Still");
-  }
-
-  function mentorKnowledgeCounts(kb){
-    const safe = normalizeMentorKnowledge(kb);
-    return {
-      honeys: safe.honeys.length,
-      yeasts: safe.yeasts.length,
-      adjuncts: safe.adjuncts.length,
-      archetypes: safe.archetypes.length
-    };
-  }
-
-  function renderMentorKnowledgeStatus(message, isError = false){
-    const el = $("mentorKnowledgeStatus");
-    if (!el) return;
-    const counts = mentorKnowledgeCounts(data.mentorKnowledge);
-    const label = `Honeys ${counts.honeys} · Yeasts ${counts.yeasts} · Adjuncts ${counts.adjuncts} · Archetypes ${counts.archetypes}`;
-    if (message){
-      el.innerHTML = `<div>${escapeHTML(message)}</div><div class="muted" style="margin-top:8px">${escapeHTML(label)}</div>`;
-      if (isError){
-        el.innerHTML = `<div>⚠ ${escapeHTML(message)}</div><div class="muted" style="margin-top:8px">${escapeHTML(label)}</div>`;
-      }
-      return;
-    }
-    el.innerHTML = `<div class="muted">${escapeHTML(label)}</div>`;
-  }
-
-  function populateMentorKnowledgeEditor(){
-    const editor = $("mentorKnowledgeEditor");
-    if (editor){
-      editor.value = JSON.stringify(normalizeMentorKnowledge(data.mentorKnowledge), null, 2);
-      editor.classList.add("mono-input");
-    }
-    renderMentorKnowledgeStatus("Knowledge base loaded.");
-  }
-
-  function applyMentorKnowledgeFromEditor({ pretty = true } = {}){
-    const editor = $("mentorKnowledgeEditor");
-    if (!editor) return false;
-    let parsed;
-    try{
-      parsed = JSON.parse(editor.value || "{}");
-    } catch (error){
-      renderMentorKnowledgeStatus(`Invalid JSON: ${error.message}`, true);
-      return false;
-    }
-    data.mentorKnowledge = normalizeMentorKnowledge(parsed);
-    if (pretty){
-      editor.value = JSON.stringify(data.mentorKnowledge, null, 2);
-    }
-    persistData();
-    renderMentor();
-    renderMentorKnowledgeStatus("Knowledge base saved.");
-    return true;
   }
 
   function recipeFromDraft(){
@@ -3294,92 +3236,6 @@
       el.addEventListener("input", handler);
       el.addEventListener("change", handler);
     });
-    $("clearMentorBtn").addEventListener("click", () => {
-      try {
-        const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
-        const enh = enhRaw ? JSON.parse(enhRaw) : null;
-        if (enh && enh.mentor) return;
-      } catch(e) { /* fall through to legacy path */ }
-      if (!confirm("Start a completely new brew? All concept fields will be reset.")) return;
-      data.mentor = defaultMentor();
-      populateMentorForm();
-      persistData();
-      renderMentor();
-    });
-    const applyKnowledgeBtn = $("mentorKnowledgeApplyBtn");
-    if (applyKnowledgeBtn){
-      applyKnowledgeBtn.addEventListener("click", () => {
-        applyMentorKnowledgeFromEditor({ pretty: true });
-      });
-    }
-    const prettyKnowledgeBtn = $("mentorKnowledgePrettyBtn");
-    if (prettyKnowledgeBtn){
-      prettyKnowledgeBtn.addEventListener("click", () => {
-        const editor = $("mentorKnowledgeEditor");
-        if (!editor) return;
-        try{
-          const parsed = JSON.parse(editor.value || "{}");
-          editor.value = JSON.stringify(normalizeMentorKnowledge(parsed), null, 2);
-          renderMentorKnowledgeStatus("Knowledge JSON formatted.");
-        } catch (error){
-          renderMentorKnowledgeStatus(`Invalid JSON: ${error.message}`, true);
-        }
-      });
-    }
-    const resetKnowledgeBtn = $("mentorKnowledgeLoadDefaultsBtn");
-    if (resetKnowledgeBtn){
-      resetKnowledgeBtn.addEventListener("click", () => {
-        data.mentorKnowledge = defaultMentorKnowledgeBase();
-        populateMentorKnowledgeEditor();
-        persistData();
-        renderMentor();
-        renderMentorKnowledgeStatus("Knowledge base reset to defaults.");
-      });
-    }
-    $("mentorToRecipeBtn").addEventListener("click", () => {
-      try {
-        const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
-        const enh = enhRaw ? JSON.parse(enhRaw) : null;
-        if (enh && enh.mentor && enh.mentor.outputs && enh.mentor.outputs.packet) return;
-      } catch(e) { /* fall through to legacy path */ }
-      const built = buildMentor(data.mentor);
-      const blueprint = built.blueprint || {};
-      data.recipeDraft.name = data.mentor.conceptName || data.recipeDraft.name || "Unnamed mead";
-      data.recipeDraft.style = blueprint.style || data.recipeDraft.style;
-      data.recipeDraft.batchGallons = blueprint.batchGallons || data.mentor.batchSize || data.recipeDraft.batchGallons;
-      data.recipeDraft.targetAbv = blueprint.targetAbv || data.mentor.targetAbv || data.recipeDraft.targetAbv;
-      data.recipeDraft.sweetness = blueprint.sweetness || data.mentor.sweetness || data.recipeDraft.sweetness;
-      data.recipeDraft.carbonation = blueprint.carbonation || data.mentor.carbonation || data.recipeDraft.carbonation;
-      data.recipeDraft.yeast = blueprint.yeast || data.recipeDraft.yeast;
-      data.recipeDraft.yeastOther = blueprint.yeastOther || "";
-      data.recipeDraft.yeastTolerance = blueprint.yeastTolerance || data.recipeDraft.yeastTolerance;
-      data.recipeDraft.temp = blueprint.temp || data.recipeDraft.temp;
-      data.recipeDraft.nitrogenRequirement = blueprint.nitrogenRequirement || data.recipeDraft.nitrogenRequirement;
-      data.recipeDraft.honeyBase = blueprint.honeyBase || data.recipeDraft.honeyBase;
-      data.recipeDraft.fruitAdjuncts = blueprint.fruitAdjuncts || data.recipeDraft.fruitAdjuncts;
-      data.recipeDraft.acidPlan = blueprint.acidPlan || data.recipeDraft.acidPlan;
-      data.recipeDraft.tanninPlan = blueprint.tanninPlan || data.recipeDraft.tanninPlan;
-      data.recipeDraft.quickNote = blueprint.quickNote || data.recipeDraft.quickNote;
-      data.recipeDraft.notes = blueprint.notes || data.recipeDraft.notes;
-      data.recipeDraft.targetOg = blueprint.targetOg || data.recipeDraft.targetOg;
-      data.recipeDraft.targetFg = blueprint.targetFg || data.recipeDraft.targetFg;
-      data.recipeDraft.estimatedAbv = blueprint.estimatedAbv || data.recipeDraft.estimatedAbv;
-      if (Array.isArray(blueprint.additions) && blueprint.additions.length){
-        data.recipeDraft.additions = blueprint.additions.map((row) => ({
-          ...defaultAdditionRow(),
-          ...row,
-          id: row.id || makeId("src"),
-          sourceType: row.sourceType || "Honey",
-          unit: row.unit || sourceUnitDefault(row.sourceType || "Honey"),
-          ppg: row.ppg || sourceDefault(row.sourceType || "Honey")
-        }));
-      }
-      syncRecipeDerived();
-      populateRecipeForm();
-      persistData();
-      renderAll();
-      setActiveTab("recipes");
-    });
   }
 
 
@@ -3677,7 +3533,6 @@
         populateCellarForm();
         populateCalcForm();
         populateMentorForm();
-        populateMentorKnowledgeEditor();
         persistData();
         renderAll();
       } catch(error){
@@ -3694,7 +3549,6 @@
       populateCellarForm();
       populateCalcForm();
       populateMentorForm();
-      populateMentorKnowledgeEditor();
       persistData();
       renderAll();
     });
@@ -3710,8 +3564,7 @@
     populateCellarForm();
     populateCalcForm();
     populateMentorForm();
-    populateMentorKnowledgeEditor();
-    bindTabs();
+        bindTabs();
     bindClock();
     bindRecipeFields();
     bindFerment();
@@ -3736,8 +3589,7 @@
     populateCellarForm();
     populateCalcForm();
     populateMentorForm();
-    populateMentorKnowledgeEditor();
-    renderAll();
+        renderAll();
   });
 
   if (document.readyState === "loading") {

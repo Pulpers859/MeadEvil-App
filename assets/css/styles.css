@@ -265,7 +265,6 @@ option{background:#140e1a;color:var(--cream)}
 .check-item input{width:18px;height:18px;margin-top:2px;accent-color:var(--purple)}
 .slim-list .check-item{padding:10px 12px}
 .mono-input{font-family:Consolas,Monaco,"Courier New",monospace;font-size:.82rem}
-#mentorKnowledgeEditor{min-height:240px;white-space:pre}
 .source-row{display:grid;gap:10px}
 .source-row .form-grid-4{align-items:end}
 .kicker{font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--cream-dim);font-weight:800}
