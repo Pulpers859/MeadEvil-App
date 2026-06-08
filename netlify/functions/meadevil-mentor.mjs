@@ -722,19 +722,37 @@ const KNOWN_ADJUNCT_TERMS = [
 
 function extractAmountNear(text, term) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const patterns = [
+  const weightPatterns = [
     new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b[^.]{0,80}${escaped}`, "i"),
     new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[\\s\\S]{0,120}${escaped}`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,20}honey`, "i")
   ];
-  for (const pattern of patterns) {
+  for (const pattern of weightPatterns) {
     const match = text.match(pattern);
     if (match) {
       const amount = match[1];
       const rawUnit = (match[2] || "lb").toLowerCase();
       const unit = /^(lb|lbs|pound|pounds)$/.test(rawUnit) ? "lb" : /^(oz|ounces)$/.test(rawUnit) ? "oz" : /^(kg)$/.test(rawUnit) ? "kg" : /^(g)$/.test(rawUnit) ? "g" : "lb";
       return { amount, unit };
+    }
+  }
+
+  const baseTerm = term.replace(/\s*(zest|peel|juice|slices?|chunks?)$/i, "").trim();
+  const baseEscaped = baseTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const countPatterns = [
+    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to|-)\\s*(\\d+\\.?\\d*)\\s+(?:whole\\s+)?${baseEscaped}s?\\b`, "i"),
+    new RegExp(`${escaped}[^.]{0,60}?(\\d+\\.?\\d*)\\s*(?:to|-)\\s*(\\d+\\.?\\d*)\\s+${baseEscaped}s?\\b`, "i"),
+    new RegExp(`(\\d+\\.?\\d*)\\s+(?:whole\\s+)?${baseEscaped}s?\\b(?!\\s*(?:lb|lbs|oz|g|kg|pound|gallon))`, "i")
+  ];
+  for (const pattern of countPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      if (match[2]) {
+        const mid = (parseFloat(match[1]) + parseFloat(match[2])) / 2;
+        return { amount: String(Math.round(mid * 10) / 10), unit: "each" };
+      }
+      return { amount: match[1], unit: "each" };
     }
   }
   return null;

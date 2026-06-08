@@ -51,7 +51,7 @@
   };
 
   const CSV_SOURCE_SLOTS = 6;
-  const CELLAR_ADDITION_UNITS = ["g","mL","oz","lb","tsp","tbsp","drops","sticks","pods","whole fruit","sachets"];
+  const CELLAR_ADDITION_UNITS = ["g","mL","oz","lb","tsp","tbsp","each","drops","sticks","pods","whole fruit","sachets"];
   const RECIPE_SOURCE_FIELDS = new Set(["sourceType","description","amount","unit","ppg"]);
   const CELLAR_ADDITION_FIELDS = new Set(["type","purpose","amount","unit","notes"]);
   const MENTOR_DEFAULT_BATCH_GAL = 3;

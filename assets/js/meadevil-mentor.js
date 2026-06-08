@@ -4,7 +4,7 @@
   const STORAGE_KEY = "meadevil-app-v2";
   const ENHANCEMENT_KEY = "meadevil-app-v2-meadevil-mentor";
   const VALID_MODELS = ["gpt-4o-mini","gpt-4o","gpt-4-turbo"];
-  const ADJUNCT_UNITS = ["g","mL","oz","lb","tsp","tbsp","drops","berries","zest of 1 fruit","whole fruit","sticks","pods","bags","days"];
+  const ADJUNCT_UNITS = ["g","mL","oz","lb","tsp","tbsp","each","drops","berries","zest of 1 fruit","whole fruit","sticks","pods","bags","days"];
   const ADJUNCT_PHASES = ["primary","secondary","bench trial","packaging"];
   const ADJUNCT_CATEGORIES = ["botanical","citrus","tea","oak","acid","tannin","spice","fruit","other"];
 
