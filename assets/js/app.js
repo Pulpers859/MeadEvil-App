@@ -3589,7 +3589,7 @@
     populateCellarForm();
     populateCalcForm();
     populateMentorForm();
-        renderAll();
+    renderAll();
   });
 
   if (document.readyState === "loading") {

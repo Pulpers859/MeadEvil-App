@@ -1198,13 +1198,20 @@
     else if (k.dark.length && !k.fruit.length) yeastLane = "D47";
 
     const finishDirection = sweetness === "Dry" ? "Dry finish" : sweetness === "Off-dry" ? "Dry to off-dry finish" : `${sweetness} finish with discipline`;
-    const sourceBillCandidates = preferredConceptTerms([...onHand, ...mustHave])
+    const explicitFermentables = preferredConceptTerms([...onHand, ...mustHave])
       .filter((item) => isLikelyFermentableTerm(item))
       .map((item) => ({
         type: /juice|cider/.test(item) ? "Juice (single strength)" : /honey/.test(item) ? "Honey" : /agave syrup|agave nectar/.test(item) ? "Custom" : "Fruit / Puree",
         name: displayConceptTerm(item)
       }));
-    const adjunctCandidates = preferredConceptTerms(mustHave.filter((item) => !isLikelyFermentableTerm(item)))
+    const hasExplicitHoney = explicitFermentables.some((item) => item.type === "Honey");
+    const sourceBillCandidates = [...explicitFermentables];
+    if (!hasExplicitHoney) {
+      const honeyName = honeyTerms[0] ? displayConceptTerm(honeyTerms[0]) : "Honey";
+      sourceBillCandidates.unshift({ type: "Honey", name: honeyName });
+    }
+    const adjunctPool = preferredConceptTerms([...mustHave, ...onHand].filter((item) => !isLikelyFermentableTerm(item)));
+    const adjunctCandidates = adjunctPool
       .filter((item) => !/tequila-style lift|agave character/.test(item))
       .filter((item) => !isDescriptorPhrase(item))
       .map((item) => ({
@@ -1805,39 +1812,55 @@
     return $("recipeStyle")?.value || "Traditional";
   }
 
-  function seedRecipeSourceBill(packet){
+  function sourcePresetPpg(type){
+    const presets = {
+      "Honey": "35", "Maple Syrup": "29.8", "Table Sugar": "46",
+      "Juice (single strength)": "5", "Juice Concentrate": "48",
+      "Fruit / Puree": "10", "Custom": ""
+    };
+    return presets[type] || "35";
+  }
+
+  function sourcePresetUnit(type){
+    return "lb";
+  }
+
+  function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance){
+    if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
     const currentMain = getMainState();
     const currentRows = (((currentMain || {}).recipeDraft || {}).additions) || [];
-    const trulyBlank = !currentRows.length || currentRows.every((row) => !String((row && (row.description || row.amount || row.sourceType !== "Honey" ? row.description || row.amount : "")) || "").trim());
+    const trulyBlank = !currentRows.length || currentRows.every((row) => {
+      const desc = String((row && row.description) || "").trim();
+      const amt = String((row && row.amount) || "").trim();
+      return !desc && !amt;
+    });
     if (!trulyBlank && !confirm("The source bill already has entries. Replace them with the Mentor's recommendations?")) return;
-    if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
-    const list = $("recipeSourceList");
-    if (!list) return;
-    const currentCount = list.querySelectorAll("[data-source-delete]").length || 1;
-    const neededAdds = Math.max(0, packet.sourceBillCandidates.length - currentCount);
-    for (let i = 0; i < neededAdds; i += 1){
-      $("addRecipeSourceBtn")?.click();
+
+    const MeadLogic = window.MeadLogic || {};
+    let honeyLb = null;
+    if (MeadLogic.estimateRecipeTargets && batchGallons && targetAbv) {
+      const projected = MeadLogic.estimateRecipeTargets({ batchGallons, targetAbv, sweetness, yeastTolerance, honeyPPG: 35 });
+      if (projected && projected.honeyLb) honeyLb = projected.honeyLb;
     }
-    setTimeout(() => {
-      packet.sourceBillCandidates.forEach((candidate, index) => {
-        const sourceSelects = list.querySelectorAll('[data-source-field="sourceType"]');
-        const descInputs = list.querySelectorAll('[data-source-field="description"]');
-        const amountInputs = list.querySelectorAll('[data-source-field="amount"]');
-        if (sourceSelects[index]){
-          sourceSelects[index].value = candidate.type || "Custom";
-          sourceSelects[index].dispatchEvent(new Event("change", { bubbles: true }));
-        }
-        if (descInputs[index]){
-          descInputs[index].value = candidate.name || "";
-          descInputs[index].dispatchEvent(new Event("input", { bubbles: true }));
-          descInputs[index].dispatchEvent(new Event("change", { bubbles: true }));
-        }
-        if (amountInputs[index] && candidate.amount){
-          amountInputs[index].value = candidate.amount;
-          amountInputs[index].dispatchEvent(new Event("input", { bubbles: true }));
-        }
-      });
-    }, 40);
+
+    const rows = packet.sourceBillCandidates.map((candidate) => {
+      const type = candidate.type || "Custom";
+      const amount = candidate.amount
+        || (type === "Honey" && honeyLb ? String(Math.round(honeyLb * 100) / 100) : "");
+      return {
+        id: makeId("src"),
+        sourceType: type,
+        description: candidate.name || "",
+        amount: amount,
+        unit: sourcePresetUnit(type),
+        ppg: sourcePresetPpg(type)
+      };
+    });
+
+    saveMentorMirrorToMain((main) => {
+      main.recipeDraft = main.recipeDraft || {};
+      main.recipeDraft.additions = rows.length ? rows : [{ id: makeId("src"), sourceType: "Honey", description: "", amount: "", unit: "lb", ppg: "35" }];
+    });
   }
 
   function applyMentorToBuild(){
@@ -1880,7 +1903,13 @@
     ].filter(Boolean).join("\n");
     recipeFieldSet("recipeNotes", noteBits);
 
-    seedRecipeSourceBill(output.packet);
+    const batchGallons = $("mentorBatchSize")?.value || "";
+    const targetAbv = $("mentorTargetAbv")?.value || "";
+    const sweetness = $("mentorSweetness")?.value || "Dry";
+    const yeastTolerance = output.packet.yeastLane && ["71B","D47","QA23","EC-1118"].includes(output.packet.yeastLane)
+      ? ({ "71B": "14", "D47": "15", "QA23": "16", "EC-1118": "18" })[output.packet.yeastLane] || ""
+      : "";
+    seedRecipeSourceBill(output.packet, batchGallons, targetAbv, sweetness, yeastTolerance);
 
     saveMergedMain((enh) => {
       const adjunctRows = (output.packet.adjunctCandidates || []).length
@@ -1895,6 +1924,7 @@
       enh.recipeDraft.structureAdditions = adjunctRows.length ? adjunctRows : [defaultAdjunctRow()];
     });
 
+    window.dispatchEvent(new Event("meadevil-cloud-restore"));
     document.querySelector('[data-tab="recipes"]')?.click();
     setTimeout(() => {
       if (missingBridgeIds.length && $("mentorCoachStatus")){
