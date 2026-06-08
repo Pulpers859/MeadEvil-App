@@ -529,7 +529,6 @@
               <div class="toolbar">
                 <h3>Concept spark</h3>
                 <div class="tag-row">
-                  <button class="mini-btn" id="mentorDemoCocoBtn" type="button">Load El Coco Loco demo</button>
                   <button class="mini-btn" id="mentorClearThreadBtn" type="button">Fresh read</button>
                   <button class="mini-btn" id="clearMentorBtn" type="button">New brew</button>
                   <button class="btn btn-primary" id="mentorToRecipeBtn" type="button">Send to Build</button>
@@ -561,15 +560,6 @@
                   <div class="field"><label for="mentorNoGo">What would ruin this mead for you?</label><textarea id="mentorNoGo" placeholder="What outcome would make you say this missed the whole point?"></textarea></div>
                 </div>
               </details>
-              <div class="hidden-field" aria-hidden="true">
-                <input id="mentorHoney" />
-                <input id="mentorYeast" />
-                <input id="mentorFruitSpiceOak" />
-                <input id="mentorStructure" />
-                <input id="mentorMustHave" />
-                <input id="mentorAvoid" />
-                <input id="mentorConstraints" />
-              </div>
             </div>
 
             <div class="card accent-card">
@@ -594,15 +584,8 @@
                     <div class="field"><label for="mentorTimePatience">Time patience</label><select id="mentorTimePatience"><option value="drink young">Drink young</option><option value="a few months is fine">A few months is fine</option><option value="happy to age it">Happy to age it</option></select></div>
                   </div>
                   <div class="form-grid-2">
-                    <div class="field"><label for="mentorBudget">Budget pressure</label><select id="mentorBudget"><option value="normal">Normal</option><option value="watching cost">Watching cost</option><option value="cost is not the issue">Cost is not the issue</option></select></div>
-                    <div class="field checkbox-field"><label class="switch"><input id="mentorBluntMode" type="checkbox" checked /> Blunt coach mode</label></div>
-                  </div>
-                  <div class="form-grid-2">
-                    <div class="field"><label for="mentorProvider">AI brain</label><select id="mentorProvider"><option value="openai">OpenAI GPT</option><option value="local">Local only (no API)</option></select></div>
                     <div class="field"><label for="mentorModel">Model</label><select id="mentorModel"><option value="gpt-4o-mini">gpt-4o-mini (cheap, fast)</option><option value="gpt-4o">gpt-4o (smart)</option><option value="gpt-4-turbo">gpt-4-turbo</option></select></div>
-                  </div>
-                  <div class="tag-row">
-                    <button class="mini-btn" id="mentorApplyBtn" type="button">Apply mentor advice to Build</button>
+                    <div class="field checkbox-field"><label class="switch"><input id="mentorBluntMode" type="checkbox" checked /> Blunt coach mode</label></div>
                   </div>
                 </div>
               </details>
@@ -626,30 +609,13 @@
             </div>
           </div>
           <div class="stack">
-            <div class="card accent-card"><div class="toolbar"><h3>Current Best Version</h3></div><div class="notes-box" id="mentorSummary"></div></div>
             <div class="card accent-soft">
               <div class="toolbar"><h3>Build Plan</h3></div>
-              <div class="notes-box mentor-direction-board" id="mentorDirectionBoard"></div>
               <div class="toolbar mentor-subhead"><h3>Roles</h3></div>
               <div class="notes-box info-rows" id="mentorPairings"></div>
               <div class="toolbar mentor-subhead"><h3>Moves</h3></div>
               <div class="notes-box info-rows" id="mentorIngredientPlan"></div>
             </div>
-            <div class="card">
-              <div class="toolbar"><h3>Risks</h3></div>
-              <div class="notes-box info-rows" id="mentorConflicts"></div>
-              <div class="toolbar mentor-subhead"><h3>If We Build It</h3></div>
-              <div class="notes-box info-rows" id="mentorFinishPlan"></div>
-            </div>
-            <details class="accord-card">
-              <summary class="accord-summary">
-                <span class="accord-title">Troubleshooting view</span>
-                <span class="small">Show internal recipe logic</span>
-              </summary>
-              <div class="accord-body">
-                <div class="notes-box info-rows" id="mentorArchitecture"></div>
-              </div>
-            </details>
           </div>
         </div>
       </div>

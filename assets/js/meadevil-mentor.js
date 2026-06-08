@@ -1407,43 +1407,12 @@
     `).join("") : "";
   }
 
-  function renderDirectionBoard(packet){
-    const el = $("mentorDirectionBoard");
-    if (!el) return;
-    const safePacket = normalizeMentorPacket(packet);
-    const strongest = safePacket.strongestDirection || {};
-    const cards = [];
-    if (strongest.name || strongest.why || strongest.buildSignal){
-      cards.push(`
-        <div class="mentor-direction-card primary">
-          <h4>${escapeHTML(strongest.name || "Strongest direction still forming")}</h4>
-          <p>${escapeHTML(strongest.why || strongest.buildSignal || "Run the mentor again with a clearer concept center.")}</p>
-          ${strongest.buildSignal ? `<p><span class="muted">Build signal:</span> ${escapeHTML(strongest.buildSignal)}</p>` : ""}
-        </div>
-      `);
-    }
-    (safePacket.alternateDirections || []).forEach((direction) => {
-      cards.push(`
-        <div class="mentor-direction-card">
-          <h4>${escapeHTML(direction.name || "Alternate direction")}</h4>
-          <p>${escapeHTML(direction.why || "Alternate cut of the concept.")}</p>
-          ${direction.risk ? `<p><span class="muted">Risk:</span> ${escapeHTML(direction.risk)}</p>` : ""}
-        </div>
-      `);
-    });
-    el.innerHTML = cards.join("");
-  }
 
   function clearMentorOutputs(){
     [
-      "mentorSummary",
       "mentorCoachReply",
       "mentorPairings",
-      "mentorArchitecture",
-      "mentorIngredientPlan",
-      "mentorConflicts",
-      "mentorFinishPlan",
-      "mentorDirectionBoard"
+      "mentorIngredientPlan"
     ].forEach((id) => {
       if ($(id)) $(id).innerHTML = "";
     });
@@ -1452,9 +1421,7 @@
   function renderMentorOutputs(output){
     if (!output) return;
     const safePacket = normalizeMentorPacket(output.packet);
-    $("mentorSummary").innerHTML = output.summaryHtml || "";
-    $("mentorCoachReply").innerHTML = output.conversationReplyHtml || output.coachReplyHtml || "";
-    renderDirectionBoard(safePacket);
+    if ($("mentorCoachReply")) $("mentorCoachReply").innerHTML = output.conversationReplyHtml || output.coachReplyHtml || "";
     renderRows("mentorPairings", [
       ["What carries the concept", formatIngredientList(safePacket.ingredientRoles.carries)],
       ["What only supports it", formatIngredientList(safePacket.ingredientRoles.supports)],
@@ -1462,20 +1429,11 @@
       ["What could ruin it", formatIngredientList(safePacket.ingredientRoles.dangerNotes.length ? safePacket.ingredientRoles.dangerNotes : safePacket.ruiners)],
       ["Serve context", escapeHTML((loadEnhancement().mentor.beginner || {}).serveContext || "Not specified")]
     ]);
-    renderRows("mentorArchitecture", [
-      ["Decision stage", escapeHTML(safePacket.decisionStage || "Concept shaping")],
-      ["Style lane", escapeHTML(safePacket.styleLane || "Open")],
-      ["Suggested yeast lane", escapeHTML(safePacket.yeastLane || "Still open")],
-      ["Finish direction", escapeHTML(safePacket.finishDirection || "Still open")],
-      ["Build discipline", safePacket.pushback && safePacket.pushback.length ? escapeHTML(safePacket.pushback[0]) : "Keep the ingredient list honest"]
-    ]);
     renderRows("mentorIngredientPlan", [
       ["Fermentable candidates", formatIngredientList((safePacket.sourceBillCandidates || []).map((item) => item.name))],
       ["Structure additions", formatIngredientList((safePacket.adjunctCandidates || []).map((item) => `${item.ingredient} (${item.phase})`))],
       ["Keep optional", safePacket.adjunctCandidates && safePacket.adjunctCandidates.some((item) => item.phase === "bench trial") ? "Bench-trial items stay optional until the base mead proves it needs them." : "No bench-trial-only items flagged yet"]
     ]);
-    renderRows("mentorConflicts", (safePacket.riskControls || ["No risk notes yet"]).map((item, idx) => [`Risk ${idx + 1}`, escapeHTML(item)]));
-    renderRows("mentorFinishPlan", (safePacket.productionSequence || ["No production sequence yet"]).map((item, idx) => [`Step ${idx + 1}`, escapeHTML(item)]));
   }
 
   function renderAdjunctList(rows){
@@ -1513,14 +1471,6 @@
   function syncLegacyBridge(output){
     const enhancement = loadEnhancement();
     const main = getMainState();
-    main.mentor = main.mentor || {};
-    main.mentor.honey = (output.packet.sourceBillCandidates || []).filter((item) => /honey|maple|sugar/i.test(item.name || item.type || "")).map((item) => item.name).join(", ");
-    main.mentor.yeast = output.packet.yeastLane || "";
-    main.mentor.fruitSpiceOak = formatIngredientList(output.packet.supportNotes).replace(/<[^>]+>/g, "");
-    main.mentor.structure = formatIngredientList(output.packet.tensionSources).replace(/<[^>]+>/g, "");
-    main.mentor.mustHave = enhancement.mentor.beginner.mustHaveSimple || "";
-    main.mentor.avoid = enhancement.mentor.beginner.avoidSimple || "";
-    main.mentor.constraints = [enhancement.mentor.beginner.skillLevel, enhancement.mentor.beginner.riskTolerance, enhancement.mentor.beginner.processComfort, enhancement.mentor.beginner.timePatience].filter(Boolean).join(" | ");
     main.meadevilMentor = clone(enhancement.mentor);
     originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(mergeEnhancementIntoMain(main, enhancement)));
   }
@@ -1550,8 +1500,6 @@
     if ($("mentorRiskTolerance")) $("mentorRiskTolerance").value = enhancement.mentor.beginner.riskTolerance || "keep it safe";
     if ($("mentorProcessComfort")) $("mentorProcessComfort").value = enhancement.mentor.beginner.processComfort || "secondary additions are fine";
     if ($("mentorTimePatience")) $("mentorTimePatience").value = enhancement.mentor.beginner.timePatience || "a few months is fine";
-    if ($("mentorBudget")) $("mentorBudget").value = enhancement.mentor.beginner.budget || "normal";
-    if ($("mentorProvider")) $("mentorProvider").value = enhancement.mentor.provider || "openai";
     if ($("mentorModel")) $("mentorModel").value = VALID_MODELS.includes(enhancement.mentor.model) ? enhancement.mentor.model : "gpt-4o-mini";
     if ($("mentorBluntMode")) $("mentorBluntMode").checked = Boolean(enhancement.mentor.blunt);
     document.querySelectorAll(".mentor-mode-btn").forEach((button) => button.classList.toggle("active", button.dataset.mentorMode === enhancement.mentor.mode));
@@ -1564,13 +1512,6 @@
       clearMentorOutputs();
     }
 
-    if ($("mentorHoney")) $("mentorHoney").value = (main.mentor || {}).honey || "";
-    if ($("mentorYeast")) $("mentorYeast").value = (main.mentor || {}).yeast || "";
-    if ($("mentorFruitSpiceOak")) $("mentorFruitSpiceOak").value = (main.mentor || {}).fruitSpiceOak || "";
-    if ($("mentorStructure")) $("mentorStructure").value = (main.mentor || {}).structure || "";
-    if ($("mentorMustHave")) $("mentorMustHave").value = (main.mentor || {}).mustHave || "";
-    if ($("mentorAvoid")) $("mentorAvoid").value = (main.mentor || {}).avoid || "";
-    if ($("mentorConstraints")) $("mentorConstraints").value = (main.mentor || {}).constraints || "";
     renderConceptPreview();
   }
 
@@ -1757,7 +1698,7 @@
   async function runMentor(){
     const localPacket = buildLocalPacket();
     const enhancementNow = loadEnhancement();
-    const provider = enhancementNow.mentor.provider || "openai";
+    const provider = "openai";
     const model = enhancementNow.mentor.model || "gpt-4o-mini";
     const followupValue = $("mentorFollowup")?.value || "";
     const baseConversation = normalizeMentorConversation(enhancementNow.mentor.conversation);
@@ -1974,8 +1915,7 @@
       ["mentorSkillLevel", "skillLevel"],
       ["mentorRiskTolerance", "riskTolerance"],
       ["mentorProcessComfort", "processComfort"],
-      ["mentorTimePatience", "timePatience"],
-      ["mentorBudget", "budget"]
+      ["mentorTimePatience", "timePatience"]
     ].forEach(([id, field]) => {
       const el = $(id);
       if (!el) return;
@@ -2001,10 +1941,6 @@
       el.addEventListener("change", handler);
     });
 
-    $("mentorProvider")?.addEventListener("change", () => {
-      saveMergedMain((enh) => { enh.mentor.provider = $("mentorProvider").value || "openai"; });
-      renderAll();
-    });
     $("mentorModel")?.addEventListener("change", () => {
       saveMergedMain((enh) => { enh.mentor.model = $("mentorModel").value || "gpt-4o-mini"; });
       renderAll();
@@ -2018,18 +1954,7 @@
     });
 
     $("mentorRunBtn")?.addEventListener("click", runMentor);
-    $("mentorApplyBtn")?.addEventListener("click", applyMentorToBuild);
-
-    $("mentorDemoCocoBtn")?.addEventListener("click", () => {
-      setTimeout(() => {
-        saveMergedMain((enh) => {
-          enh.mentor = blankMentorThreadState(enh.mentor);
-          enh.mentor.status.message = "El Coco Loco loaded. Transcript cleared for a fresh troubleshooting pass.";
-        });
-        if ($("mentorFollowup")) $("mentorFollowup").value = "";
-        renderAll();
-      }, 40);
-    });
+    $("mentorToRecipeBtn")?.addEventListener("click", applyMentorToBuild);
 
     $("mentorClearThreadBtn")?.addEventListener("click", () => {
       saveMergedMain((enh) => {
