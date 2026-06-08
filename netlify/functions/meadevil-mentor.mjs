@@ -723,8 +723,9 @@ const KNOWN_ADJUNCT_TERMS = [
 function extractAmountNear(text, term) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const patterns = [
-    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b[^.]{0,40}${escaped}`, "i"),
-    new RegExp(`${escaped}[^.]{0,40}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)`, "i"),
+    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b[^.]{0,80}${escaped}`, "i"),
+    new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)`, "i"),
+    new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[\\s\\S]{0,120}${escaped}`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,20}honey`, "i")
   ];
   for (const pattern of patterns) {
@@ -749,8 +750,11 @@ function extractStructuredFromProse(prose, userMessage) {
     String((userMessage.inputs || {}).conceptName || "").toLowerCase()
   ].join(" ");
 
+  const avoidText = String((userMessage.inputs || {}).avoidSimple || "").toLowerCase()
+    + " " + (Array.isArray(((userMessage || {}).concept_snapshot || {}).avoid) ? userMessage.concept_snapshot.avoid.join(" ") : "").toLowerCase();
   const honeys = Array.from(new Set(extractHoneyTerms(allContext)))
-    .filter((term, _, list) => !list.some((other) => other !== term && other.includes(term)));
+    .filter((term, _, list) => !list.some((other) => other !== term && other.includes(term)))
+    .filter((term) => !avoidText.includes(term));
   const yeast = KNOWN_YEAST_NAMES.find((y) => lower.includes(y.toLowerCase())) || "";
 
   const adjuncts = KNOWN_ADJUNCT_TERMS

@@ -1138,7 +1138,9 @@
     const hasTequila = mustHave.some((item) => conceptFamily(item) === "tequila") || /\btequila\b/i.test(combinedText);
     const hasCitrusGoal = /\bcitrus\b|\blime\b|\blemon\b|\bgrapefruit\b/i.test(combinedText);
     const finishNeedsDiscipline = /\bclean\b|\bnon-syrupy\b|\bcrisp\b|\bsharp\b|\brefreshing\b/i.test(combinedText);
-    const honeyTerms = preferredConceptTerms([...snapshot.honeyMentions, ...onHand, ...mustHave].filter((item) => /honey/i.test(String(item || ""))));
+    const avoidLower = avoid.map((item) => String(item || "").toLowerCase());
+    const honeyTerms = preferredConceptTerms([...snapshot.honeyMentions, ...onHand, ...mustHave].filter((item) => /honey/i.test(String(item || ""))))
+      .filter((item) => !avoidLower.some((a) => String(item || "").toLowerCase().includes(a) || a.includes(String(item || "").toLowerCase())));
 
     let leadImpression = "A mead with a visible concept, but not fully sharpened yet.";
     if (hasCoconut && hasAgave && hasTequila) leadImpression = "Beachy coconut concept that only works if the agave side stays sharp instead of turning cocktail-sweet.";
@@ -1200,6 +1202,7 @@
     const finishDirection = sweetness === "Dry" ? "Dry finish" : sweetness === "Off-dry" ? "Dry to off-dry finish" : `${sweetness} finish with discipline`;
     const explicitFermentables = preferredConceptTerms([...onHand, ...mustHave])
       .filter((item) => isLikelyFermentableTerm(item))
+      .filter((item) => !avoidLower.some((a) => String(item || "").toLowerCase().includes(a) || a.includes(String(item || "").toLowerCase())))
       .map((item) => ({
         type: /juice|cider/.test(item) ? "Juice (single strength)" : /honey/.test(item) ? "Honey" : /agave syrup|agave nectar/.test(item) ? "Custom" : "Fruit / Puree",
         name: displayConceptTerm(item)
@@ -1852,7 +1855,7 @@
         sourceType: type,
         description: candidate.name || "",
         amount: amount,
-        unit: sourcePresetUnit(type),
+        unit: candidate.unit || sourcePresetUnit(type),
         ppg: sourcePresetPpg(type)
       };
     });
@@ -1917,6 +1920,8 @@
             phase: item.phase || "secondary",
             category: item.category || "other",
             ingredient: item.ingredient || "",
+            amount: item.amount || "",
+            unit: item.unit || "g",
             purpose: item.purpose || "",
             notes: item.notes || ""
           }))
