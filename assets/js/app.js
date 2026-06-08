@@ -984,7 +984,8 @@
       selectedRecipeId: null,
       recipeSearch: "",
       archiveSearch: "",
-      showAllFermentLogs: false
+      showAllFermentLogs: false,
+      editingLogId: null
     },
     clock: { elapsedMs: 0, running: false, lastStartedAt: null },
     recipeDraft: defaultRecipeDraft(),
