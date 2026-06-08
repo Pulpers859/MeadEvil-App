@@ -1828,6 +1828,42 @@
     return "lb";
   }
 
+  function extractAmountFromText(text, term){
+    const lower = String(text || "").toLowerCase();
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const weightPatterns = [
+      new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,80}${escaped}`, "i"),
+      new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)`, "i"),
+      new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[\\s\\S]{0,120}${escaped}`, "i")
+    ];
+    for (const pat of weightPatterns){
+      const m = lower.match(pat);
+      if (m){
+        const raw = (m[2] || "lb").toLowerCase();
+        const unit = /^(lb|lbs|pound|pounds)$/.test(raw) ? "lb" : /^(oz|ounces)$/.test(raw) ? "oz" : /^(kg)$/.test(raw) ? "kg" : /^(g)$/.test(raw) ? "g" : "lb";
+        return { amount: m[1], unit };
+      }
+    }
+    const baseTerm = term.replace(/\s*(zest|peel|juice|slices?|chunks?)$/i, "").trim();
+    const baseEsc = baseTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const countPatterns = [
+      new RegExp(`(\\d+\\.?\\d*)\\s*(?:to|-)\\s*(\\d+\\.?\\d*)\\s+(?:whole\\s+)?${baseEsc}s?\\b`, "i"),
+      new RegExp(`${escaped}[^.]{0,60}?(\\d+\\.?\\d*)\\s*(?:to|-)\\s*(\\d+\\.?\\d*)\\s+${baseEsc}s?\\b`, "i"),
+      new RegExp(`(\\d+\\.?\\d*)\\s+(?:whole\\s+)?${baseEsc}s?\\b(?!\\s*(?:lb|lbs|oz|g|kg|pound|gallon))`, "i")
+    ];
+    for (const pat of countPatterns){
+      const m = lower.match(pat);
+      if (m){
+        if (m[2]){
+          const mid = (parseFloat(m[1]) + parseFloat(m[2])) / 2;
+          return { amount: String(Math.round(mid * 10) / 10), unit: "each" };
+        }
+        return { amount: m[1], unit: "each" };
+      }
+    }
+    return null;
+  }
+
   function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance){
     if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
     const currentMain = getMainState();
@@ -1912,11 +1948,37 @@
     const yeastTolerance = output.packet.yeastLane && ["71B","D47","QA23","EC-1118"].includes(output.packet.yeastLane)
       ? ({ "71B": "14", "D47": "15", "QA23": "16", "EC-1118": "18" })[output.packet.yeastLane] || ""
       : "";
-    seedRecipeSourceBill(output.packet, batchGallons, targetAbv, sweetness, yeastTolerance);
+
+    const avoidText = String(enhancement.mentor.beginner.avoidSimple || "").toLowerCase();
+    const mentorProseText = (enhancement.mentor.conversation || [])
+      .filter((turn) => turn.role === "mentor" && turn.text)
+      .map((turn) => turn.text.replace(/<[^>]+>/g, ""))
+      .join("\n");
+
+    const cleanedPacket = { ...output.packet };
+    if (cleanedPacket.sourceBillCandidates) {
+      cleanedPacket.sourceBillCandidates = cleanedPacket.sourceBillCandidates
+        .filter((c) => !avoidText || !avoidText.includes(String(c.name || "").toLowerCase()))
+        .map((c) => {
+          if (c.amount) return c;
+          const extracted = extractAmountFromText(mentorProseText, c.name || "");
+          return extracted ? { ...c, amount: extracted.amount, unit: extracted.unit } : c;
+        });
+    }
+
+    seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance);
+
+    const enrichedAdjuncts = (output.packet.adjunctCandidates || []).map((item) => {
+      const amount = item.amount || "";
+      const unit = item.unit || "g";
+      if (amount) return { ...item, amount, unit };
+      const extracted = extractAmountFromText(mentorProseText, item.ingredient || "");
+      return extracted ? { ...item, amount: extracted.amount, unit: extracted.unit } : item;
+    });
 
     saveMergedMain((enh) => {
-      const adjunctRows = (output.packet.adjunctCandidates || []).length
-        ? output.packet.adjunctCandidates.map((item) => normalizeAdjunctRow({
+      const adjunctRows = enrichedAdjuncts.length
+        ? enrichedAdjuncts.map((item) => normalizeAdjunctRow({
             phase: item.phase || "secondary",
             category: item.category || "other",
             ingredient: item.ingredient || "",
