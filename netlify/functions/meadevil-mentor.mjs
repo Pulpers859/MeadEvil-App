@@ -94,6 +94,7 @@ const THINKING_RAILS = `Before you answer, silently check:
 - If I mentioned sparkling or carbonation, did I address bottle safety?
 - If the user asked for a process plan or recipe, did I give actual pounds, gallons, grams, temperatures, and timelines instead of staying abstract?`;
 
+// Kept in sync with assets/js/meadevil-mentor.js
 function isLowInformationGreetingText(text) {
   const lower = String(text || "").trim().toLowerCase();
   if (!lower) return false;
@@ -117,6 +118,7 @@ function isLowInformationGreetingText(text) {
   ].includes(normalized);
 }
 
+// Kept in sync with assets/js/meadevil-mentor.js
 function isSimpleAckText(text) {
   const lower = String(text || "").trim().toLowerCase();
   if (!lower) return false;
@@ -705,6 +707,108 @@ async function generateCollaboratorReply({ apiKey, model, userMessage, guidanceN
   return sanitizeCollaboratorReply(content);
 }
 
+const KNOWN_YEAST_NAMES = ["71B", "D47", "QA23", "EC-1118"];
+const KNOWN_ADJUNCT_TERMS = [
+  "toasted coconut", "coconut", "lime zest", "lime", "orange peel", "orange zest",
+  "vanilla bean", "vanilla", "oak", "american oak", "french oak", "agave",
+  "sea salt", "cinnamon", "star anise", "clove", "ginger", "nutmeg",
+  "blackberry", "blueberry", "raspberry", "cherry", "tart cherry",
+  "peach", "mango", "pineapple", "passion fruit", "fig", "plum",
+  "sage", "rosemary", "lavender", "hibiscus", "rose", "chamomile",
+  "black tea", "green tea", "earl grey", "rooibos",
+  "cacao", "cocoa nibs", "coffee", "espresso",
+  "juniper", "cardamom", "peppercorn", "chili", "habanero", "jalapeno"
+];
+
+function extractAmountNear(text, term) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b[^.]{0,40}${escaped}`, "i"),
+    new RegExp(`${escaped}[^.]{0,40}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)`, "i"),
+    new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,20}honey`, "i")
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const amount = match[1];
+      const rawUnit = (match[2] || "lb").toLowerCase();
+      const unit = /^(lb|lbs|pound|pounds)$/.test(rawUnit) ? "lb" : /^(oz|ounces)$/.test(rawUnit) ? "oz" : /^(kg)$/.test(rawUnit) ? "kg" : /^(g)$/.test(rawUnit) ? "g" : "lb";
+      return { amount, unit };
+    }
+  }
+  return null;
+}
+
+function extractStructuredFromProse(prose, userMessage) {
+  const lower = String(prose || "").toLowerCase();
+  const allContext = [
+    lower,
+    String((userMessage.inputs || {}).inspiration || "").toLowerCase(),
+    String((userMessage.inputs || {}).vision || "").toLowerCase(),
+    String((userMessage.inputs || {}).mustHaveSimple || "").toLowerCase(),
+    String((userMessage.inputs || {}).conceptName || "").toLowerCase()
+  ].join(" ");
+
+  const honeys = Array.from(new Set(extractHoneyTerms(allContext)))
+    .filter((term, _, list) => !list.some((other) => other !== term && other.includes(term)));
+  const yeast = KNOWN_YEAST_NAMES.find((y) => lower.includes(y.toLowerCase())) || "";
+
+  const adjuncts = KNOWN_ADJUNCT_TERMS
+    .filter((term) => allContext.includes(term))
+    .filter((term, _, list) => !list.some((other) => other !== term && other.includes(term)));
+
+  const sourceBill = honeys.map((h) => {
+    const extracted = extractAmountNear(lower, h);
+    return { name: h, type: "Honey", amount: extracted ? extracted.amount : "", unit: extracted ? extracted.unit : "lb" };
+  });
+
+  const adjunctCandidates = adjuncts.map((name) => {
+    const extracted = extractAmountNear(lower, name);
+    return {
+      ingredient: name,
+      amount: extracted ? extracted.amount : "",
+      unit: extracted ? extracted.unit : "g",
+      phase: /bench.?trial|backsweeten/i.test(lower) ? "bench trial" : "secondary",
+      category: /oak|tannin|tea/.test(name) ? "structure" : /honey|sugar|agave|maple/.test(name) ? "fermentable" : "botanical",
+      purpose: "",
+      notes: ""
+    };
+  });
+
+  const styleLane = (() => {
+    if (/metheglin/i.test(allContext)) return "Metheglin";
+    if (/melomel/i.test(allContext)) return "Melomel";
+    if (/cyser/i.test(allContext)) return "Cyser";
+    if (/pyment/i.test(allContext)) return "Pyment";
+    if (/bochet/i.test(allContext)) return "Bochet";
+    if (/hydromel/i.test(allContext)) return "Hydromel";
+    if (/braggot/i.test(allContext)) return "Braggot";
+    if (/traditional/i.test(allContext)) return "Traditional";
+    if (adjuncts.some((a) => /berry|cherry|peach|mango|plum|fig|fruit/.test(a))) return "Melomel";
+    if (adjuncts.some((a) => /sage|rosemary|lavender|cinnamon|ginger|clove|cardamom/.test(a))) return "Metheglin";
+    return "";
+  })();
+
+  return {
+    concept_outputs: {
+      lead_impression: "",
+      dominant_notes: adjuncts.slice(0, 3),
+      support_notes: adjuncts.slice(3, 6),
+      tension_sources: [],
+      ruiners: [],
+      style_lane: styleLane,
+      finish_direction: "",
+      decision_stage: ""
+    },
+    build_mapping: {
+      yeast: yeast,
+      source_bill_candidates: sourceBill,
+      adjunct_candidates: adjunctCandidates
+    },
+    mentor_reply: {}
+  };
+}
+
 function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
   const packet = isPlainObject(userMessage.fallback_packet) ? userMessage.fallback_packet : {};
   const strongestDirection = isPlainObject(packet.strongestDirection) ? packet.strongestDirection : {};
@@ -820,7 +924,8 @@ export async function handler(event) {
       }
     }
 
-    return respond(200, buildFallbackResponse(userMessage, collaboratorReply));
+    const extracted = extractStructuredFromProse(collaboratorReply, userMessage);
+    return respond(200, buildFallbackResponse(userMessage, collaboratorReply, extracted));
   } catch (err) {
     return respond(502, { error: `Mentor function error: ${err.message || err}` });
   }

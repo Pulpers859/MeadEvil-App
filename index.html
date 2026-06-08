@@ -124,6 +124,7 @@
                   <button class="mini-btn" id="downloadRecipeCsvTemplateBtn" type="button">Sample CSV</button>
                   <button class="mini-btn" id="importRecipeCsvBtn" type="button">Import CSV</button>
                   <button class="mini-btn" id="exportRecipeCsvBtn" type="button">Export CSV</button>
+                  <button class="mini-btn" id="printRecipeCardBtn" type="button">Recipe card</button>
                   <button class="mini-btn" id="clearRecipeBtn" type="button">Clear</button>
                   <button class="btn btn-primary" id="saveRecipeBtn" type="button">Save recipe</button>
                 </div>
@@ -200,6 +201,10 @@
                 </div>
               </div>
               <div class="batch-summary-card" id="currentBatchSummary"></div>
+              <div class="form-grid-2">
+                <div class="field"><label for="batchPitchDate">Pitch date</label><input id="batchPitchDate" type="date" /></div>
+                <div class="field"><label for="batchPhase">Batch phase</label><select id="batchPhase"><option value="primary">Primary</option><option value="secondary">Secondary</option><option value="aging">Aging</option><option value="stabilizing">Stabilizing</option><option value="packaging">Packaging</option><option value="bottled">Bottled</option></select></div>
+              </div>
               <div class="field"><label for="batchFermentNotes">Fermentation notes</label><textarea id="batchFermentNotes" placeholder="Actual pitch temp, aroma changes, fruit cap behavior, sulfur, nutrient timing, rack decisions, surprises…"></textarea></div>
             </div>
             <details class="card accord-card" id="fermentChecklistCard">

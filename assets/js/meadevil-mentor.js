@@ -40,6 +40,7 @@
       .filter(Boolean);
   }
 
+  // Kept in sync with netlify/functions/meadevil-mentor.mjs
   function isLowInformationGreetingText(text){
     const lower = String(text || "").trim().toLowerCase();
     if (!lower) return false;
@@ -61,6 +62,7 @@
     ].includes(normalized);
   }
 
+  // Kept in sync with netlify/functions/meadevil-mentor.mjs
   function isSimpleAckText(text){
     const lower = String(text || "").trim().toLowerCase();
     if (!lower) return false;
@@ -337,8 +339,7 @@
         skillLevel: "beginner",
         riskTolerance: "keep it safe",
         processComfort: "secondary additions are fine",
-        timePatience: "a few months is fine",
-        budget: "normal"
+        timePatience: "a few months is fine"
       },
       conversation: [],
       outputs: defaultMentorOutputs(),
@@ -753,8 +754,7 @@
         level: beginner.skillLevel,
         riskTolerance: beginner.riskTolerance,
         processComfort: beginner.processComfort,
-        timePatience: beginner.timePatience,
-        budget: beginner.budget
+        timePatience: beginner.timePatience
       },
       keywordSignals: {
         dark: keywords.dark,
@@ -1566,7 +1566,6 @@
         riskTolerance: localPacket.beginner.riskTolerance,
         processComfort: localPacket.beginner.processComfort,
         timePatience: localPacket.beginner.timePatience,
-        budget: localPacket.beginner.budget,
         batchSize: $("mentorBatchSize")?.value || "",
         targetAbv: $("mentorTargetAbv")?.value || "",
         sweetness: $("mentorSweetness")?.value || "Dry",
@@ -1810,7 +1809,7 @@
     const currentMain = getMainState();
     const currentRows = (((currentMain || {}).recipeDraft || {}).additions) || [];
     const trulyBlank = !currentRows.length || currentRows.every((row) => !String((row && (row.description || row.amount || row.sourceType !== "Honey" ? row.description || row.amount : "")) || "").trim());
-    if (!trulyBlank) return;
+    if (!trulyBlank && !confirm("The source bill already has entries. Replace them with the Mentor's recommendations?")) return;
     if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
     const list = $("recipeSourceList");
     if (!list) return;
@@ -1823,6 +1822,7 @@
       packet.sourceBillCandidates.forEach((candidate, index) => {
         const sourceSelects = list.querySelectorAll('[data-source-field="sourceType"]');
         const descInputs = list.querySelectorAll('[data-source-field="description"]');
+        const amountInputs = list.querySelectorAll('[data-source-field="amount"]');
         if (sourceSelects[index]){
           sourceSelects[index].value = candidate.type || "Custom";
           sourceSelects[index].dispatchEvent(new Event("change", { bubbles: true }));
@@ -1831,6 +1831,10 @@
           descInputs[index].value = candidate.name || "";
           descInputs[index].dispatchEvent(new Event("input", { bubbles: true }));
           descInputs[index].dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        if (amountInputs[index] && candidate.amount){
+          amountInputs[index].value = candidate.amount;
+          amountInputs[index].dispatchEvent(new Event("input", { bubbles: true }));
         }
       });
     }, 40);
@@ -1853,11 +1857,26 @@
     recipeFieldSet("recipeCarbonation", $("mentorCarbonation")?.value || "Still");
     recipeFieldSet("recipeQuickNote", output.headline || "");
 
+    if (output.packet.yeastLane) {
+      const knownYeasts = ["71B", "D47", "QA23", "EC-1118"];
+      if (knownYeasts.includes(output.packet.yeastLane)) {
+        recipeFieldSet("recipeYeast", output.packet.yeastLane);
+      } else {
+        recipeFieldSet("recipeYeast", "Other / Custom");
+        recipeFieldSet("recipeYeastOther", output.packet.yeastLane);
+      }
+    }
+
+    const lastMentorReply = (enhancement.mentor.conversation || [])
+      .filter((turn) => turn.role === "mentor" && turn.text)
+      .slice(-1)
+      .map((turn) => turn.text.replace(/<[^>]+>/g, "").slice(0, 500))[0] || "";
     const noteBits = [
       `Concept read: ${output.packet.leadImpression || ""}`,
       output.packet.pushback && output.packet.pushback.length ? `Pushback: ${output.packet.pushback[0]}` : "",
       output.packet.riskControls && output.packet.riskControls.length ? `Risk controls: ${output.packet.riskControls.join(" | ")}` : "",
-      output.packet.productionSequence && output.packet.productionSequence.length ? `Production sequence: ${output.packet.productionSequence.join(" → ")}` : ""
+      output.packet.productionSequence && output.packet.productionSequence.length ? `Production sequence: ${output.packet.productionSequence.join(" → ")}` : "",
+      lastMentorReply ? `\nMentor's last word:\n${lastMentorReply}` : ""
     ].filter(Boolean).join("\n");
     recipeFieldSet("recipeNotes", noteBits);
 
@@ -1957,6 +1976,7 @@
     $("mentorToRecipeBtn")?.addEventListener("click", applyMentorToBuild);
 
     $("mentorClearThreadBtn")?.addEventListener("click", () => {
+      if (!confirm("Clear the mentor conversation thread? Your concept fields will stay, but all conversation history will be lost.")) return;
       saveMergedMain((enh) => {
         enh.mentor = blankMentorThreadState(enh.mentor);
       });
@@ -1968,6 +1988,7 @@
     });
 
     $("clearMentorBtn")?.addEventListener("click", () => {
+      if (!confirm("Start a completely new brew? All concept fields and conversation history will be reset.")) return;
       saveMergedMain((enh) => { enh.mentor = defaultMentorState(); });
       saveMentorMirrorToMain((main) => {
         blankMentorLegacyBridge(main);

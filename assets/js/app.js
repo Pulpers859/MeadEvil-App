@@ -2,6 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "meadevil-app-v2";
+  const ENHANCEMENT_KEY = STORAGE_KEY + "-meadevil-mentor";
   const MeadLogic = window.MeadLogic || {};
   const {
     round,
@@ -742,6 +743,28 @@
     ];
   }
 
+  function buildRecipeAwareChecklist(recipe){
+    const base = defaultFermentChecklist();
+    if (!recipe) return base;
+    const extras = [];
+    const structureAdds = Array.isArray(recipe.structureAdditions) ? recipe.structureAdditions : [];
+    const secondaryAdds = structureAdds.filter((row) => row.ingredient && /secondary/i.test(row.phase || ""));
+    const benchAdds = structureAdds.filter((row) => row.ingredient && /bench/i.test(row.phase || ""));
+    secondaryAdds.forEach((row) => {
+      extras.push({ id: makeId("task"), text: `Add ${row.ingredient} in secondary — taste every 48-72h and pull when profile is clean`, done: false });
+    });
+    benchAdds.forEach((row) => {
+      extras.push({ id: makeId("task"), text: `Bench trial ${row.ingredient} before committing to full batch`, done: false });
+    });
+    if (recipe.sweetness && recipe.sweetness !== "Dry") {
+      extras.push({ id: makeId("task"), text: `Plan backsweetening for ${recipe.sweetness.toLowerCase()} finish — stabilize first`, done: false });
+    }
+    if (recipe.carbonation && recipe.carbonation !== "Still") {
+      extras.push({ id: makeId("task"), text: `Carbonation planned (${recipe.carbonation.toLowerCase()}) — use pressure-safe bottles only`, done: false });
+    }
+    return [...base, ...extras];
+  }
+
   function defaultCellarChecklist(){
     return [
       { id: makeId("cellar"), text: "Confirm fermentation has actually stopped before chemical stabilization", done: false },
@@ -776,7 +799,8 @@
       targetOg: "",
       targetFg: "",
       estimatedAbv: "",
-      additions: [defaultAdditionRow()]
+      additions: [defaultAdditionRow()],
+      structureAdditions: []
     };
   }
 
@@ -806,12 +830,15 @@
       targetFg: "",
       estimatedAbv: "",
       additions: [defaultAdditionRow()],
+      structureAdditions: [],
       fermentNotes: "",
       stepFeedPoints: "30",
       stepFeedHoneyPpg: "35",
       stepFeedCount: "1",
       stepFeedLog: [],
-      loadedAt: null
+      loadedAt: null,
+      pitchDate: "",
+      phase: "primary"
     };
   }
 
@@ -985,6 +1012,7 @@
     merged.createdAt = recipe.createdAt || new Date().toISOString();
     merged.updatedAt = recipe.updatedAt || merged.createdAt;
     merged.additions = Array.isArray(recipe.additions) && recipe.additions.length ? recipe.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
+    merged.structureAdditions = Array.isArray(recipe.structureAdditions) ? recipe.structureAdditions : [];
     return merged;
   }
 
@@ -1483,6 +1511,9 @@
     if (data.nutrients.og){
       data.nutrients.targetYanPpm = String(suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }));
     }
+    if (force && !data.nutrients.protocol){
+      data.nutrients.protocol = "tosna";
+    }
   }
 
   function syncCurrentBatchDerived(){
@@ -1504,6 +1535,12 @@
 
   function latestGravityLog(){
     return sortLogsDescending(data.fermentationLogs)[0] || null;
+  }
+
+  function daysSinceLastReading(logs){
+    const latest = sortLogsDescending(logs)[0];
+    if (!latest || !latest.date) return Infinity;
+    return Math.floor((Date.now() - new Date(latest.date).getTime()) / 86400000);
   }
 
   function currentSourceBill(){
@@ -1611,17 +1648,24 @@
     const advanced = currentAdvancedPlan();
     const breakGravity = calcOneThirdBreak(batch.targetOg || data.nutrients.og);
     const rate = fermentationRateSummary(data.fermentationLogs);
+    const pitchDaysAgo = batch.pitchDate ? Math.floor((Date.now() - new Date(batch.pitchDate).getTime()) / 86400000) : null;
+    const phase = batch.phase || "primary";
     const nextMove = (() => {
       if (!batchHasData()) return `No active batch loaded. Start in <strong>Recipes</strong> or load a saved recipe from <strong>Archive</strong>.`;
       if (!latest) return `You have a batch loaded, but no gravity history yet. Record the real OG and pitch conditions before your memory gets cute.`;
-      if (breakGravity && Number(latest.gravity) > breakGravity) return `You are still above the 1/3 sugar break. This is the window to stay on top of nutrients, oxygen discipline, and temperature.`;
-      if (breakGravity && Number(latest.gravity) <= breakGravity) return `You are past the 1/3 sugar break. Stop nutrient additions, stop treating it like a must-build day, and let it ferment clean.`;
+      if (phase === "primary" && pitchDaysAgo !== null && pitchDaysAgo <= 3 && breakGravity && Number(latest.gravity) > breakGravity) return `Day ${pitchDaysAgo} since pitch. You are in the nutrient window. Stay on top of SNA additions, oxygen, and temperature.`;
+      if (breakGravity && Number(latest.gravity) > breakGravity) return `Still above the 1/3 sugar break${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""}. Keep feeding nutrients and watching temp.`;
+      if (phase === "primary" && breakGravity && Number(latest.gravity) <= breakGravity) return `Past the 1/3 sugar break${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""}. Stop nutrient additions and let it ferment clean.`;
+      if (phase === "secondary") return `In secondary${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""}. Watch extraction times and take gravity readings to confirm stability.`;
+      if (phase === "aging") return `Aging${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""}. Patience. Take a gravity reading every few weeks to confirm stability before packaging.`;
+      if (phase === "stabilizing") return `Stabilizing${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""}. Confirm two stable gravity readings before backsweetening or packaging.`;
+      if (phase === "packaging" || phase === "bottled") return `Ready to package or already bottled${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""}. Record tasting notes in the Finish tab.`;
       return `Keep the notes honest and the process boring. Mead gets better when you stop improvising the important parts.`;
     })();
     $("dashboardNextMove").innerHTML = nextMove;
 
     $("dashboardBatchPulse").innerHTML = batchHasData()
-      ? `<strong>${escapeHTML(batch.name || "Unnamed batch")}</strong><br>${escapeHTML(batch.style || "Mead")} · ${escapeHTML(batch.batchGallons || "—")} gal · target OG ${escapeHTML(batch.targetOg || "—")} · target FG ${escapeHTML(batch.targetFg || "—")} · est. ${escapeHTML(batch.estimatedAbv || batch.targetAbv || "—")}% ABV<br><span class="muted">Loaded ${escapeHTML(formatDateTime(batch.loadedAt))}</span>`
+      ? `<strong>${escapeHTML(batch.name || "Unnamed batch")}</strong><br>${escapeHTML(batch.style || "Mead")} · ${escapeHTML(batch.batchGallons || "—")} gal · target OG ${escapeHTML(batch.targetOg || "—")} · target FG ${escapeHTML(batch.targetFg || "—")} · est. ${escapeHTML(batch.estimatedAbv || batch.targetAbv || "—")}% ABV<br><span class="muted">Phase: ${escapeHTML(phase)}${batch.pitchDate ? ` · Pitched ${escapeHTML(batch.pitchDate)}` : ""}${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""} · Loaded ${escapeHTML(formatDateTime(batch.loadedAt))}</span>`
       : `No active batch loaded yet.`;
 
     renderRows("dashboardNutrientPulse", [
@@ -1631,6 +1675,7 @@
     ]);
 
     renderRows("dashboardFermentationPulse", [
+      ["Phase", escapeHTML(phase) + (pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : "")],
       ["Latest gravity", latest ? escapeHTML(latest.gravity) : "No readings"],
       ["1/3 break", breakGravity ? `${round(breakGravity, 3)}` : "Need OG"],
       ["Latest temp/pH", latest ? `${escapeHTML(latest.temp || "—")}°F · pH ${escapeHTML(latest.pH || "—")}` : "No readings"],
@@ -1682,7 +1727,6 @@
   }
 
   function renderRecipeComputed(){
-    syncRecipeDerived();
     const recipe = data.recipeDraft;
     const plan = estimateRecipeTargets({
       batchGallons: recipe.batchGallons,
@@ -1768,6 +1812,8 @@
 
   function renderFerment(){
     renderCurrentBatchSummary();
+    $("batchPitchDate").value = data.currentBatch.pitchDate || "";
+    $("batchPhase").value = data.currentBatch.phase || "primary";
     $("batchFermentNotes").value = data.currentBatch.fermentNotes || "";
     const checklistRemaining = data.fermentChecklist.filter((item) => !item.done).length;
     $("fermentChecklistSummary").textContent = checklistRemaining ? `${checklistRemaining} open` : "All done";
@@ -1811,17 +1857,34 @@
     $("toggleGravityLogBtn").textContent = data.ui.showAllFermentLogs ? "Show recent only" : `Show all logs${logs.length > 12 ? ` (${logs.length})` : ""}`;
     $("toggleGravityLogBtn").style.display = logs.length > 12 ? "inline-flex" : "none";
     $("gravityLog").innerHTML = logs.length
-      ? visibleLogs.map((item) => `
+      ? visibleLogs.map((item) => {
+          const editing = data.ui.editingLogId === item.id;
+          if (editing) return `
+          <div class="log-row log-editing">
+            <div class="form-grid-4">
+              <div class="field"><label>Date</label><input data-log-edit-field="date" data-log-edit-id="${item.id}" type="date" value="${escapeHTML(item.date)}" /></div>
+              <div class="field"><label>SG</label><input data-log-edit-field="gravity" data-log-edit-id="${item.id}" value="${escapeHTML(item.gravity)}" /></div>
+              <div class="field"><label>Temp</label><input data-log-edit-field="temp" data-log-edit-id="${item.id}" value="${escapeHTML(item.temp || "")}" /></div>
+              <div class="field"><label>pH</label><input data-log-edit-field="pH" data-log-edit-id="${item.id}" value="${escapeHTML(item.pH || "")}" /></div>
+            </div>
+            <div class="field"><label>Note</label><input data-log-edit-field="note" data-log-edit-id="${item.id}" value="${escapeHTML(item.note || "")}" /></div>
+            <div class="item-actions">
+              <button class="mini-btn" data-log-save="${item.id}" type="button">Save</button>
+              <button class="mini-btn" data-log-cancel="${item.id}" type="button">Cancel</button>
+            </div>
+          </div>`;
+          return `
           <div class="log-row">
             <strong>${escapeHTML(item.date)} — SG ${escapeHTML(item.gravity)}</strong>
             <div class="muted">Temp ${escapeHTML(item.temp || "—")}°F · pH ${escapeHTML(item.pH || "—")}</div>
             <div class="muted">${escapeHTML(item.note || "")}</div>
             <div class="item-actions">
               ${item.source === "rapt" ? `<span class="small">Imported from RAPT</span>` : ""}
+              <button class="mini-btn" data-log-edit="${item.id}" type="button">Edit</button>
               <button class="mini-btn" data-log-delete="${item.id}" type="button">Delete</button>
             </div>
-          </div>
-        `).join("")
+          </div>`;
+        }).join("")
       : `<div class="empty-state">No gravity readings yet. Mead without a gravity trail turns into unreliable campfire storytelling.</div>`;
     if (logs.length > visibleLogs.length){
       $("gravityLog").insertAdjacentHTML("beforeend", `<div class="empty-state">${logs.length - visibleLogs.length} older reading${logs.length - visibleLogs.length === 1 ? "" : "s"} hidden until you expand the full log.</div>`);
@@ -2042,9 +2105,11 @@
       });
 
     $("archiveList").innerHTML = items.length
-      ? items.map((item) => `
+      ? items.map((item) => {
+          const linkedRecipe = item.batch.recipeId ? data.recipes.find((r) => r.id === item.batch.recipeId) : null;
+          return `
           <div class="archive-card">
-            <div class="kicker">Archived ${escapeHTML(formatDate(item.archivedAt))}</div>
+            <div class="kicker">Archived ${escapeHTML(formatDate(item.archivedAt))}${linkedRecipe ? ` · From recipe: <strong>${escapeHTML(linkedRecipe.name)}</strong>` : ""}</div>
             <strong>${escapeHTML(item.batch.name || "Unnamed batch")}</strong>
             <div class="muted">${escapeHTML(item.batch.style || "Mead")} · OG ${escapeHTML(item.batch.targetOg || "—")} · FG ${escapeHTML(item.batch.targetFg || "—")} · ABV ${escapeHTML(item.batch.targetAbv || item.batch.estimatedAbv || "—")}%</div>
             <div class="muted">Honey: ${escapeHTML(recipeSourceSummary(item.batch).honey || "—")}</div>
@@ -2055,8 +2120,8 @@
               <button class="mini-btn" data-archive-clone="${item.id}" type="button">Clone to recipe</button>
               <button class="mini-btn" data-archive-delete="${item.id}" type="button">Delete</button>
             </div>
-          </div>
-        `).join("")
+          </div>`;
+        }).join("")
       : `<div class="empty-state">No archived batches yet.</div>`;
   }
 
@@ -2365,6 +2430,7 @@
   }
 
   function renderAll(){
+    syncRecipeDerived();
     renderTabs();
     clockDisplay();
     renderDashboard();
@@ -2561,6 +2627,17 @@
     return normalizeRecipe({ ...data.recipeDraft, updatedAt: new Date().toISOString() });
   }
 
+  function readEnhancementStructureAdditions(context){
+    try {
+      const raw = localStorage.getItem(ENHANCEMENT_KEY);
+      const enh = raw ? JSON.parse(raw) : null;
+      if (!enh) return [];
+      if (context === "recipeDraft") return Array.isArray(enh.recipeDraft && enh.recipeDraft.structureAdditions) ? enh.recipeDraft.structureAdditions : [];
+      if (context === "currentBatch") return Array.isArray(enh.currentBatch && enh.currentBatch.structureAdditions) ? enh.currentBatch.structureAdditions : [];
+      return [];
+    } catch(e) { return []; }
+  }
+
   function applyRecipeToBatch(recipe){
     data.currentBatch = {
       ...defaultCurrentBatch(),
@@ -2574,10 +2651,26 @@
       loadedAt: new Date().toISOString()
     };
     data.fermentationLogs = [];
-    data.fermentChecklist = defaultFermentChecklist();
-    data.cellar = { ...defaultCellar(), cellarGallons: recipe.batchGallons || "", backsweetenVolume: recipe.batchGallons || "", benchBatchGallons: recipe.batchGallons || "", backsweetenCurrentSg: recipe.targetFg || "" };
+    data.fermentChecklist = buildRecipeAwareChecklist(recipe);
+    let structureAdds = Array.isArray(recipe.structureAdditions) && recipe.structureAdditions.length
+      ? recipe.structureAdditions
+      : readEnhancementStructureAdditions("recipeDraft");
+    data.currentBatch.structureAdditions = clone(structureAdds);
+    const cellarAdditions = (structureAdds || [])
+      .filter((row) => row.ingredient && String(row.ingredient).trim())
+      .map((row) => ({
+        id: makeId("cellaradd"),
+        type: row.ingredient || "",
+        purpose: [row.purpose, row.phase ? `(${row.phase})` : ""].filter(Boolean).join(" "),
+        amount: row.amount || "",
+        unit: row.unit || "g",
+        notes: row.notes || ""
+      }));
+    data.cellar = { ...defaultCellar(), cellarGallons: recipe.batchGallons || "", backsweetenVolume: recipe.batchGallons || "", benchBatchGallons: recipe.batchGallons || "", backsweetenCurrentSg: recipe.targetFg || "", additions: cellarAdditions.length ? cellarAdditions : [defaultCellarAddition()] };
     data.cellarChecklist = defaultCellarChecklist();
     syncNutrientsFromRecipe(recipe, { force: true });
+    data.nutrients.protocol = "tosna";
+    applyNutrientProtocolDefaults("tosna");
     syncCurrentBatchDerived();
     persistData();
     populateNutrientForm();
@@ -2656,7 +2749,7 @@
       const handler = () => {
         data.recipeDraft[key] = el.value;
         syncRecipeDerived();
-        if (["batchGallons","targetAbv","dryYeast","nitrogenRequirement","yeastTolerance","temp"].includes(key)) syncNutrientsFromRecipe(data.recipeDraft, { force: true });
+        if (["batchGallons","targetAbv","dryYeast","nitrogenRequirement","yeastTolerance","temp"].includes(key)) syncNutrientsFromRecipe(data.recipeDraft);
         persistData();
         renderRecipes();
         renderCalcs();
@@ -2705,6 +2798,7 @@
     });
 
     $("clearRecipeBtn").addEventListener("click", () => {
+      if (!confirm("Clear the entire recipe draft? This cannot be undone.")) return;
       data.recipeDraft = defaultRecipeDraft();
       data.ui.selectedRecipeId = null;
       syncNutrientsFromRecipe(data.recipeDraft, { force: true });
@@ -2731,12 +2825,38 @@
     });
 
     $("loadDraftToBatchBtn").addEventListener("click", () => {
+      if (batchHasData() && !confirm("Loading a new batch will replace the current active batch and erase all gravity logs, checklists, and cellar data. Continue?")) return;
       const recipe = recipeFromDraft();
       applyRecipeToBatch(recipe);
     });
   }
 
   function bindFerment(){
+    $("batchPitchDate").addEventListener("change", () => {
+      data.currentBatch.pitchDate = $("batchPitchDate").value;
+      persistData();
+      renderDashboard();
+    });
+    $("batchPhase").addEventListener("change", () => {
+      const newPhase = $("batchPhase").value;
+      const oldPhase = data.currentBatch.phase || "primary";
+      data.currentBatch.phase = newPhase;
+      if (newPhase !== oldPhase) {
+        const latest = latestGravityLog();
+        if (!latest || daysSinceLastReading(data.fermentationLogs) > 3) {
+          alert(`Phase changed to ${newPhase}. Take a gravity reading to mark this transition.`);
+        }
+        const structureAdds = data.currentBatch.structureAdditions || readEnhancementStructureAdditions("currentBatch");
+        const phaseAdds = structureAdds.filter((row) => row.ingredient && row.phase && row.phase.toLowerCase() === newPhase.toLowerCase());
+        if (phaseAdds.length) {
+          const names = phaseAdds.map((row) => row.ingredient).join(", ");
+          alert(`Reminder: ${names} scheduled for ${newPhase}. Check your structure additions.`);
+        }
+      }
+      persistData();
+      renderDashboard();
+      renderFerment();
+    });
     $("batchFermentNotes").addEventListener("input", () => {
       data.currentBatch.fermentNotes = $("batchFermentNotes").value;
       persistData();
@@ -2820,18 +2940,45 @@
       renderFerment();
     });
     $("clearLogsBtn").addEventListener("click", () => {
+      if (!confirm("Clear all gravity log entries? This cannot be undone.")) return;
       data.fermentationLogs = [];
       persistData();
       renderDashboard();
       renderFerment();
     });
     $("gravityLog").addEventListener("click", (event) => {
-      const id = event.target.dataset.logDelete;
-      if (!id) return;
-      data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== id);
-      persistData();
-      renderDashboard();
-      renderFerment();
+      const deleteId = event.target.dataset.logDelete;
+      if (deleteId) {
+        data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== deleteId);
+        persistData();
+        renderDashboard();
+        renderFerment();
+        return;
+      }
+      const editId = event.target.dataset.logEdit;
+      if (editId) {
+        data.ui.editingLogId = editId;
+        renderFerment();
+        return;
+      }
+      const cancelId = event.target.dataset.logCancel;
+      if (cancelId) {
+        data.ui.editingLogId = null;
+        renderFerment();
+        return;
+      }
+      const saveId = event.target.dataset.logSave;
+      if (saveId) {
+        const entry = data.fermentationLogs.find((item) => item.id === saveId);
+        if (entry) {
+          const fields = $("gravityLog").querySelectorAll(`[data-log-edit-id="${saveId}"]`);
+          fields.forEach((field) => { entry[field.dataset.logEditField] = field.value; });
+        }
+        data.ui.editingLogId = null;
+        persistData();
+        renderDashboard();
+        renderFerment();
+      }
     });
 
     ["stepFeedPoints","stepFeedHoneyPpg","stepFeedCount"].forEach((id) => {
@@ -2852,6 +2999,7 @@
     });
 
     $("clearActiveBatchBtn").addEventListener("click", () => {
+      if (!confirm("Clear the active batch? All gravity logs and fermentation data will be lost. This cannot be undone.")) return;
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
@@ -3052,10 +3200,12 @@
       if (recipeLoad){
         const recipe = data.recipes.find((item) => item.id === recipeLoad);
         if (!recipe) return;
+        if (batchHasData() && !confirm("Loading this recipe will replace the current active batch and erase all gravity logs, checklists, and cellar data. Continue?")) return;
         data.ui.selectedRecipeId = recipe.id;
         applyRecipeToBatch(recipe);
       }
       if (recipeDelete){
+        if (!confirm("Delete this saved recipe? This cannot be undone.")) return;
         data.recipes = data.recipes.filter((item) => item.id !== recipeDelete);
         if (data.ui.selectedRecipeId === recipeDelete) data.ui.selectedRecipeId = null;
         persistData();
@@ -3073,6 +3223,7 @@
       if (archiveLoad){
         const item = data.archive.find((entry) => entry.id === archiveLoad);
         if (!item) return;
+        if (batchHasData() && !confirm("Loading this archived batch will replace the current active batch. Continue?")) return;
         data.currentBatch = clone(item.batch);
         data.fermentationLogs = clone(item.fermentationLogs);
         data.fermentChecklist = clone(item.fermentChecklist);
@@ -3103,6 +3254,7 @@
         setActiveTab("recipes");
       }
       if (archiveDelete){
+        if (!confirm("Delete this archived batch? This cannot be undone.")) return;
         data.archive = data.archive.filter((entry) => entry.id !== archiveDelete);
         persistData();
         renderArchive();
@@ -3215,6 +3367,11 @@
       });
     }
     $("mentorToRecipeBtn").addEventListener("click", () => {
+      try {
+        const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
+        const enh = enhRaw ? JSON.parse(enhRaw) : null;
+        if (enh && enh.mentor && enh.mentor.outputs && enh.mentor.outputs.packet) return;
+      } catch(e) { /* fall through to legacy path */ }
       const built = buildMentor(data.mentor);
       const blueprint = built.blueprint || {};
       data.recipeDraft.name = data.mentor.conceptName || data.recipeDraft.name || "Unnamed mead";
@@ -3380,6 +3537,56 @@
     downloadTextFile("meadevil-recipes-template.csv", csvText, "text/csv");
   }
 
+  function printRecipeCard(){
+    syncRecipeDerived();
+    const r = data.recipeDraft;
+    const bill = currentSourceBill();
+    const plan = estimateRecipeTargets({ batchGallons: r.batchGallons, targetAbv: r.targetAbv, sweetness: r.sweetness, yeastTolerance: r.yeastTolerance, honeyPPG: 35 });
+    const enhancement = typeof loadEnhancement === "function" ? loadEnhancement() : { recipeDraft: {} };
+    const adjuncts = (enhancement.recipeDraft.structureAdditions || []).filter((a) => a.ingredient && a.ingredient.trim());
+    const tosna = currentTosnaPlan();
+    const goFerm = calculateGoFerm(data.nutrients.dryYeast);
+    const sources = (r.additions || []).filter((row) => row.description && row.description.trim());
+
+    const lines = [
+      `RECIPE CARD: ${r.name || "Untitled"}`,
+      `${"=".repeat(50)}`,
+      `Style: ${r.style || "Mead"}  |  Batch: ${r.batchGallons || "?"} gal  |  Target ABV: ${r.targetAbv || "?"}%`,
+      `Sweetness: ${r.sweetness || "?"}  |  Carbonation: ${r.carbonation || "?"}`,
+      `Yeast: ${displayYeastName(r) || "?"}  |  Tolerance: ${r.yeastTolerance || "?"}%  |  Temp: ${r.temp || "?"}`,
+      plan ? `Target OG: ${round(plan.targetOg, 3)}  |  Target FG: ${round(plan.targetFg, 3)}` : "",
+      plan ? `Honey equivalent: ${round(plan.honeyLb, 2)} lb (${round(plan.honeyKg, 2)} kg)` : "",
+      ``,
+      `SOURCE BILL`,
+      `${"-".repeat(30)}`,
+      ...sources.map((row) => `  ${row.sourceType}: ${row.description} — ${row.amount || "?"} ${row.unit} (PPG ${row.ppg || "?"})`),
+      bill ? `  Estimated OG: ${round(bill.estimatedOg, 3)} (${round(bill.gravityPointsPerGallon, 1)} pts/gal)` : "",
+      ``,
+      adjuncts.length ? `STRUCTURE ADDITIONS` : "",
+      adjuncts.length ? `${"-".repeat(30)}` : "",
+      ...adjuncts.map((a) => `  ${a.ingredient}${a.amount ? ` — ${a.amount} ${a.unit || ""}` : ""} (${a.phase || "secondary"}) ${a.purpose || ""}`),
+      adjuncts.length ? `` : "",
+      `NUTRIENT PLAN`,
+      `${"-".repeat(30)}`,
+      tosna ? `  TOSNA: ${round(tosna.totalFermaidO, 1)} g Fermaid O total (${round(tosna.perDose, 1)} g × ${tosna.doses} doses)` : "  No nutrient plan calculated yet.",
+      goFerm ? `  Go-Ferm: ${round(goFerm.goFermGrams, 1)} g in ${round(goFerm.waterMl, 0)} mL water` : "",
+      r.dryYeast ? `  Dry yeast: ${r.dryYeast} g` : "",
+      ``,
+      r.quickNote ? `QUICK NOTE: ${r.quickNote}` : "",
+      r.notes ? `NOTES:\n${r.notes}` : "",
+      ``,
+      `Generated by MeadEvil — ${new Date().toLocaleDateString()}`
+    ].filter((line) => line !== undefined).join("\n");
+
+    const blob = new Blob([lines], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(r.name || "recipe").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-card.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function exportRecipesCsv(){
     const headers = recipeCsvHeaders();
     const lines = [headers.join(",")];
@@ -3456,6 +3663,7 @@
   function bindUtilities(){
     $("downloadRecipeCsvTemplateBtn").addEventListener("click", downloadRecipeCsvTemplate);
     $("exportRecipeCsvBtn").addEventListener("click", exportRecipesCsv);
+    $("printRecipeCardBtn").addEventListener("click", printRecipeCard);
     $("importRecipeCsvBtn").addEventListener("click", () => $("recipeCsvFileInput").click());
     $("recipeCsvFileInput").addEventListener("change", async (event) => {
       const file = event.target.files && event.target.files[0];
