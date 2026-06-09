@@ -426,6 +426,35 @@
     };
   }
 
+  // Pre-built demo concept for quick troubleshooting of the Brainstorm -> Build
+  // flow. Mapped onto the current concept fields (main.mentor) and beginner
+  // fields (enhancement.mentor.beginner).
+  function cocoLocoDemo(){
+    return {
+      concept: {
+        conceptName: "The Blood of El Coco Loco",
+        style: "Metheglin / tropical lane",
+        inspiration: "Tequila-inspired coconut mead with agave-like lift and no actual spirits.",
+        vision: "Toasted coconut nose, citrus lift, agave illusion in the mid-palate, and a clean non-syrupy finish.",
+        batchSize: "3",
+        targetAbv: "12.5",
+        sweetness: "Semi-sweet",
+        carbonation: "Still"
+      },
+      beginner: {
+        serveContext: "Warm-weather sipper and special-occasion bottle for people who like tiki drinks.",
+        mustHaveSimple: "toasted coconut, lime zest, vanilla bean, medium-toast American oak",
+        avoidSimple: "waxy coconut, syrupy finish, bitter lime pith, sunscreen coconut, hot alcohol",
+        ingredientsOnHand: "orange blossom honey, meadowfoam honey, QA23 yeast",
+        noGo: "Tastes like sunscreen, turns syrupy or cloying, or shows hot alcohol. No actual tequila in the package — it has to taste premium and clean.",
+        skillLevel: "comfortable",
+        riskTolerance: "balanced risk",
+        processComfort: "bench trials are fine",
+        timePatience: "a few months is fine"
+      }
+    };
+  }
+
   function loadEnhancement(){
     const raw = localStorage.getItem(ENHANCEMENT_KEY);
     const parsed = parseJSON(raw || "null", null) || {};
@@ -2291,6 +2320,20 @@
       });
       if ($("mentorFollowup")) $("mentorFollowup").value = "";
       window.dispatchEvent(new Event("meadevil-cloud-restore"));
+      setTimeout(renderAll, 60);
+    });
+
+    $("mentorDemoCocoBtn")?.addEventListener("click", () => {
+      if (!confirm("Load the El Coco Loco demo concept? This replaces the current concept fields and starts a fresh brainstorm thread.")) return;
+      const demo = cocoLocoDemo();
+      saveMergedMain((enh) => {
+        enh.mentor = blankMentorThreadState(enh.mentor);
+        enh.mentor.beginner = { ...enh.mentor.beginner, ...demo.beginner };
+      });
+      saveMentorMirrorToMain((main) => {
+        main.mentor = { ...(main.mentor || {}), ...demo.concept };
+      });
+      if ($("mentorFollowup")) $("mentorFollowup").value = "";
       setTimeout(renderAll, 60);
     });
 
