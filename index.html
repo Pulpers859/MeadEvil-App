@@ -31,503 +31,30 @@
     <div class="container nav-wrap">
       <div class="header-top-row">
         <div class="header-left">
+          <div class="brand-badge"><span class="brand-dot"></span> MeadEvil</div>
+        </div>
+        <div class="header-right">
           <button class="mini-btn" id="batchClockBtn" type="button">Start Clock</button>
           <button class="mini-btn" id="batchClockResetBtn" type="button">Reset</button>
           <div id="batchClockDisplay" class="pill gold">00:00:00</div>
         </div>
-        <div class="header-right">
-          <div class="sync-pill"><span class="sync-dot"></span><span>Ledger mode</span></div>
-        </div>
-      </div>
-      <div class="brand-lockup">
-        <div class="brand-badge"><span class="brand-dot"></span> MeadEvil Meadery</div>
       </div>
     </div>
   </header>
 
   <main id="main-content">
     <section class="tabs-wrap">
-      <div class="container">
-        <div class="tabs" id="tabs" role="tablist" aria-label="Meadevil sections">
-          <button class="tab-btn active" data-tab="dashboard" type="button">Stage</button>
-          <button class="tab-btn" data-tab="meadmaker" type="button">Brainstorm</button>
-          <button class="tab-btn" data-tab="recipes" type="button">Build</button>
-          <button class="tab-btn" data-tab="ferment" type="button">Ferment</button>
-          <button class="tab-btn" data-tab="nutrients" type="button">Feed</button>
-          <button class="tab-btn" data-tab="cellar" type="button">Finish</button>
-          <button class="tab-btn" data-tab="archive" type="button">Vault</button>
-          <button class="tab-btn" data-tab="calcs" type="button">Math</button>
-        </div>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Meadevil sections">
+        <button class="tab-btn" data-tab="meadmaker" type="button">Brainstorm</button>
+        <button class="tab-btn active" data-tab="recipes" type="button">Build</button>
+        <button class="tab-btn" data-tab="ferment" type="button">Ferment</button>
+        <button class="tab-btn" data-tab="nutrients" type="button">Feed</button>
+        <button class="tab-btn" data-tab="cellar" type="button">Finish</button>
+        <button class="tab-btn" data-tab="archive" type="button">Vault</button>
       </div>
     </section>
 
-    <section class="tab-panel active" id="tab-dashboard">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>Live batch pulse</h2></div>
-          <p class="section-copy">Built for real brew days, not polite mead cosplay. Show what matters, kill the fluff.</p>
-        </div>
-        <div class="grid-2">
-          <div class="stack">
-            <div class="card accent-card">
-              <div class="toolbar">
-                <h3>Next hit</h3>
-                <span class="small">One move, no fluff</span>
-              </div>
-              <div class="notes-box" id="dashboardNextMove"></div>
-              <div class="tag-row">
-                <button class="mini-btn" data-open-tab="recipes" type="button">Recipes</button>
-                <button class="mini-btn" data-open-tab="ferment" type="button">Ferment</button>
-                <button class="mini-btn" data-open-tab="nutrients" type="button">Nutrients</button>
-              </div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Loaded batch</h3><span class="small">What is actually in motion</span></div>
-              <div class="notes-box" id="dashboardBatchPulse"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Nutrient stance</h3></div>
-              <div class="notes-box info-rows" id="dashboardNutrientPulse"></div>
-            </div>
-          </div>
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Fermentation pulse</h3></div>
-              <div class="notes-box info-rows" id="dashboardFermentationPulse"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Structure board</h3></div>
-              <div class="notes-box" id="dashboardStructure"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Tonight’s reminders</h3></div>
-              <div class="checklist slim-list" id="dashboardReminders"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-recipes">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>Build the batch</h2></div>
-          <p class="section-copy">Build the batch first. Then make the source bill, feed plan, and finish strategy tell the same story.</p>
-        </div>
-        <div class="grid-2">
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar">
-                <h3>Build the batch</h3>
-                <div class="tag-row">
-                  <button class="mini-btn" id="loadDraftToBatchBtn" type="button">Load to active batch</button>
-                  <button class="mini-btn" id="downloadRecipeCsvTemplateBtn" type="button">Sample CSV</button>
-                  <button class="mini-btn" id="importRecipeCsvBtn" type="button">Import CSV</button>
-                  <button class="mini-btn" id="exportRecipeCsvBtn" type="button">Export CSV</button>
-                  <button class="mini-btn" id="printRecipeCardBtn" type="button">Recipe card</button>
-                  <button class="mini-btn" id="clearRecipeBtn" type="button">Clear</button>
-                  <button class="btn btn-primary" id="saveRecipeBtn" type="button">Save recipe</button>
-                </div>
-              </div>
-              <div class="form-grid-2">
-                <div class="field"><label for="recipeName">Recipe name</label><input id="recipeName" placeholder="Velvet Guillotine" /></div>
-                <div class="field"><label for="recipeStyle">Style</label><select id="recipeStyle"><option>Traditional</option><option>Melomel</option><option>Hydromel</option><option>Metheglin</option><option>Sack Mead</option><option>Cyser</option><option>Pyment</option><option>Bochet</option><option>Acerglyn</option><option>Braggot</option><option>Other</option></select></div>
-                <div class="field"><label for="recipeBatchGallons">Batch size (gal)</label><input id="recipeBatchGallons" type="number" step="0.1" placeholder="3" /></div>
-                <div class="field"><label for="recipeTargetAbv">Target ABV (%)</label><input id="recipeTargetAbv" type="number" step="0.1" placeholder="12" /></div>
-                <div class="field"><label for="recipeSweetness">Sweetness target</label><select id="recipeSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
-                <div class="field"><label for="recipeCarbonation">Packaging</label><select id="recipeCarbonation"><option>Still</option><option>Petillant</option><option>Sparkling</option></select></div>
-                <div class="field"><label for="recipeYeast">Yeast</label><select id="recipeYeast"><option value="">Choose yeast</option><option>71B</option><option>D47</option><option>QA23</option><option>EC-1118</option><option>Other / Custom</option></select></div>
-                <div class="field"><label for="recipeDryYeast">Dry yeast (g)</label><input id="recipeDryYeast" type="number" step="0.1" placeholder="Enter actual pitch" /></div>
-                <div class="field"><label for="recipeYeastTolerance">Yeast tolerance (%)</label><input id="recipeYeastTolerance" type="number" step="0.1" placeholder="Auto from yeast" readonly /></div>
-                <div class="field"><label for="recipeTemp">Ferment temp target</label><input id="recipeTemp" placeholder="Auto from yeast" readonly /></div>
-                <div class="field"><label for="recipeNitrogenRequirement">Nitrogen requirement</label><select id="recipeNitrogenRequirement"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
-                <div class="field hidden-field" id="recipeYeastOtherWrap"><label for="recipeYeastOther">Custom yeast</label><input id="recipeYeastOther" placeholder="Mangrove Jack M05, RC212, custom isolate…" /></div>
-              </div>
-              <div class="form-grid-2">
-                <div class="field"><label for="recipeTags">Tags</label><input id="recipeTags" placeholder="cherry, dessert, holiday, still" /></div>
-                <div class="field"><label for="recipeQuickNote">Quick note</label><input id="recipeQuickNote" placeholder="The one-line reminder future-you needs" /></div>
-              </div>
-              <div class="field"><label for="recipeNotes">Process / concept notes</label><textarea id="recipeNotes" placeholder="Fruit timing, rack plan, oak window, stabilization plan, what would ruin the concept, and what must stay visible in the glass."></textarea></div>
-            </div>
-
-            <div class="card accent-soft">
-              <div class="toolbar"><h3>Source bill</h3><button class="mini-btn" id="addRecipeSourceBtn" type="button">Add source</button></div>
-              <p class="small helper-copy">The source bill is the source of truth. Pick the fermentable source and the app fills the normal PPG for you. Use Custom only when you have measured numbers that should override the defaults.</p>
-              <div class="source-list" id="recipeSourceList"></div>
-            </div>
-
-            <div class="card accent-soft">
-              <div class="toolbar"><h3>Structure additions</h3><button class="mini-btn" id="addRecipeAdjunctBtn" type="button">Add structure addition</button></div>
-              <p class="small helper-copy">Secondary botanicals, citrus, tea, oak, acid, tannin, and other non-fermentable planning live here. Keep gravity math honest and keep the concept visible.</p>
-              <div class="source-list" id="recipeAdjunctList"></div>
-            </div>
-          </div>
-
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Design target</h3><span class="small">The recipe north star, not the source-bill total</span></div>
-              <div class="notes-box info-rows" id="recipeTargetSummary"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Source bill reality</h3><span class="small">What the fermentables actually build</span></div>
-              <div class="notes-box info-rows" id="recipeMustSummary"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Sanity engine</h3><span class="small">Warnings that should actually matter</span></div>
-              <div class="notes-box" id="recipeReadiness"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Loaded draft</h3><button class="mini-btn" data-open-tab="archive" type="button">Open vault</button></div>
-              <div class="notes-box" id="currentRecipeLaunch"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-ferment">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>Fermentation Station</h2></div>
-        </div>
-        <div class="grid-2">
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar">
-                <h3>Active batch</h3>
-                <div class="tag-row" id="batchActions">
-                  <button class="mini-btn" id="clearActiveBatchBtn" type="button">Clear active batch</button>
-                  <button class="btn btn-primary" id="archiveBatchBtn" type="button">Archive batch</button>
-                </div>
-              </div>
-              <div class="batch-summary-card" id="currentBatchSummary"></div>
-              <div class="form-grid-2" id="batchPhaseFields">
-                <div class="field"><label for="batchPitchDate">Pitch date</label><input id="batchPitchDate" type="date" /></div>
-                <div class="field"><label for="batchPhase">Batch phase</label><select id="batchPhase"><option value="primary">Primary</option><option value="secondary">Secondary</option><option value="aging">Aging</option><option value="stabilizing">Stabilizing</option><option value="packaging">Packaging</option><option value="bottled">Bottled</option></select></div>
-              </div>
-              <div class="field" id="batchNotesField"><label for="batchFermentNotes">Fermentation notes</label><textarea id="batchFermentNotes" placeholder="Actual pitch temp, aroma changes, fruit cap behavior, sulfur, nutrient timing, rack decisions, surprises…"></textarea></div>
-            </div>
-            <div class="card execution-plan-card" id="executionPlanCard" hidden>
-              <div class="toolbar"><h3>Execution plan</h3><span class="small">From the recipe — what this mead is meant to be</span></div>
-              <div class="execution-plan-body" id="executionPlanBody"></div>
-            </div>
-            <details class="card accord-card" id="fermentChecklistCard">
-              <summary class="accord-summary">
-                <span class="accord-title">Check list</span>
-                <span class="small" id="fermentChecklistSummary"></span>
-              </summary>
-              <div class="accord-body">
-                <div class="checklist" id="fermentChecklist"></div>
-              </div>
-            </details>
-            <div class="card accent-soft" id="stepFeedCard">
-              <div class="toolbar"><h3>Step-feed planner</h3><span class="small">Advanced mode</span></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="stepFeedPoints">Points per feed</label><input id="stepFeedPoints" type="number" step="1" value="30" /></div>
-                <div class="field"><label for="stepFeedHoneyPpg">Honey PPG</label><input id="stepFeedHoneyPpg" type="number" step="0.1" value="35" /></div>
-                <div class="field"><label for="stepFeedCount">Planned feeds</label><input id="stepFeedCount" type="number" step="1" value="1" /></div>
-              </div>
-              <div class="result" id="stepFeedResult"></div>
-              <div class="tag-row lower-toolbar">
-                <button class="mini-btn" id="recordStepFeedBtn" type="button">Record feed</button>
-              </div>
-              <div class="schedule-list" id="stepFeedLog"></div>
-            </div>
-          </div>
-
-          <div class="stack">
-            <div class="card" id="fermentTrendCard">
-              <div class="toolbar"><h3>Fermentation trend</h3><span class="small">Gravity, temp, and estimated ABV</span></div>
-              <div class="chart-legend" id="fermentationTrendSummary"></div>
-              <div class="trend-chart-shell" id="fermentationTrendChart"></div>
-              <div class="trend-meta" id="fermentationTrendMeta"></div>
-            </div>
-            <details class="card accord-card" id="gravityLogCard">
-              <summary class="accord-summary">
-                <span class="accord-title">Gravity log</span>
-                <span class="small" id="gravityLogSummary"></span>
-              </summary>
-              <div class="accord-body">
-                <div class="form-grid-4">
-                  <div class="field"><label for="logDate">Date</label><input id="logDate" type="date" /></div>
-                  <div class="field"><label for="logGravity">Gravity</label><input id="logGravity" type="number" step="0.001" placeholder="1.074" /></div>
-                  <div class="field"><label for="logTemp">Temp °F</label><input id="logTemp" type="number" step="0.1" placeholder="64" /></div>
-                  <div class="field"><label for="logPH">pH</label><input id="logPH" type="number" step="0.01" placeholder="3.55" /></div>
-                </div>
-                <div class="field"><label for="logNote">Note</label><input id="logNote" placeholder="Fruit cap down, aroma cleaner, slight sulfur fading…" /></div>
-                <div class="tag-row">
-                  <button class="btn btn-primary" id="addLogBtn" type="button">Add reading</button>
-                  <button class="mini-btn" id="clearLogsBtn" type="button">Clear log</button>
-                  <button class="mini-btn" id="toggleGravityLogBtn" type="button">Show all logs</button>
-                </div>
-                <div class="entry-error" id="logEntryError" hidden></div>
-                <div class="log-list" id="gravityLog"></div>
-              </div>
-            </details>
-            <div class="card" id="sugarBreakCard">
-              <div class="toolbar"><h3>Sugar break board</h3></div>
-              <div class="notes-box info-rows" id="sugarBreakSnapshot"></div>
-            </div>
-            <details class="card accent-soft accord-card" id="raptAdminCard">
-              <summary class="accord-summary">
-                <span class="accord-title">RAPT sync details</span>
-                <span class="small" id="raptAdminSummary"></span>
-              </summary>
-              <div class="accord-body">
-                <div class="tag-row">
-                  <button class="mini-btn" id="copyRaptWebhookBtn" type="button">Copy webhook URL</button>
-                  <button class="btn btn-primary" id="refreshRaptBtn" type="button">Import RAPT data</button>
-                </div>
-                <div class="notes-box info-rows" id="raptSyncSnapshot"></div>
-                <p class="small helper-copy" id="raptWebhookHint"></p>
-              </div>
-            </details>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-nutrients">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>Feed control</h2></div>
-          <p class="section-copy">Start with the active batch. Nitrogen requirement, dry yeast, and gravity should already make sense before you touch the feed plan.</p>
-        </div>
-        <div class="grid-2">
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Feed plan inputs</h3><span class="small">Auto-filled from the active batch when possible</span></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="nutrientBatchGallons">Batch size (gal)</label><input id="nutrientBatchGallons" type="number" step="0.1" /></div>
-                <div class="field"><label for="nutrientOg">OG</label><input id="nutrientOg" type="number" step="0.001" placeholder="1.110" /></div>
-                <div class="field"><label for="nutrientBrix">Brix</label><input id="nutrientBrix" type="number" step="0.1" placeholder="Optional" /></div>
-                <div class="field"><label for="nutrientYeastRequirementDisplay">Nitrogen requirement</label><input id="nutrientYeastRequirementDisplay" readonly /></div>
-                <div class="field"><label for="nutrientDryYeastDisplay">Dry yeast (g)</label><input id="nutrientDryYeastDisplay" type="number" step="0.1" readonly placeholder="Pulled from Build" /></div>
-                <div class="field"><label for="nutrientFruitOffset">Fruit offset (ppm YAN)</label><input id="nutrientFruitOffset" type="number" step="1" value="0" /></div>
-                <div class="field"><label for="nutrientTargetYan">Target YAN (ppm)</label><input id="nutrientTargetYan" type="number" step="1" value="225" /></div>
-              </div>
-                            <div class="field">
-                <label>Nutrient protocol</label>
-                <div class="nutrient-protocol-tabs" id="nutrientProtocolTabs">
-                  <button class="protocol-btn" data-nutrient-protocol="tosna" type="button">Fermaid O (TOSNA 2.0)</button>
-                  <button class="protocol-btn" data-nutrient-protocol="k_dap_20_80" type="button">Fermaid K / DAP (20%:80%)</button>
-                  <button class="protocol-btn" data-nutrient-protocol="advanced" type="button">Fermaid O / Fermaid K / DAP (Advanced)</button>
-                  <button class="protocol-btn" data-nutrient-protocol="custom" type="button">Custom</button>
-                </div>
-              </div>
-              <div class="field checkbox-field" id="nutrientEnforceLimitsWrap"><label class="switch"><input id="nutrientEnforceLimits" type="checkbox" checked /> Enforce caps</label></div>
-              <div class="form-grid-3" id="nutrientLimitGrid">
-                <div class="field"><label for="nutrientLimitO">Fermaid O cap (g/L)</label><input id="nutrientLimitO" type="number" step="0.01" value="1.2" /></div>
-                <div class="field"><label for="nutrientLimitK">Fermaid K cap (g/L)</label><input id="nutrientLimitK" type="number" step="0.01" value="0.5" /></div>
-                <div class="field"><label for="nutrientLimitD">DAP cap (g/L)</label><input id="nutrientLimitD" type="number" step="0.01" value="0.96" /></div>
-              </div>
-              <div class="form-grid-3" id="nutrientRatioGrid">
-                <div class="field"><label for="nutrientRatioO">Fermaid O ratio %</label><input id="nutrientRatioO" type="number" step="1" value="60" /></div>
-                <div class="field"><label for="nutrientRatioK">Fermaid K ratio %</label><input id="nutrientRatioK" type="number" step="1" value="25" /></div>
-                <div class="field"><label for="nutrientRatioD">DAP ratio %</label><input id="nutrientRatioD" type="number" step="1" value="15" /></div>
-              </div>
-              <div class="field"><label for="nutrientNotes">Nutrient note</label><textarea id="nutrientNotes" placeholder="Ex: fruit-heavy batch, using 71B, keeping the early growth phase very clean, no blind late nutrient dumps."></textarea></div>
-            </div>
-
-            <div class="card accent-soft">
-              <div class="toolbar"><h3>Quick schedule</h3></div>
-              <div class="notes-box info-rows" id="nutrientSummary"></div>
-              <div class="schedule-list" id="nutrientSchedule"></div>
-            </div>
-          </div>
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Protocol output</h3></div>
-              <div class="notes-box info-rows" id="advancedNutrientSummary"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Feed schedule</h3></div>
-              <div class="schedule-list" id="advancedNutrientSchedule"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Guardrails</h3></div>
-              <div class="notes-box" id="nutrientDiscipline"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-cellar">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>Cellar rituals</h2></div>
-          <p class="section-copy">This is where rough batches tighten up: backsweetening, bench trials, blending, stabilization discipline, and packaging reality.</p>
-        </div>
-        <div class="grid-2">
-          <div class="stack">
-            <div class="card accent-soft">
-              <div class="toolbar"><h3>Finish path + stability gate</h3></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="finishPath">Finish path</label><select id="finishPath"><option>Dry and still</option><option>Dry and sparkling</option><option>Backsweetened and still</option><option>Backsweetened and force-carbonated</option><option>Bottle-conditioned</option><option>Oak / spice aging</option></select></div>
-                <div class="field"><label for="stableSgA">Stable SG #1</label><input id="stableSgA" type="number" step="0.001" /></div>
-                <div class="field"><label for="stableDateA">Date #1</label><input id="stableDateA" type="date" /></div>
-                <div class="field"><label for="stableSgB">Stable SG #2</label><input id="stableSgB" type="number" step="0.001" /></div>
-                <div class="field"><label for="stableDateB">Date #2</label><input id="stableDateB" type="date" /></div>
-                <div class="field"><label for="cellarCurrentPh">Current pH</label><input id="cellarCurrentPh" type="number" step="0.01" /></div>
-                <div class="field"><label for="cellarCurrentTemp">Current temp (°F)</label><input id="cellarCurrentTemp" type="number" step="0.1" /></div>
-                <div class="field"><label for="kmetaAmount">Potassium metabisulfite (tsp/gal)</label><input id="kmetaAmount" type="number" step="0.01" placeholder="0.33" /></div>
-                <div class="field"><label for="sorbateAmount">Potassium sorbate (tsp/gal)</label><input id="sorbateAmount" type="number" step="0.01" placeholder="0.75" /></div>
-              </div>
-              <div class="result" id="cellarSmartSummary"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Backsweeten</h3></div>
-              <div class="form-grid-4">
-                <div class="field"><label for="backsweetenVolume">Volume (gal)</label><input id="backsweetenVolume" type="number" step="0.1" /></div>
-                <div class="field"><label for="backsweetenCurrentSg">Current SG</label><input id="backsweetenCurrentSg" type="number" step="0.001" /></div>
-                <div class="field"><label for="backsweetenTargetSg">Target SG</label><input id="backsweetenTargetSg" type="number" step="0.001" /></div>
-                <div class="field"><label for="backsweetenSourceType">Sweetening source</label><select id="backsweetenSourceType"><option>Honey</option><option>Maple Syrup</option><option>Table Sugar</option><option>Juice Concentrate</option><option>Juice (single strength)</option><option>Custom</option></select></div>
-                <div class="field"><label for="backsweetenPpg">Source PPG</label><input id="backsweetenPpg" type="number" step="0.1" value="35" /></div>
-              </div>
-              <div class="result" id="backsweetenResult"></div>
-            </div>
-            <div class="card accent-soft">
-              <div class="toolbar"><h3>Bench trials</h3></div>
-              <div class="form-grid-4">
-                <div class="field"><label for="benchBatchGallons">Batch (gal)</label><input id="benchBatchGallons" type="number" step="0.1" /></div>
-                <div class="field"><label for="benchSampleMl">Sample size (mL)</label><input id="benchSampleMl" type="number" step="1" value="100" /></div>
-                <div class="field"><label for="benchAddition">Best trial sample</label><input id="benchAddition" type="number" step="0.01" /></div>
-                <div class="field"><label for="benchUnit">Unit</label><select id="benchUnit"><option>g</option><option>mL</option><option>drops</option></select></div>
-              </div>
-              <div class="result" id="benchTrialResult"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Blend bench</h3></div>
-              <div class="form-grid-4">
-                <div class="field"><label for="blendVol1">Batch A (gal)</label><input id="blendVol1" type="number" step="0.1" /></div>
-                <div class="field"><label for="blendSg1">Batch A SG</label><input id="blendSg1" type="number" step="0.001" /></div>
-                <div class="field"><label for="blendVol2">Batch B (gal)</label><input id="blendVol2" type="number" step="0.1" /></div>
-                <div class="field"><label for="blendSg2">Batch B SG</label><input id="blendSg2" type="number" step="0.001" /></div>
-              </div>
-              <div class="result" id="blendResult"></div>
-            </div>
-          </div>
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Post-fermentation additions</h3><button class="mini-btn" id="addCellarAdditionBtn" type="button">Add addition</button></div>
-              <div class="recipe-source-list compact-addition-list" id="cellarAdditionList"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Bottle math</h3></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="cellarGallons">Gallons to package</label><input id="cellarGallons" type="number" step="0.1" /></div>
-                <div class="field"><label for="cellarBottleOz">Bottle size (oz)</label><input id="cellarBottleOz" type="number" step="0.1" value="12" /></div>
-                <div class="field"><label for="cellarLossPct">Loss %</label><input id="cellarLossPct" type="number" step="0.1" value="5" /></div>
-              </div>
-              <div class="result" id="cellarBottleResult"></div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Stabilize + tasting record</h3></div>
-              <div class="checklist" id="stabilizationChecklist"></div>
-              <div class="field"><label for="stabilizationNotes">Stabilization notes</label><textarea id="stabilizationNotes" placeholder="Sulfite/sorbate timing, pH re-check, filtration, why you chose this route…"></textarea></div>
-              <div class="field"><label for="packagingNotes">Packaging notes</label><textarea id="packagingNotes" placeholder="Bottle, crown, cork, still, petillant, sparkling, sediment expectations…"></textarea></div>
-              <div class="field"><label for="tastingNotes">Tasting notes</label><textarea id="tastingNotes" placeholder="Honey expression, acid balance, tannin line, heat, integration, what this needs next."></textarea></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="cellarRating">Rating</label><input id="cellarRating" placeholder="8.5/10" /></div>
-                <div class="field"><label for="cellarTags">Tags</label><input id="cellarTags" placeholder="holiday, cherry, still, oak" /></div>
-                <div class="field checkbox-field"><label class="switch"><input id="wouldMakeAgain" type="checkbox" /> Would make again</label></div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="toolbar"><h3>Ready to vault</h3></div>
-              <div class="notes-box" id="archivePrepSummary"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-archive">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>The vault</h2></div>
-          <p class="section-copy">Keep the keepers. Keep the failures too. The vault is where your actual meadmaking memory lives.</p>
-        </div>
-        <div class="grid-2">
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Saved builds</h3><input id="recipeSearch" class="compact-search" placeholder="Search builds" /></div>
-              <div class="recipe-list" id="recipeList"></div>
-            </div>
-          </div>
-          <div class="stack">
-            <div class="card">
-              <div class="toolbar"><h3>Archived batches</h3><input id="archiveSearch" class="compact-search" placeholder="Search vault" /></div>
-              <div class="archive-list" id="archiveList"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-calcs">
-      <div class="container">
-        <div class="section-head">
-          <div><h2>Fast math</h2></div>
-          <p class="section-copy">Useful math only. No filler widgets.</p>
-        </div>
-        <div class="calc-grid">
-          <div class="card">
-            <div class="toolbar"><h3>Honey needed for target OG</h3></div>
-            <div class="form-grid-3">
-              <div class="field"><label for="calcTargetOg">Target OG</label><input id="calcTargetOg" type="number" step="0.001" /></div>
-              <div class="field"><label for="calcTargetBatch">Batch (gal)</label><input id="calcTargetBatch" type="number" step="0.1" /></div>
-              <div class="field"><label for="calcTargetPpg">Honey PPG</label><input id="calcTargetPpg" type="number" step="0.1" value="35" /></div>
-            </div>
-            <div class="result" id="calcHoneyNeededResult"></div>
-          </div>
-          <div class="card">
-            <div class="toolbar"><h3>OG from honey bill</h3></div>
-            <div class="form-grid-3">
-              <div class="field"><label for="calcHoneyLb">Honey (lb)</label><input id="calcHoneyLb" type="number" step="0.1" /></div>
-              <div class="field"><label for="calcHoneyBatch">Batch (gal)</label><input id="calcHoneyBatch" type="number" step="0.1" /></div>
-              <div class="field"><label for="calcHoneyPpg">Honey PPG</label><input id="calcHoneyPpg" type="number" step="0.1" value="35" /></div>
-            </div>
-            <div class="result" id="calcOgResult"></div>
-          </div>
-          <div class="card">
-            <div class="toolbar"><h3>ABV</h3></div>
-            <div class="form-grid-2">
-              <div class="field"><label for="calcAbvOg">OG</label><input id="calcAbvOg" type="number" step="0.001" /></div>
-              <div class="field"><label for="calcAbvFg">FG</label><input id="calcAbvFg" type="number" step="0.001" /></div>
-            </div>
-            <div class="result" id="calcAbvResult"></div>
-          </div>
-          <div class="card">
-            <div class="toolbar"><h3>1/3 sugar break</h3></div>
-            <div class="field"><label for="calcBreakOg">OG</label><input id="calcBreakOg" type="number" step="0.001" /></div>
-            <div class="result" id="calcBreakResult"></div>
-          </div>
-          <div class="card">
-            <div class="toolbar"><h3>SG → Brix</h3></div>
-            <div class="field"><label for="calcSgInput">SG</label><input id="calcSgInput" type="number" step="0.001" /></div>
-            <div class="result" id="calcBrixResult"></div>
-          </div>
-          <div class="card">
-            <div class="toolbar"><h3>Brix → SG</h3></div>
-            <div class="field"><label for="calcBrixInput">Brix</label><input id="calcBrixInput" type="number" step="0.1" /></div>
-            <div class="result" id="calcSgResult"></div>
-          </div>
-          <div class="card span-2">
-            <div class="toolbar"><h3>Target recipe shortcut</h3></div>
-            <div class="form-grid-4">
-              <div class="field"><label for="calcRecipeBatch">Batch (gal)</label><input id="calcRecipeBatch" type="number" step="0.1" /></div>
-              <div class="field"><label for="calcRecipeAbv">Target ABV</label><input id="calcRecipeAbv" type="number" step="0.1" /></div>
-              <div class="field"><label for="calcRecipeSweetness">Sweetness</label><select id="calcRecipeSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
-              <div class="field"><label for="calcRecipeTolerance">Yeast tolerance</label><input id="calcRecipeTolerance" type="number" step="0.1" /></div>
-            </div>
-            <div class="result" id="calcTargetRecipeResult"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
+    <!-- ========== BRAINSTORM ========== -->
     <section class="tab-panel" id="tab-meadmaker">
       <div class="container">
         <div class="section-head">
@@ -631,18 +158,489 @@
         </div>
       </div>
     </section>
+
+    <!-- ========== BUILD ========== -->
+    <section class="tab-panel" id="tab-recipes">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>Build the batch</h2></div>
+          <p class="section-copy">Build the batch first. Then make the source bill, feed plan, and finish strategy tell the same story.</p>
+        </div>
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar">
+                <h3>Recipe</h3>
+                <div class="tag-row">
+                  <button class="mini-btn" id="loadDraftToBatchBtn" type="button">Load to batch</button>
+                  <button class="mini-btn" id="clearRecipeBtn" type="button">Clear</button>
+                  <button class="btn btn-primary" id="saveRecipeBtn" type="button">Save recipe</button>
+                </div>
+              </div>
+              <div class="form-grid-2">
+                <div class="field"><label for="recipeName">Recipe name</label><input id="recipeName" placeholder="Velvet Guillotine" /></div>
+                <div class="field"><label for="recipeStyle">Style</label><select id="recipeStyle"><option>Traditional</option><option>Melomel</option><option>Hydromel</option><option>Metheglin</option><option>Sack Mead</option><option>Cyser</option><option>Pyment</option><option>Bochet</option><option>Acerglyn</option><option>Braggot</option><option>Other</option></select></div>
+                <div class="field"><label for="recipeBatchGallons">Batch size (gal)</label><input id="recipeBatchGallons" type="number" step="0.1" placeholder="3" /></div>
+                <div class="field"><label for="recipeTargetAbv">Target ABV (%)</label><input id="recipeTargetAbv" type="number" step="0.1" placeholder="12" /></div>
+                <div class="field"><label for="recipeSweetness">Sweetness target</label><select id="recipeSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
+                <div class="field"><label for="recipeCarbonation">Packaging</label><select id="recipeCarbonation"><option>Still</option><option>Petillant</option><option>Sparkling</option></select></div>
+                <div class="field"><label for="recipeYeast">Yeast</label><select id="recipeYeast"><option value="">Choose yeast</option><option>71B</option><option>D47</option><option>QA23</option><option>EC-1118</option><option>Other / Custom</option></select></div>
+                <div class="field"><label for="recipeDryYeast">Dry yeast (g)</label><input id="recipeDryYeast" type="number" step="0.1" placeholder="Enter actual pitch" /></div>
+                <div class="field"><label for="recipeYeastTolerance">Yeast tolerance (%)</label><input id="recipeYeastTolerance" type="number" step="0.1" placeholder="Auto from yeast" readonly /></div>
+                <div class="field"><label for="recipeTemp">Ferment temp target</label><input id="recipeTemp" placeholder="Auto from yeast" readonly /></div>
+                <div class="field"><label for="recipeNitrogenRequirement">Nitrogen requirement</label><select id="recipeNitrogenRequirement"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+                <div class="field hidden-field" id="recipeYeastOtherWrap"><label for="recipeYeastOther">Custom yeast</label><input id="recipeYeastOther" placeholder="Mangrove Jack M05, RC212, custom isolate…" /></div>
+              </div>
+              <div class="form-grid-2">
+                <div class="field"><label for="recipeTags">Tags</label><input id="recipeTags" placeholder="cherry, dessert, holiday, still" /></div>
+                <div class="field"><label for="recipeQuickNote">Quick note</label><input id="recipeQuickNote" placeholder="The one-line reminder future-you needs" /></div>
+              </div>
+              <div class="field"><label for="recipeNotes">Process / concept notes</label><textarea id="recipeNotes" placeholder="Fruit timing, rack plan, oak window, stabilization plan, what would ruin the concept, and what must stay visible in the glass."></textarea></div>
+            </div>
+
+            <div class="card accent-soft">
+              <div class="toolbar"><h3>Source bill</h3><button class="mini-btn" id="addRecipeSourceBtn" type="button">Add source</button></div>
+              <p class="small helper-copy">The source bill is the source of truth. Pick the fermentable source and the app fills the normal PPG for you. Use Custom only when you have measured numbers that should override the defaults.</p>
+              <div class="source-list" id="recipeSourceList"></div>
+            </div>
+
+            <div class="card accent-soft">
+              <div class="toolbar"><h3>Structure additions</h3><button class="mini-btn" id="addRecipeAdjunctBtn" type="button">Add structure addition</button></div>
+              <p class="small helper-copy">Secondary botanicals, citrus, tea, oak, acid, tannin, and other non-fermentable planning live here. Keep gravity math honest and keep the concept visible.</p>
+              <div class="source-list" id="recipeAdjunctList"></div>
+            </div>
+
+            <details class="card accord-card">
+              <summary class="accord-summary">
+                <span class="accord-title">CSV tools</span>
+                <span class="small">Import / export</span>
+              </summary>
+              <div class="accord-body">
+                <div class="tag-row">
+                  <button class="mini-btn" id="downloadRecipeCsvTemplateBtn" type="button">Sample CSV</button>
+                  <button class="mini-btn" id="importRecipeCsvBtn" type="button">Import CSV</button>
+                  <button class="mini-btn" id="exportRecipeCsvBtn" type="button">Export CSV</button>
+                  <button class="mini-btn" id="printRecipeCardBtn" type="button">Recipe card</button>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar"><h3>Design target</h3><span class="small">The recipe north star</span></div>
+              <div class="notes-box info-rows" id="recipeTargetSummary"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Source bill reality</h3><span class="small">What the fermentables actually build</span></div>
+              <div class="notes-box info-rows" id="recipeMustSummary"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Sanity engine</h3><span class="small">Warnings that matter</span></div>
+              <div class="notes-box" id="recipeReadiness"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Loaded draft</h3><button class="mini-btn" data-open-tab="archive" type="button">Open vault</button></div>
+              <div class="notes-box" id="currentRecipeLaunch"></div>
+            </div>
+
+            <!-- Quick math (was its own tab) -->
+            <details class="card accord-card">
+              <summary class="accord-summary">
+                <span class="accord-title">Quick math</span>
+                <span class="small">Honey, ABV, break, conversions</span>
+              </summary>
+              <div class="accord-body">
+                <div class="calc-grid">
+                  <div class="calc-cell">
+                    <div class="calc-label">Honey for target OG</div>
+                    <div class="form-grid-3">
+                      <div class="field"><label for="calcTargetOg">Target OG</label><input id="calcTargetOg" type="number" step="0.001" /></div>
+                      <div class="field"><label for="calcTargetBatch">Batch (gal)</label><input id="calcTargetBatch" type="number" step="0.1" /></div>
+                      <div class="field"><label for="calcTargetPpg">Honey PPG</label><input id="calcTargetPpg" type="number" step="0.1" value="35" /></div>
+                    </div>
+                    <div class="result" id="calcHoneyNeededResult"></div>
+                  </div>
+                  <div class="calc-cell">
+                    <div class="calc-label">OG from honey bill</div>
+                    <div class="form-grid-3">
+                      <div class="field"><label for="calcHoneyLb">Honey (lb)</label><input id="calcHoneyLb" type="number" step="0.1" /></div>
+                      <div class="field"><label for="calcHoneyBatch">Batch (gal)</label><input id="calcHoneyBatch" type="number" step="0.1" /></div>
+                      <div class="field"><label for="calcHoneyPpg">Honey PPG</label><input id="calcHoneyPpg" type="number" step="0.1" value="35" /></div>
+                    </div>
+                    <div class="result" id="calcOgResult"></div>
+                  </div>
+                  <div class="calc-cell">
+                    <div class="calc-label">ABV</div>
+                    <div class="form-grid-2">
+                      <div class="field"><label for="calcAbvOg">OG</label><input id="calcAbvOg" type="number" step="0.001" /></div>
+                      <div class="field"><label for="calcAbvFg">FG</label><input id="calcAbvFg" type="number" step="0.001" /></div>
+                    </div>
+                    <div class="result" id="calcAbvResult"></div>
+                  </div>
+                  <div class="calc-cell">
+                    <div class="calc-label">1/3 sugar break</div>
+                    <div class="field"><label for="calcBreakOg">OG</label><input id="calcBreakOg" type="number" step="0.001" /></div>
+                    <div class="result" id="calcBreakResult"></div>
+                  </div>
+                  <div class="calc-cell">
+                    <div class="calc-label">SG → Brix</div>
+                    <div class="field"><label for="calcSgInput">SG</label><input id="calcSgInput" type="number" step="0.001" /></div>
+                    <div class="result" id="calcBrixResult"></div>
+                  </div>
+                  <div class="calc-cell">
+                    <div class="calc-label">Brix → SG</div>
+                    <div class="field"><label for="calcBrixInput">Brix</label><input id="calcBrixInput" type="number" step="0.1" /></div>
+                    <div class="result" id="calcSgResult"></div>
+                  </div>
+                  <div class="calc-cell calc-span-2">
+                    <div class="calc-label">Target recipe shortcut</div>
+                    <div class="form-grid-4">
+                      <div class="field"><label for="calcRecipeBatch">Batch (gal)</label><input id="calcRecipeBatch" type="number" step="0.1" /></div>
+                      <div class="field"><label for="calcRecipeAbv">Target ABV</label><input id="calcRecipeAbv" type="number" step="0.1" /></div>
+                      <div class="field"><label for="calcRecipeSweetness">Sweetness</label><select id="calcRecipeSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
+                      <div class="field"><label for="calcRecipeTolerance">Yeast tolerance</label><input id="calcRecipeTolerance" type="number" step="0.1" /></div>
+                    </div>
+                    <div class="result" id="calcTargetRecipeResult"></div>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FERMENT ========== -->
+    <section class="tab-panel" id="tab-ferment">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>Fermentation</h2></div>
+        </div>
+
+        <!-- Batch pulse (was its own Stage tab) -->
+        <details class="card accord-card pulse-card" id="batchPulseAccord" open>
+          <summary class="accord-summary">
+            <span class="accord-title">Batch pulse</span>
+            <span class="small" id="pulseOneLiner"></span>
+          </summary>
+          <div class="accord-body">
+            <div class="grid-2">
+              <div class="stack">
+                <div class="notes-box accent-card" id="dashboardNextMove" style="border-radius:16px"></div>
+                <div class="notes-box" id="dashboardBatchPulse"></div>
+                <div class="notes-box info-rows" id="dashboardNutrientPulse"></div>
+              </div>
+              <div class="stack">
+                <div class="notes-box info-rows" id="dashboardFermentationPulse"></div>
+                <div class="notes-box" id="dashboardStructure"></div>
+                <div class="checklist slim-list" id="dashboardReminders"></div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar">
+                <h3>Active batch</h3>
+                <div class="tag-row" id="batchActions">
+                  <button class="mini-btn" id="clearActiveBatchBtn" type="button">Clear</button>
+                  <button class="btn btn-primary" id="archiveBatchBtn" type="button">Archive batch</button>
+                </div>
+              </div>
+              <div class="batch-summary-card" id="currentBatchSummary"></div>
+              <div class="form-grid-2" id="batchPhaseFields">
+                <div class="field"><label for="batchPitchDate">Pitch date</label><input id="batchPitchDate" type="date" /></div>
+                <div class="field"><label for="batchPhase">Batch phase</label><select id="batchPhase"><option value="primary">Primary</option><option value="secondary">Secondary</option><option value="aging">Aging</option><option value="stabilizing">Stabilizing</option><option value="packaging">Packaging</option><option value="bottled">Bottled</option></select></div>
+              </div>
+              <div class="field" id="batchNotesField"><label for="batchFermentNotes">Fermentation notes</label><textarea id="batchFermentNotes" placeholder="Actual pitch temp, aroma changes, fruit cap behavior, sulfur, nutrient timing, rack decisions, surprises…"></textarea></div>
+            </div>
+            <div class="card execution-plan-card" id="executionPlanCard" hidden>
+              <div class="toolbar"><h3>Execution plan</h3><span class="small">From the recipe — what this mead is meant to be</span></div>
+              <div class="execution-plan-body" id="executionPlanBody"></div>
+            </div>
+            <details class="card accord-card" id="fermentChecklistCard">
+              <summary class="accord-summary">
+                <span class="accord-title">Check list</span>
+                <span class="small" id="fermentChecklistSummary"></span>
+              </summary>
+              <div class="accord-body">
+                <div class="checklist" id="fermentChecklist"></div>
+              </div>
+            </details>
+            <details class="card accent-soft accord-card" id="stepFeedCard">
+              <summary class="accord-summary">
+                <span class="accord-title">Step-feed planner</span>
+                <span class="small">Advanced mode</span>
+              </summary>
+              <div class="accord-body">
+                <div class="form-grid-3">
+                  <div class="field"><label for="stepFeedPoints">Points per feed</label><input id="stepFeedPoints" type="number" step="1" value="30" /></div>
+                  <div class="field"><label for="stepFeedHoneyPpg">Honey PPG</label><input id="stepFeedHoneyPpg" type="number" step="0.1" value="35" /></div>
+                  <div class="field"><label for="stepFeedCount">Planned feeds</label><input id="stepFeedCount" type="number" step="1" value="1" /></div>
+                </div>
+                <div class="result" id="stepFeedResult"></div>
+                <div class="tag-row lower-toolbar">
+                  <button class="mini-btn" id="recordStepFeedBtn" type="button">Record feed</button>
+                </div>
+                <div class="schedule-list" id="stepFeedLog"></div>
+              </div>
+            </details>
+          </div>
+
+          <div class="stack">
+            <div class="card" id="fermentTrendCard">
+              <div class="toolbar"><h3>Fermentation trend</h3><span class="small">Gravity, temp, and estimated ABV</span></div>
+              <div class="chart-legend" id="fermentationTrendSummary"></div>
+              <div class="trend-chart-shell" id="fermentationTrendChart"></div>
+              <div class="trend-meta" id="fermentationTrendMeta"></div>
+            </div>
+            <details class="card accord-card" id="gravityLogCard">
+              <summary class="accord-summary">
+                <span class="accord-title">Gravity log</span>
+                <span class="small" id="gravityLogSummary"></span>
+              </summary>
+              <div class="accord-body">
+                <div class="form-grid-4">
+                  <div class="field"><label for="logDate">Date</label><input id="logDate" type="date" /></div>
+                  <div class="field"><label for="logGravity">Gravity</label><input id="logGravity" type="number" step="0.001" placeholder="1.074" /></div>
+                  <div class="field"><label for="logTemp">Temp °F</label><input id="logTemp" type="number" step="0.1" placeholder="64" /></div>
+                  <div class="field"><label for="logPH">pH</label><input id="logPH" type="number" step="0.01" placeholder="3.55" /></div>
+                </div>
+                <div class="field"><label for="logNote">Note</label><input id="logNote" placeholder="Fruit cap down, aroma cleaner, slight sulfur fading…" /></div>
+                <div class="tag-row">
+                  <button class="btn btn-primary" id="addLogBtn" type="button">Add reading</button>
+                  <button class="mini-btn" id="clearLogsBtn" type="button">Clear log</button>
+                  <button class="mini-btn" id="toggleGravityLogBtn" type="button">Show all logs</button>
+                </div>
+                <div class="entry-error" id="logEntryError" hidden></div>
+                <div class="log-list" id="gravityLog"></div>
+              </div>
+            </details>
+            <div class="card" id="sugarBreakCard">
+              <div class="toolbar"><h3>Sugar break board</h3></div>
+              <div class="notes-box info-rows" id="sugarBreakSnapshot"></div>
+            </div>
+            <details class="card accent-soft accord-card" id="raptAdminCard">
+              <summary class="accord-summary">
+                <span class="accord-title">RAPT sync</span>
+                <span class="small" id="raptAdminSummary"></span>
+              </summary>
+              <div class="accord-body">
+                <div class="tag-row">
+                  <button class="mini-btn" id="copyRaptWebhookBtn" type="button">Copy webhook URL</button>
+                  <button class="btn btn-primary" id="refreshRaptBtn" type="button">Import RAPT data</button>
+                </div>
+                <div class="notes-box info-rows" id="raptSyncSnapshot"></div>
+                <p class="small helper-copy" id="raptWebhookHint"></p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FEED ========== -->
+    <section class="tab-panel" id="tab-nutrients">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>Feed control</h2></div>
+          <p class="section-copy">Nitrogen requirement, dry yeast, and gravity should already make sense before you touch the feed plan.</p>
+        </div>
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar"><h3>Feed plan inputs</h3><span class="small">Auto-filled from the active batch</span></div>
+              <div class="form-grid-3">
+                <div class="field"><label for="nutrientBatchGallons">Batch size (gal)</label><input id="nutrientBatchGallons" type="number" step="0.1" /></div>
+                <div class="field"><label for="nutrientOg">OG</label><input id="nutrientOg" type="number" step="0.001" placeholder="1.110" /></div>
+                <div class="field"><label for="nutrientBrix">Brix</label><input id="nutrientBrix" type="number" step="0.1" placeholder="Optional" /></div>
+                <div class="field"><label for="nutrientYeastRequirementDisplay">Nitrogen requirement</label><input id="nutrientYeastRequirementDisplay" readonly /></div>
+                <div class="field"><label for="nutrientDryYeastDisplay">Dry yeast (g)</label><input id="nutrientDryYeastDisplay" type="number" step="0.1" readonly placeholder="Pulled from Build" /></div>
+                <div class="field"><label for="nutrientFruitOffset">Fruit offset (ppm YAN)</label><input id="nutrientFruitOffset" type="number" step="1" value="0" /></div>
+                <div class="field"><label for="nutrientTargetYan">Target YAN (ppm)</label><input id="nutrientTargetYan" type="number" step="1" value="225" /></div>
+              </div>
+              <div class="field">
+                <label>Nutrient protocol</label>
+                <div class="nutrient-protocol-tabs" id="nutrientProtocolTabs">
+                  <button class="protocol-btn" data-nutrient-protocol="tosna" type="button">Fermaid O (TOSNA 2.0)</button>
+                  <button class="protocol-btn" data-nutrient-protocol="k_dap_20_80" type="button">Fermaid K / DAP (20%:80%)</button>
+                  <button class="protocol-btn" data-nutrient-protocol="advanced" type="button">Fermaid O / K / DAP (Advanced)</button>
+                  <button class="protocol-btn" data-nutrient-protocol="custom" type="button">Custom</button>
+                </div>
+              </div>
+              <div class="field checkbox-field" id="nutrientEnforceLimitsWrap"><label class="switch"><input id="nutrientEnforceLimits" type="checkbox" checked /> Enforce caps</label></div>
+              <div class="form-grid-3" id="nutrientLimitGrid">
+                <div class="field"><label for="nutrientLimitO">Fermaid O cap (g/L)</label><input id="nutrientLimitO" type="number" step="0.01" value="1.2" /></div>
+                <div class="field"><label for="nutrientLimitK">Fermaid K cap (g/L)</label><input id="nutrientLimitK" type="number" step="0.01" value="0.5" /></div>
+                <div class="field"><label for="nutrientLimitD">DAP cap (g/L)</label><input id="nutrientLimitD" type="number" step="0.01" value="0.96" /></div>
+              </div>
+              <div class="form-grid-3" id="nutrientRatioGrid">
+                <div class="field"><label for="nutrientRatioO">Fermaid O ratio %</label><input id="nutrientRatioO" type="number" step="1" value="60" /></div>
+                <div class="field"><label for="nutrientRatioK">Fermaid K ratio %</label><input id="nutrientRatioK" type="number" step="1" value="25" /></div>
+                <div class="field"><label for="nutrientRatioD">DAP ratio %</label><input id="nutrientRatioD" type="number" step="1" value="15" /></div>
+              </div>
+              <div class="field"><label for="nutrientNotes">Nutrient note</label><textarea id="nutrientNotes" placeholder="Ex: fruit-heavy batch, using 71B, keeping the early growth phase very clean, no blind late nutrient dumps."></textarea></div>
+            </div>
+
+            <div class="card accent-soft">
+              <div class="toolbar"><h3>Quick schedule</h3></div>
+              <div class="notes-box info-rows" id="nutrientSummary"></div>
+              <div class="schedule-list" id="nutrientSchedule"></div>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar"><h3>Protocol output</h3></div>
+              <div class="notes-box info-rows" id="advancedNutrientSummary"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Feed schedule</h3></div>
+              <div class="schedule-list" id="advancedNutrientSchedule"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Guardrails</h3></div>
+              <div class="notes-box" id="nutrientDiscipline"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FINISH ========== -->
+    <section class="tab-panel" id="tab-cellar">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>Finish</h2></div>
+          <p class="section-copy">Backsweetening, bench trials, blending, stabilization discipline, and packaging reality.</p>
+        </div>
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card accent-soft">
+              <div class="toolbar"><h3>Finish path + stability gate</h3></div>
+              <div class="form-grid-3">
+                <div class="field"><label for="finishPath">Finish path</label><select id="finishPath"><option>Dry and still</option><option>Dry and sparkling</option><option>Backsweetened and still</option><option>Backsweetened and force-carbonated</option><option>Bottle-conditioned</option><option>Oak / spice aging</option></select></div>
+                <div class="field"><label for="stableSgA">Stable SG #1</label><input id="stableSgA" type="number" step="0.001" /></div>
+                <div class="field"><label for="stableDateA">Date #1</label><input id="stableDateA" type="date" /></div>
+                <div class="field"><label for="stableSgB">Stable SG #2</label><input id="stableSgB" type="number" step="0.001" /></div>
+                <div class="field"><label for="stableDateB">Date #2</label><input id="stableDateB" type="date" /></div>
+                <div class="field"><label for="cellarCurrentPh">Current pH</label><input id="cellarCurrentPh" type="number" step="0.01" /></div>
+                <div class="field"><label for="cellarCurrentTemp">Current temp (°F)</label><input id="cellarCurrentTemp" type="number" step="0.1" /></div>
+                <div class="field"><label for="kmetaAmount">K-meta (tsp/gal)</label><input id="kmetaAmount" type="number" step="0.01" placeholder="0.33" /></div>
+                <div class="field"><label for="sorbateAmount">Sorbate (tsp/gal)</label><input id="sorbateAmount" type="number" step="0.01" placeholder="0.75" /></div>
+              </div>
+              <div class="result" id="cellarSmartSummary"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Backsweeten</h3></div>
+              <div class="form-grid-4">
+                <div class="field"><label for="backsweetenVolume">Volume (gal)</label><input id="backsweetenVolume" type="number" step="0.1" /></div>
+                <div class="field"><label for="backsweetenCurrentSg">Current SG</label><input id="backsweetenCurrentSg" type="number" step="0.001" /></div>
+                <div class="field"><label for="backsweetenTargetSg">Target SG</label><input id="backsweetenTargetSg" type="number" step="0.001" /></div>
+                <div class="field"><label for="backsweetenSourceType">Source</label><select id="backsweetenSourceType"><option>Honey</option><option>Maple Syrup</option><option>Table Sugar</option><option>Juice Concentrate</option><option>Juice (single strength)</option><option>Custom</option></select></div>
+                <div class="field"><label for="backsweetenPpg">Source PPG</label><input id="backsweetenPpg" type="number" step="0.1" value="35" /></div>
+              </div>
+              <div class="result" id="backsweetenResult"></div>
+            </div>
+            <div class="card accent-soft">
+              <div class="toolbar"><h3>Bench trials</h3></div>
+              <div class="form-grid-4">
+                <div class="field"><label for="benchBatchGallons">Batch (gal)</label><input id="benchBatchGallons" type="number" step="0.1" /></div>
+                <div class="field"><label for="benchSampleMl">Sample (mL)</label><input id="benchSampleMl" type="number" step="1" value="100" /></div>
+                <div class="field"><label for="benchAddition">Best trial</label><input id="benchAddition" type="number" step="0.01" /></div>
+                <div class="field"><label for="benchUnit">Unit</label><select id="benchUnit"><option>g</option><option>mL</option><option>drops</option></select></div>
+              </div>
+              <div class="result" id="benchTrialResult"></div>
+            </div>
+            <details class="card accord-card">
+              <summary class="accord-summary">
+                <span class="accord-title">Blend bench</span>
+                <span class="small">Two-batch blending math</span>
+              </summary>
+              <div class="accord-body">
+                <div class="form-grid-4">
+                  <div class="field"><label for="blendVol1">Batch A (gal)</label><input id="blendVol1" type="number" step="0.1" /></div>
+                  <div class="field"><label for="blendSg1">Batch A SG</label><input id="blendSg1" type="number" step="0.001" /></div>
+                  <div class="field"><label for="blendVol2">Batch B (gal)</label><input id="blendVol2" type="number" step="0.1" /></div>
+                  <div class="field"><label for="blendSg2">Batch B SG</label><input id="blendSg2" type="number" step="0.001" /></div>
+                </div>
+                <div class="result" id="blendResult"></div>
+              </div>
+            </details>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar"><h3>Post-fermentation additions</h3><button class="mini-btn" id="addCellarAdditionBtn" type="button">Add addition</button></div>
+              <div class="recipe-source-list compact-addition-list" id="cellarAdditionList"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Bottle math</h3></div>
+              <div class="form-grid-3">
+                <div class="field"><label for="cellarGallons">Gallons to package</label><input id="cellarGallons" type="number" step="0.1" /></div>
+                <div class="field"><label for="cellarBottleOz">Bottle size (oz)</label><input id="cellarBottleOz" type="number" step="0.1" value="12" /></div>
+                <div class="field"><label for="cellarLossPct">Loss %</label><input id="cellarLossPct" type="number" step="0.1" value="5" /></div>
+              </div>
+              <div class="result" id="cellarBottleResult"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Tasting + stabilization record</h3></div>
+              <div class="checklist" id="stabilizationChecklist"></div>
+              <div class="field"><label for="stabilizationNotes">Stabilization notes</label><textarea id="stabilizationNotes" placeholder="Sulfite/sorbate timing, pH re-check, filtration, why you chose this route…"></textarea></div>
+              <div class="field"><label for="packagingNotes">Packaging notes</label><textarea id="packagingNotes" placeholder="Bottle, crown, cork, still, petillant, sparkling, sediment expectations…"></textarea></div>
+              <div class="field"><label for="tastingNotes">Tasting notes</label><textarea id="tastingNotes" placeholder="Honey expression, acid balance, tannin line, heat, integration, what this needs next."></textarea></div>
+              <div class="form-grid-3">
+                <div class="field"><label for="cellarRating">Rating</label><input id="cellarRating" placeholder="8.5/10" /></div>
+                <div class="field"><label for="cellarTags">Tags</label><input id="cellarTags" placeholder="holiday, cherry, still, oak" /></div>
+                <div class="field checkbox-field"><label class="switch"><input id="wouldMakeAgain" type="checkbox" /> Would make again</label></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="toolbar"><h3>Ready to vault</h3></div>
+              <div class="notes-box" id="archivePrepSummary"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== VAULT ========== -->
+    <section class="tab-panel" id="tab-archive">
+      <div class="container">
+        <div class="section-head">
+          <div><h2>The vault</h2></div>
+          <p class="section-copy">The vault is where your actual meadmaking memory lives.</p>
+        </div>
+        <div class="grid-2">
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar"><h3>Saved builds</h3><input id="recipeSearch" class="compact-search" placeholder="Search builds" /></div>
+              <div class="recipe-list" id="recipeList"></div>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <div class="toolbar"><h3>Archived batches</h3><input id="archiveSearch" class="compact-search" placeholder="Search vault" /></div>
+              <div class="archive-list" id="archiveList"></div>
+            </div>
+          </div>
+        </div>
+        <div class="utility-bar">
+          <button class="mini-btn" id="exportDataBtn" type="button">Export JSON</button>
+          <button class="mini-btn" id="importDataBtn" type="button">Import JSON</button>
+          <button class="mini-btn utility-danger" id="resetAppBtn" type="button">Reset app</button>
+          <input type="file" id="importFileInput" accept=".json,application/json" hidden />
+          <input type="file" id="recipeCsvFileInput" accept=".csv,text/csv" hidden />
+        </div>
+      </div>
+    </section>
+
+    <!-- Hidden legacy panels to keep JS element lookups working -->
+    <section class="tab-panel" id="tab-dashboard" hidden></section>
+    <section class="tab-panel" id="tab-calcs" hidden></section>
   </main>
 
-  <footer class="footer">
-    <div class="container footer-shell">
-      <div class="footer-actions">
-        <button class="mini-btn" id="exportDataBtn" type="button">Export JSON</button>
-        <button class="mini-btn" id="importDataBtn" type="button">Import JSON</button>
-        <button class="mini-btn" id="resetAppBtn" type="button">Reset app</button>
-        <input type="file" id="importFileInput" accept=".json,application/json" hidden />
-        <input type="file" id="recipeCsvFileInput" accept=".csv,text/csv" hidden />
-      </div>
-    </div>
-  </footer>
+  <footer class="footer" hidden></footer>
 </body>
 </html>

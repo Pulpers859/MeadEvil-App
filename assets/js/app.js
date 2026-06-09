@@ -975,7 +975,7 @@
 
   const defaultData = {
     ui: {
-      activeTab: "dashboard",
+      activeTab: "recipes",
       selectedRecipeId: null,
       recipeSearch: "",
       archiveSearch: "",
@@ -1154,7 +1154,8 @@
     merged.fermentChecklist = Array.isArray((parsed || {}).fermentChecklist) && parsed.fermentChecklist.length ? parsed.fermentChecklist : defaultFermentChecklist();
     merged.cellarChecklist = Array.isArray((parsed || {}).cellarChecklist) && parsed.cellarChecklist.length ? parsed.cellarChecklist : defaultCellarChecklist();
     merged.archive = Array.isArray((parsed || {}).archive) ? parsed.archive.map(normalizeArchiveItem) : [];
-    if (!merged.ui.activeTab) merged.ui.activeTab = "dashboard";
+    if (!merged.ui.activeTab || merged.ui.activeTab === "dashboard") merged.ui.activeTab = "recipes";
+    if (merged.ui.activeTab === "calcs") merged.ui.activeTab = "recipes";
     return merged;
   }
 
@@ -1774,6 +1775,13 @@
           </label>
         `).join("")
       : `<div class="empty-state">Nothing urgent left on the active run sheet.</div>`;
+
+    const oneLiner = $("pulseOneLiner");
+    if (oneLiner) {
+      oneLiner.textContent = batchHasData()
+        ? `${escapeHTML(batch.name || "Batch")} · ${escapeHTML(phase)}${pitchDaysAgo !== null ? ` · day ${pitchDaysAgo}` : ""}`
+        : "No active batch";
+    }
   }
 
   function renderRecipeSourceList(){
