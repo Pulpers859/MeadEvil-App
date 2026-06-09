@@ -1449,7 +1449,8 @@
 
   function recipeSearchText(recipe){
     const summary = recipeSourceSummary(recipe);
-    return [recipe.name, recipe.style, summary.honey, summary.other, recipe.tags, recipe.quickNote, recipe.notes].join(" ").toLowerCase();
+    const addNames = Array.isArray(recipe.structureAdditions) ? recipe.structureAdditions.map((row) => row && row.ingredient || "").join(" ") : "";
+    return [recipe.name, recipe.style, summary.honey, summary.other, addNames, recipe.tags, recipe.quickNote, recipe.notes].join(" ").toLowerCase();
   }
 
   function daysBetween(start, end){
@@ -1569,15 +1570,20 @@
   function cellarHasData(){
     const c = data.cellar;
     if (!c) return false;
-    const hasMeaningfulAddition = Array.isArray(c.additions) && c.additions.some((row) => row && String(row.amount || "").trim());
-    return Boolean(
-      hasMeaningfulAddition ||
-      String(c.tastingNotes || "").trim() ||
-      String(c.stabilizationNotes || "").trim() ||
-      String(c.packagingNotes || "").trim() ||
-      String(c.rating || "").trim() ||
-      String(c.tags || "").trim()
-    );
+    const defaults = defaultCellar();
+    const meaningfulFields = [
+      "stableSgA", "stableDateA", "stableSgB", "stableDateB",
+      "currentPh", "currentTemp", "kmetaAmount", "sorbateAmount",
+      "backsweetenTargetSg", "benchAddition", "blendVol1", "blendSg1",
+      "blendVol2", "blendSg2", "stabilizationNotes", "packagingNotes",
+      "tastingNotes", "rating", "tags"
+    ];
+    const hasMeaningfulAddition = Array.isArray(c.additions) && c.additions.some((row) => row && (
+      String(row.amount || "").trim() ||
+      String(row.notes || "").trim()
+    ));
+    const hasChangedField = meaningfulFields.some((key) => String(c[key] || "").trim() !== String(defaults[key] || "").trim());
+    return Boolean(hasMeaningfulAddition || hasChangedField || c.wouldMakeAgain !== defaults.wouldMakeAgain);
   }
 
   function batchHasData(){
@@ -2223,8 +2229,16 @@
     $("cellarSmartSummary").innerHTML = lines.join("<br><br>");
 
     const additionCount = c.additions.filter((row) => row.amount || row.notes).length;
+    const structureCount = Array.isArray(data.currentBatch.structureAdditions) ? data.currentBatch.structureAdditions.filter((row) => row && String(row.ingredient || "").trim()).length : 0;
+    const archiveParts = [
+      `the gravity trail`,
+      `nutrient setup`,
+      structureCount ? `<strong>${structureCount}</strong> structure addition${structureCount === 1 ? "" : "s"}` : "",
+      `<strong>${additionCount}</strong> post-fermentation addition${additionCount === 1 ? "" : "s"}`,
+      `the finish path, tasting notes, tags, and rebrew verdict`
+    ].filter(Boolean).join(", ");
     $("archivePrepSummary").innerHTML = batchHasData()
-      ? `Archiving right now would save <strong>${escapeHTML(data.currentBatch.name || "this batch")}</strong>, the gravity trail, nutrient setup, <strong>${additionCount}</strong> post-fermentation addition${additionCount === 1 ? "" : "s"}, the finish path, tasting notes, tags, and rebrew verdict.`
+      ? `Archiving right now would save <strong>${escapeHTML(data.currentBatch.name || "this batch")}</strong>, ${archiveParts}.`
       : `No active batch loaded yet.`;
   }
 
@@ -2261,18 +2275,29 @@
       .sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime())
       .filter((item) => {
         if (!archiveSearch) return true;
-        return [item.batch.name, item.batch.style, recipeSourceSummary(item.batch).honey, recipeSourceSummary(item.batch).other, item.cellar.tags, item.cellar.tastingNotes].join(" ").toLowerCase().includes(archiveSearch);
+        const addNames = Array.isArray(item.batch.structureAdditions) ? item.batch.structureAdditions.map((row) => row && row.ingredient || "").join(" ") : "";
+        return [item.batch.name, item.batch.style, recipeSourceSummary(item.batch).honey, recipeSourceSummary(item.batch).other, addNames, item.cellar.tags, item.cellar.tastingNotes].join(" ").toLowerCase().includes(archiveSearch);
       });
 
     $("archiveList").innerHTML = items.length
       ? items.map((item) => {
           const linkedRecipe = item.batch.recipeId ? data.recipes.find((r) => r.id === item.batch.recipeId) : null;
+          const archiveAdds = Array.isArray(item.batch.structureAdditions)
+            ? item.batch.structureAdditions.filter((row) => row && String(row.ingredient || "").trim())
+            : [];
+          const addsSummary = archiveAdds.length
+            ? archiveAdds.map((row) => {
+                const amt = [row.amount, row.unit].filter((v) => String(v || "").trim()).join(" ").trim();
+                return escapeHTML(row.ingredient) + (amt ? ` (${escapeHTML(amt)})` : "");
+              }).join(", ")
+            : "";
           return `
           <div class="archive-card">
             <div class="kicker">Archived ${escapeHTML(formatDate(item.archivedAt))}${linkedRecipe ? ` · From recipe: <strong>${escapeHTML(linkedRecipe.name)}</strong>` : ""}</div>
             <strong>${escapeHTML(item.batch.name || "Unnamed batch")}</strong>
             <div class="muted">${escapeHTML(item.batch.style || "Mead")} · OG ${escapeHTML(item.batch.targetOg || "—")} · FG ${escapeHTML(item.batch.targetFg || "—")} · ABV ${escapeHTML(item.batch.targetAbv || item.batch.estimatedAbv || "—")}%</div>
             <div class="muted">Honey: ${escapeHTML(recipeSourceSummary(item.batch).honey || "—")}</div>
+            ${addsSummary ? `<div class="muted">Structure: ${addsSummary}</div>` : ""}
             <div class="muted">Finish: ${escapeHTML(item.cellar.finishPath || "—")} · Rating: ${escapeHTML(item.cellar.rating || "—")} · Tags: ${escapeHTML(item.cellar.tags || "—")} · Rebrew: ${item.cellar.wouldMakeAgain ? "Yes" : "No"}</div>
             <div class="muted">${escapeHTML(item.cellar.tastingNotes || "")}</div>
             <div class="item-actions">
@@ -2721,7 +2746,9 @@
       ...defaultCurrentBatch(),
       ...clone(recipe),
       recipeId: recipe.id || "",
-      fermentNotes: "",
+      // Carry recipe notes forward so the operator can still see the design
+      // intent after loading the batch into Ferment.
+      fermentNotes: recipe.notes || "",
       stepFeedPoints: "30",
       stepFeedHoneyPpg: "35",
       stepFeedCount: "1",
@@ -3739,7 +3766,7 @@
     populateCellarForm();
     populateCalcForm();
     populateMentorForm();
-        bindTabs();
+    bindTabs();
     bindClock();
     bindRecipeFields();
     bindFerment();

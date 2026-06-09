@@ -1953,22 +1953,21 @@
   // Adjuncts that are counted by piece, not weighed. The mentor packet (and the
   // prose extractor's weight regex) sometimes attach a weight unit like "lb" to
   // these, which is wrong — 1.5 vanilla beans is "1.5 each", not "1.5 lbs".
-  const COUNT_BASED_ADJUNCTS = [
-    "vanilla bean", "cinnamon stick", "star anise", "cardamom pod",
-    "oak spiral", "oak cube", "oak stave", "oak stick", "tea bag"
+  const STRICT_COUNT_BASED_ADJUNCTS = [
+    "vanilla bean", "cinnamon stick", "star anise", "cardamom pod", "tea bag"
   ];
 
   function isWeightUnit(unit){
     return /^(lb|lbs|oz|g|kg|pound|pounds|ounce|ounces)$/i.test(String(unit || "").trim());
   }
 
-  function isCountBasedAdjunct(ingredient){
+  function isStrictCountBasedAdjunct(ingredient){
     const lower = String(ingredient || "").toLowerCase();
-    return COUNT_BASED_ADJUNCTS.some((term) => lower.includes(term));
+    return STRICT_COUNT_BASED_ADJUNCTS.some((term) => lower.includes(term));
   }
 
   function correctCountAdjunctUnit(row){
-    if (row && row.amount && isCountBasedAdjunct(row.ingredient) && isWeightUnit(row.unit)){
+    if (row && row.amount && isStrictCountBasedAdjunct(row.ingredient) && isWeightUnit(row.unit)){
       return { ...row, unit: "each" };
     }
     return row;
@@ -2449,18 +2448,6 @@
       }, 120);
     });
 
-    $("exportDataBtn")?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const main = mergeEnhancementIntoMain(getMainState(), loadEnhancement());
-      const blob = new Blob([JSON.stringify(main, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `meadevil-app-${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }, true);
   }
 
   function boot(){
