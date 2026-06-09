@@ -2334,6 +2334,10 @@
         main.mentor = { ...(main.mentor || {}), ...demo.concept };
       });
       if ($("mentorFollowup")) $("mentorFollowup").value = "";
+      // app.js keeps its own in-memory copy of state. Without this, app.js
+      // still holds the prior concept and clobbers the demo (and its stale
+      // mentor packet) the next time it persists — e.g. on Send to Build.
+      window.dispatchEvent(new Event("meadevil-cloud-restore"));
       setTimeout(renderAll, 60);
     });
 
