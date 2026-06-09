@@ -191,11 +191,16 @@
                 <div class="field"><label for="recipeNitrogenRequirement">Nitrogen requirement</label><select id="recipeNitrogenRequirement"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
                 <div class="field hidden-field" id="recipeYeastOtherWrap"><label for="recipeYeastOther">Custom yeast</label><input id="recipeYeastOther" placeholder="Mangrove Jack M05, RC212, custom isolate…" /></div>
               </div>
-              <div class="form-grid-2">
-                <div class="field"><label for="recipeTags">Tags</label><input id="recipeTags" placeholder="cherry, dessert, holiday, still" /></div>
-                <div class="field"><label for="recipeQuickNote">Quick note</label><input id="recipeQuickNote" placeholder="The one-line reminder future-you needs" /></div>
-              </div>
-              <div class="field"><label for="recipeNotes">Process / concept notes</label><textarea id="recipeNotes" placeholder="Fruit timing, rack plan, oak window, stabilization plan, what would ruin the concept, and what must stay visible in the glass."></textarea></div>
+              <details class="recipe-extras-fold">
+                <summary class="recipe-extras-summary"><span class="small">Tags, notes &amp; concept</span></summary>
+                <div class="recipe-extras-body">
+                  <div class="form-grid-2">
+                    <div class="field"><label for="recipeTags">Tags</label><input id="recipeTags" placeholder="cherry, dessert, holiday, still" /></div>
+                    <div class="field"><label for="recipeQuickNote">Quick note</label><input id="recipeQuickNote" placeholder="The one-line reminder future-you needs" /></div>
+                  </div>
+                  <div class="field"><label for="recipeNotes">Process / concept notes</label><textarea id="recipeNotes" placeholder="Fruit timing, rack plan, oak window, stabilization plan, what would ruin the concept, and what must stay visible in the glass."></textarea></div>
+                </div>
+              </details>
             </div>
 
             <div class="card accent-soft">

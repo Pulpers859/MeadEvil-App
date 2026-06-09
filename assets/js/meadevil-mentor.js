@@ -1489,33 +1489,42 @@
   function renderAdjunctList(rows){
     const el = $("recipeAdjunctList");
     if (!el) return;
-    el.innerHTML = rows.map((row) => `
-      <div class="source-row">
-        <div class="form-grid-4">
-          <div class="field">
-            <label>Phase</label>
-            <select data-adjunct-id="${row.id}" data-adjunct-field="phase">
-              ${ADJUNCT_PHASES.map((option) => `<option ${row.phase === option ? "selected" : ""}>${option}</option>`).join("")}
-            </select>
+    el.innerHTML = rows.map((row) => {
+      const hasContent = row.ingredient && row.ingredient.trim();
+      const summary = hasContent
+        ? `<strong>${escapeHTML(row.ingredient)}</strong> <span class="muted">${escapeHTML(row.category || "")}${row.amount ? ` · ${escapeHTML(String(row.amount))} ${escapeHTML(row.unit || "")}` : ""}${row.phase ? ` · ${escapeHTML(row.phase)}` : ""}${row.purpose ? ` · ${escapeHTML(row.purpose)}` : ""}</span>`
+        : `<span class="muted">New addition — tap to edit</span>`;
+      return `
+      <details class="source-row adjunct-row-compact"${hasContent ? "" : " open"}>
+        <summary class="adjunct-summary">${summary}<button class="mini-btn adjunct-delete-btn" data-adjunct-delete="${row.id}" type="button">Remove</button></summary>
+        <div class="adjunct-fields">
+          <div class="form-grid-4">
+            <div class="field">
+              <label>Phase</label>
+              <select data-adjunct-id="${row.id}" data-adjunct-field="phase">
+                ${ADJUNCT_PHASES.map((option) => `<option ${row.phase === option ? "selected" : ""}>${option}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label>Category</label>
+              <select data-adjunct-id="${row.id}" data-adjunct-field="category">
+                ${ADJUNCT_CATEGORIES.map((option) => `<option ${row.category === option ? "selected" : ""}>${option}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field"><label>Ingredient</label><input data-adjunct-id="${row.id}" data-adjunct-field="ingredient" value="${escapeHTML(row.ingredient)}" placeholder="Juniper berries, lemon zest, white tea…" /></div>
+            <div class="field"><label>Purpose</label><input data-adjunct-id="${row.id}" data-adjunct-field="purpose" value="${escapeHTML(row.purpose)}" placeholder="lift, edge, tannin, brightness…" /></div>
           </div>
-          <div class="field">
-            <label>Category</label>
-            <select data-adjunct-id="${row.id}" data-adjunct-field="category">
-              ${ADJUNCT_CATEGORIES.map((option) => `<option ${row.category === option ? "selected" : ""}>${option}</option>`).join("")}
-            </select>
+          <div class="form-grid-4">
+            <div class="field"><label>Amount</label><input data-adjunct-id="${row.id}" data-adjunct-field="amount" type="number" step="0.01" value="${escapeHTML(row.amount)}" /></div>
+            <div class="field"><label>Unit</label><select data-adjunct-id="${row.id}" data-adjunct-field="unit">${ADJUNCT_UNITS.map((option) => `<option ${row.unit === option ? "selected" : ""}>${option}</option>`).join("")}</select></div>
+            <div class="field"><label>Contact / window</label><input data-adjunct-id="${row.id}" data-adjunct-field="contactTime" value="${escapeHTML(row.contactTime)}" placeholder="3–5 days, bench trial only, pull early…" /></div>
+            <div class="field checkbox-field"></div>
           </div>
-          <div class="field"><label>Ingredient</label><input data-adjunct-id="${row.id}" data-adjunct-field="ingredient" value="${escapeHTML(row.ingredient)}" placeholder="Juniper berries, lemon zest, white tea…" /></div>
-          <div class="field"><label>Purpose</label><input data-adjunct-id="${row.id}" data-adjunct-field="purpose" value="${escapeHTML(row.purpose)}" placeholder="lift, edge, tannin, brightness…" /></div>
+          <div class="field"><label>Notes</label><input data-adjunct-id="${row.id}" data-adjunct-field="notes" value="${escapeHTML(row.notes)}" placeholder="What this does, how easy it is to overdo, what to watch for…" /></div>
         </div>
-        <div class="form-grid-4">
-          <div class="field"><label>Amount</label><input data-adjunct-id="${row.id}" data-adjunct-field="amount" type="number" step="0.01" value="${escapeHTML(row.amount)}" /></div>
-          <div class="field"><label>Unit</label><select data-adjunct-id="${row.id}" data-adjunct-field="unit">${ADJUNCT_UNITS.map((option) => `<option ${row.unit === option ? "selected" : ""}>${option}</option>`).join("")}</select></div>
-          <div class="field"><label>Contact / window</label><input data-adjunct-id="${row.id}" data-adjunct-field="contactTime" value="${escapeHTML(row.contactTime)}" placeholder="3–5 days, bench trial only, pull early…" /></div>
-          <div class="field checkbox-field"><button class="mini-btn" data-adjunct-delete="${row.id}" type="button">Remove</button></div>
-        </div>
-        <div class="field"><label>Notes</label><input data-adjunct-id="${row.id}" data-adjunct-field="notes" value="${escapeHTML(row.notes)}" placeholder="What this does, how easy it is to overdo, what to watch for…" /></div>
-      </div>
-    `).join("");
+      </details>
+    `;
+    }).join("");
   }
 
   function syncLegacyBridge(output){
@@ -2284,6 +2293,8 @@
     $("recipeAdjunctList")?.addEventListener("click", (event) => {
       const id = event.target.dataset.adjunctDelete;
       if (!id) return;
+      event.preventDefault();
+      event.stopPropagation();
       saveMergedMain((enhancement) => {
         enhancement.recipeDraft.structureAdditions = (enhancement.recipeDraft.structureAdditions || []).filter((row) => row.id !== id);
         if (!enhancement.recipeDraft.structureAdditions.length) enhancement.recipeDraft.structureAdditions = [defaultAdjunctRow()];
