@@ -1878,7 +1878,7 @@
         <div>Yeast: ${escapeHTML(displayYeastName(batch) || "—")} · Temp: ${escapeHTML(batch.temp || "—")}</div>
         <div>Loaded: <span class="muted">${escapeHTML(formatDateTime(batch.loadedAt))}</span></div>
       `
-      : `<div><strong>No active batch loaded.</strong></div><div class="muted">Load a recipe from the <strong>Recipes</strong> tab, or restore one from <strong>Archive</strong>, to start tracking fermentation here.</div>`;
+      : `<div><strong>No active batch loaded.</strong></div><div class="muted">Build a recipe in <strong>Recipes</strong> (or send one from <strong>Brainstorm</strong>), then click <strong>"Load to active batch"</strong> there to start tracking fermentation here. You can also restore a batch from <strong>Archive</strong>.</div>`;
   }
 
   function formatStructureAdditionLine(row){

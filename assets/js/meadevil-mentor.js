@@ -1950,6 +1950,30 @@
     return ADJUNCT_CATEGORIES.includes(normalized) ? normalized : guessAdjunctCategory(ingredient);
   }
 
+  // Adjuncts that are counted by piece, not weighed. The mentor packet (and the
+  // prose extractor's weight regex) sometimes attach a weight unit like "lb" to
+  // these, which is wrong — 1.5 vanilla beans is "1.5 each", not "1.5 lbs".
+  const COUNT_BASED_ADJUNCTS = [
+    "vanilla bean", "cinnamon stick", "star anise", "cardamom pod",
+    "oak spiral", "oak cube", "oak stave", "oak stick", "tea bag"
+  ];
+
+  function isWeightUnit(unit){
+    return /^(lb|lbs|oz|g|kg|pound|pounds|ounce|ounces)$/i.test(String(unit || "").trim());
+  }
+
+  function isCountBasedAdjunct(ingredient){
+    const lower = String(ingredient || "").toLowerCase();
+    return COUNT_BASED_ADJUNCTS.some((term) => lower.includes(term));
+  }
+
+  function correctCountAdjunctUnit(row){
+    if (row && row.amount && isCountBasedAdjunct(row.ingredient) && isWeightUnit(row.unit)){
+      return { ...row, unit: "each" };
+    }
+    return row;
+  }
+
   function splitMentorTextSegments(text){
     return String(text || "")
       .replace(/<[^>]+>/g, " ")
@@ -1986,7 +2010,20 @@
       const current = matchesByKey.get(key);
       if (!current || String(term).length > String(current).length) matchesByKey.set(key, term);
     });
-    return [...matchesByKey.values()];
+    // Drop a generic term when a more specific match in the same text already
+    // covers it as a whole word (e.g. drop "vanilla" when "vanilla bean" also
+    // matched, or "coconut" when "toasted coconut" matched). Without this the
+    // same ingredient lands in the Build twice under two different labels.
+    const matches = [...matchesByKey.values()];
+    return matches.filter((term) => {
+      const lower = String(term).toLowerCase().trim();
+      const wordPattern = new RegExp(`\\b${escapeRegex(lower).replace(/\s+/g, "\\s+")}\\b`, "i");
+      return !matches.some((other) => {
+        if (other === term) return false;
+        const otherLower = String(other).toLowerCase().trim();
+        return otherLower.length > lower.length && wordPattern.test(otherLower);
+      });
+    });
   }
 
   function chooseAdjunctAmountHit(entry){
@@ -2199,9 +2236,14 @@
     const enrichedAdjuncts = mergedAdjuncts.map((item) => {
       const amount = item.amount || "";
       const unit = amount ? (item.unit || "g") : (item.unit || "");
-      if (amount) return { ...item, amount, unit };
-      const extracted = extractAmountFromText(mentorProseText, item.ingredient || "");
-      return extracted ? { ...item, amount: extracted.amount, unit: extracted.unit } : item;
+      let resolved;
+      if (amount) {
+        resolved = { ...item, amount, unit };
+      } else {
+        const extracted = extractAmountFromText(mentorProseText, item.ingredient || "");
+        resolved = extracted ? { ...item, amount: extracted.amount, unit: extracted.unit } : item;
+      }
+      return correctCountAdjunctUnit(resolved);
     });
 
     saveMergedMain((enh) => {
