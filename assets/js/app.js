@@ -1012,6 +1012,52 @@
     return merged;
   }
 
+  // Gravity drives the trend chart, ABV math, and the 1/3-break board, so it has
+  // to be trustworthy. Mead specific gravity realistically sits between water-ish
+  // (~0.985 finished) and a very strong sack-mead must (~1.180). Anything outside
+  // that is almost certainly a typo or a unit slip.
+  function validateGravityValue(raw){
+    const trimmed = String(raw == null ? "" : raw).trim();
+    if (!trimmed) return { ok: false, empty: true, reason: "Enter a gravity reading to add a log entry." };
+    const value = Number(trimmed);
+    if (!isFinite(value)) return { ok: false, reason: "Enter gravity as a number like 1.074." };
+    if (value < 0.980 || value > 1.200) return { ok: false, reason: "That gravity looks off. Mead readings sit between 0.980 and 1.200 (for example 1.074)." };
+    return { ok: true, value };
+  }
+
+  // Temp (°F) and pH are optional, but if entered they should be physically
+  // sane so they do not quietly poison the readout. Empty stays valid.
+  function validateOptionalReading(raw, { min, max, label }){
+    const trimmed = String(raw == null ? "" : raw).trim();
+    if (!trimmed) return { ok: true, value: "" };
+    const value = Number(trimmed);
+    if (!isFinite(value)) return { ok: false, reason: `${label} should be a number, or leave it blank.` };
+    if (value < min || value > max) return { ok: false, reason: `${label} should be between ${min} and ${max}, or leave it blank.` };
+    return { ok: true, value: trimmed };
+  }
+
+  function validateLogInputs({ gravity, temp, pH }){
+    const g = validateGravityValue(gravity);
+    if (!g.ok) return g;
+    const t = validateOptionalReading(temp, { min: 20, max: 120, label: "Temp °F" });
+    if (!t.ok) return t;
+    const p = validateOptionalReading(pH, { min: 2, max: 5, label: "pH" });
+    if (!p.ok) return p;
+    return { ok: true };
+  }
+
+  function setLogEntryError(message){
+    const el = $("logEntryError");
+    if (!el) return;
+    if (message) {
+      el.textContent = message;
+      el.hidden = false;
+    } else {
+      el.textContent = "";
+      el.hidden = true;
+    }
+  }
+
   function normalizeLog(log){
     return {
       id: log.id || makeId("grav"),
@@ -1520,9 +1566,38 @@
     }
   }
 
+  function cellarHasData(){
+    const c = data.cellar;
+    if (!c) return false;
+    const hasMeaningfulAddition = Array.isArray(c.additions) && c.additions.some((row) => row && String(row.amount || "").trim());
+    return Boolean(
+      hasMeaningfulAddition ||
+      String(c.tastingNotes || "").trim() ||
+      String(c.stabilizationNotes || "").trim() ||
+      String(c.packagingNotes || "").trim() ||
+      String(c.rating || "").trim() ||
+      String(c.tags || "").trim()
+    );
+  }
+
   function batchHasData(){
     const b = data.currentBatch;
-    return Boolean(b.name || b.targetOg || displayYeastName(b));
+    const hasLogs = Array.isArray(data.fermentationLogs) && data.fermentationLogs.length > 0;
+    const hasStepFeeds = Array.isArray(b.stepFeedLog) && b.stepFeedLog.length > 0;
+    const hasStructure = Array.isArray(b.structureAdditions) && b.structureAdditions.some((row) => row && String(row.ingredient || "").trim());
+    const hasChecklistProgress = Array.isArray(data.fermentChecklist) && data.fermentChecklist.some((item) => item && item.done);
+    return Boolean(
+      b.name ||
+      b.targetOg ||
+      displayYeastName(b) ||
+      b.pitchDate ||
+      String(b.fermentNotes || "").trim() ||
+      hasLogs ||
+      hasStepFeeds ||
+      hasStructure ||
+      hasChecklistProgress ||
+      cellarHasData()
+    );
   }
 
   function currentRecipe(){
@@ -1772,7 +1847,7 @@
     if (customCount) warnings.push("Custom source rows are in play. That is fine, but make sure the PPG values are measured or intentionally assumed.");
     if (plan && bill && Math.abs(ogDeltaPoints || 0) <= 5) greenlights.push("The source bill is landing close to the design target.");
     if (displayYeastName(recipe) && recipe.batchGallons && bill && bill.lineItems.length) greenlights.push("The recipe has enough structure to become a real batch instead of a rough concept.");
-    if ((bill?.lineItems || []).some((item) => item.perGallonPoints > 45)) warnings.push("At least one source is carrying a huge share of the gravity. Make sure that is intentional and not a unit or entry mistake.");
+    if ((bill?.lineItems || []).some((item) => item.perGallonPoints > 150)) warnings.push("A single source is contributing an implausibly high gravity share (over 150 points/gallon on its own). Double-check its amount and unit — this usually means grams were entered as pounds, or a similar entry slip.");
 
     $("recipeReadiness").innerHTML = [
       greenlights.length ? `<div>${greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>")}</div>` : "",
@@ -1803,11 +1878,100 @@
         <div>Yeast: ${escapeHTML(displayYeastName(batch) || "—")} · Temp: ${escapeHTML(batch.temp || "—")}</div>
         <div>Loaded: <span class="muted">${escapeHTML(formatDateTime(batch.loadedAt))}</span></div>
       `
-      : `No active batch loaded.`;
+      : `<div><strong>No active batch loaded.</strong></div><div class="muted">Load a recipe from the <strong>Recipes</strong> tab, or restore one from <strong>Archive</strong>, to start tracking fermentation here.</div>`;
+  }
+
+  function formatStructureAdditionLine(row){
+    const amount = [row.amount, row.unit].filter((v) => String(v || "").trim()).join(" ").trim();
+    const parts = [
+      amount,
+      String(row.phase || "").trim(),
+      String(row.purpose || "").trim(),
+      String(row.contactTime || "").trim() ? `${row.contactTime} contact` : ""
+    ].filter((v) => String(v || "").trim());
+    return `<strong>${escapeHTML(row.ingredient)}</strong>${parts.length ? ` — ${escapeHTML(parts.join(" · "))}` : ""}`;
+  }
+
+  function phaseWatchouts(phase){
+    const map = {
+      primary: "Keep temp in the yeast's range, hit nutrients on schedule, and stop nutrient additions at the 1/3 sugar break.",
+      secondary: "Taste any secondary additions every 48–72h and rack off when the profile is clean — over-extraction is hard to undo.",
+      aging: "Minimize headspace and oxygen pickup. Give it real time before judging the profile.",
+      stabilizing: "Confirm fermentation has fully stopped before chemical stabilization. Use sulfite + sorbate together if backsweetening.",
+      packaging: "Re-check gravity for refermentation risk, and bench trial sweetness / acid / tannin before scaling to the full batch.",
+      bottled: "Record a final sensory read and note how it changes with age."
+    };
+    return map[String(phase || "primary")] || map.primary;
+  }
+
+  function renderExecutionPlan(){
+    const card = $("executionPlanCard");
+    const body = $("executionPlanBody");
+    if (!card || !body) return;
+    if (!batchHasData()){
+      card.hidden = true;
+      body.innerHTML = "";
+      return;
+    }
+    const batch = data.currentBatch;
+    const additions = Array.isArray(batch.structureAdditions)
+      ? batch.structureAdditions.filter((row) => row && String(row.ingredient || "").trim())
+      : [];
+    const benchAdds = additions.filter((row) => /bench/i.test(row.phase || ""));
+    const scheduledAdds = additions.filter((row) => !/bench/i.test(row.phase || ""));
+    const sections = [];
+
+    if (String(batch.quickNote || "").trim()){
+      sections.push(`<div class="exec-section"><div class="exec-label">Intent</div><div>${escapeHTML(batch.quickNote)}</div></div>`);
+    }
+
+    if (scheduledAdds.length){
+      sections.push(`<div class="exec-section"><div class="exec-label">Scheduled additions</div><ul class="exec-list">${scheduledAdds.map((row) => `<li>${formatStructureAdditionLine(row)}${String(row.notes || "").trim() ? `<div class="muted">${escapeHTML(row.notes)}</div>` : ""}</li>`).join("")}</ul></div>`);
+    }
+
+    const benchBits = benchAdds.map((row) => `<li>${formatStructureAdditionLine(row)}</li>`);
+    if (batch.sweetness && batch.sweetness !== "Dry"){
+      benchBits.push(`<li>Backsweetening bench trial for a ${escapeHTML(String(batch.sweetness).toLowerCase())} finish — stabilize first</li>`);
+    }
+    if (benchBits.length){
+      sections.push(`<div class="exec-section"><div class="exec-label">Bench trials before committing</div><ul class="exec-list">${benchBits.join("")}</ul></div>`);
+    }
+
+    const watchBits = [escapeHTML(phaseWatchouts(batch.phase))];
+    if (batch.carbonation && batch.carbonation !== "Still"){
+      watchBits.push(`Carbonation planned (${escapeHTML(String(batch.carbonation).toLowerCase())}) — use pressure-safe bottles only.`);
+    }
+    sections.push(`<div class="exec-section"><div class="exec-label">Watchouts — ${escapeHTML(batch.phase || "primary")} phase</div><div>${watchBits.join("<br>")}</div></div>`);
+
+    card.hidden = false;
+    body.innerHTML = sections.join("");
+  }
+
+  function setFermentEmptyState(hasBatch){
+    // Until a real batch exists, hide the execution controls so the Ferment tab
+    // does not present phase controls, step-feed math, logging, and an archive
+    // CTA that have nothing to operate on.
+    const batchOnlyIds = [
+      "batchActions",
+      "batchPhaseFields",
+      "batchNotesField",
+      "fermentChecklistCard",
+      "stepFeedCard",
+      "fermentTrendCard",
+      "gravityLogCard",
+      "sugarBreakCard",
+      "raptAdminCard"
+    ];
+    batchOnlyIds.forEach((id) => {
+      const el = $(id);
+      if (el) el.hidden = !hasBatch;
+    });
   }
 
   function renderFerment(){
     renderCurrentBatchSummary();
+    renderExecutionPlan();
+    setFermentEmptyState(batchHasData());
     $("batchPitchDate").value = data.currentBatch.pitchDate || "";
     $("batchPhase").value = data.currentBatch.phase || "primary";
     $("batchFermentNotes").value = data.currentBatch.fermentNotes || "";
@@ -2557,7 +2721,7 @@
       ...defaultCurrentBatch(),
       ...clone(recipe),
       recipeId: recipe.id || "",
-      fermentNotes: recipe.notes || "",
+      fermentNotes: "",
       stepFeedPoints: "30",
       stepFeedHoneyPpg: "35",
       stepFeedCount: "1",
@@ -2570,17 +2734,10 @@
       ? recipe.structureAdditions
       : readEnhancementStructureAdditions("recipeDraft");
     data.currentBatch.structureAdditions = clone(structureAdds);
-    const cellarAdditions = (structureAdds || [])
-      .filter((row) => row.ingredient && String(row.ingredient).trim())
-      .map((row) => ({
-        id: makeId("cellaradd"),
-        type: row.ingredient || "",
-        purpose: [row.purpose, row.phase ? `(${row.phase})` : ""].filter(Boolean).join(" "),
-        amount: row.amount || "",
-        unit: row.unit || "g",
-        notes: row.notes || ""
-      }));
-    data.cellar = { ...defaultCellar(), cellarGallons: recipe.batchGallons || "", backsweetenVolume: recipe.batchGallons || "", benchBatchGallons: recipe.batchGallons || "", backsweetenCurrentSg: recipe.targetFg || "", additions: cellarAdditions.length ? cellarAdditions : [defaultCellarAddition()] };
+    // Cellar is post-fermentation truth: it must only ever hold additions that
+    // actually happened. Planned structure additions stay on the batch (and are
+    // shown in the Ferment execution plan) but are NOT pre-logged here.
+    data.cellar = { ...defaultCellar(), cellarGallons: recipe.batchGallons || "", backsweetenVolume: recipe.batchGallons || "", benchBatchGallons: recipe.batchGallons || "", backsweetenCurrentSg: recipe.targetFg || "" };
     data.cellarChecklist = defaultCellarChecklist();
     syncNutrientsFromRecipe(recipe, { force: true });
     data.nutrients.protocol = "tosna";
@@ -2837,12 +2994,19 @@
     $("logDate").value = todayStr();
     $("addLogBtn").addEventListener("click", () => {
       const gravity = $("logGravity").value;
-      if (!gravity) return;
+      const temp = $("logTemp").value;
+      const pH = $("logPH").value;
+      const check = validateLogInputs({ gravity, temp, pH });
+      if (!check.ok) {
+        setLogEntryError(check.reason);
+        return;
+      }
+      setLogEntryError("");
       data.fermentationLogs.push(normalizeLog({
         date: $("logDate").value || todayStr(),
         gravity,
-        temp: $("logTemp").value,
-        pH: $("logPH").value,
+        temp,
+        pH,
         note: $("logNote").value
       }));
       $("logGravity").value = "";
@@ -2852,6 +3016,10 @@
       persistData();
       renderDashboard();
       renderFerment();
+    });
+    ["logGravity","logTemp","logPH"].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener("input", () => setLogEntryError(""));
     });
     $("clearLogsBtn").addEventListener("click", () => {
       if (!confirm("Clear all gravity log entries? This cannot be undone.")) return;
@@ -2886,7 +3054,14 @@
         const entry = data.fermentationLogs.find((item) => item.id === saveId);
         if (entry) {
           const fields = $("gravityLog").querySelectorAll(`[data-log-edit-id="${saveId}"]`);
-          fields.forEach((field) => { entry[field.dataset.logEditField] = field.value; });
+          const pending = {};
+          fields.forEach((field) => { pending[field.dataset.logEditField] = field.value; });
+          const check = validateLogInputs({ gravity: pending.gravity, temp: pending.temp, pH: pending.pH });
+          if (!check.ok) {
+            alert(check.reason);
+            return;
+          }
+          Object.keys(pending).forEach((key) => { entry[key] = pending[key]; });
         }
         data.ui.editingLogId = null;
         persistData();

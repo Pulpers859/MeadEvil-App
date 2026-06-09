@@ -195,17 +195,21 @@
             <div class="card">
               <div class="toolbar">
                 <h3>Active batch</h3>
-                <div class="tag-row">
+                <div class="tag-row" id="batchActions">
                   <button class="mini-btn" id="clearActiveBatchBtn" type="button">Clear active batch</button>
                   <button class="btn btn-primary" id="archiveBatchBtn" type="button">Archive batch</button>
                 </div>
               </div>
               <div class="batch-summary-card" id="currentBatchSummary"></div>
-              <div class="form-grid-2">
+              <div class="form-grid-2" id="batchPhaseFields">
                 <div class="field"><label for="batchPitchDate">Pitch date</label><input id="batchPitchDate" type="date" /></div>
                 <div class="field"><label for="batchPhase">Batch phase</label><select id="batchPhase"><option value="primary">Primary</option><option value="secondary">Secondary</option><option value="aging">Aging</option><option value="stabilizing">Stabilizing</option><option value="packaging">Packaging</option><option value="bottled">Bottled</option></select></div>
               </div>
-              <div class="field"><label for="batchFermentNotes">Fermentation notes</label><textarea id="batchFermentNotes" placeholder="Actual pitch temp, aroma changes, fruit cap behavior, sulfur, nutrient timing, rack decisions, surprises…"></textarea></div>
+              <div class="field" id="batchNotesField"><label for="batchFermentNotes">Fermentation notes</label><textarea id="batchFermentNotes" placeholder="Actual pitch temp, aroma changes, fruit cap behavior, sulfur, nutrient timing, rack decisions, surprises…"></textarea></div>
+            </div>
+            <div class="card execution-plan-card" id="executionPlanCard" hidden>
+              <div class="toolbar"><h3>Execution plan</h3><span class="small">From the recipe — what this mead is meant to be</span></div>
+              <div class="execution-plan-body" id="executionPlanBody"></div>
             </div>
             <details class="card accord-card" id="fermentChecklistCard">
               <summary class="accord-summary">
@@ -216,7 +220,7 @@
                 <div class="checklist" id="fermentChecklist"></div>
               </div>
             </details>
-            <div class="card accent-soft">
+            <div class="card accent-soft" id="stepFeedCard">
               <div class="toolbar"><h3>Step-feed planner</h3><span class="small">Advanced mode</span></div>
               <div class="form-grid-3">
                 <div class="field"><label for="stepFeedPoints">Points per feed</label><input id="stepFeedPoints" type="number" step="1" value="30" /></div>
@@ -232,7 +236,7 @@
           </div>
 
           <div class="stack">
-            <div class="card">
+            <div class="card" id="fermentTrendCard">
               <div class="toolbar"><h3>Fermentation trend</h3><span class="small">Gravity, temp, and estimated ABV</span></div>
               <div class="chart-legend" id="fermentationTrendSummary"></div>
               <div class="trend-chart-shell" id="fermentationTrendChart"></div>
@@ -256,10 +260,11 @@
                   <button class="mini-btn" id="clearLogsBtn" type="button">Clear log</button>
                   <button class="mini-btn" id="toggleGravityLogBtn" type="button">Show all logs</button>
                 </div>
+                <div class="entry-error" id="logEntryError" hidden></div>
                 <div class="log-list" id="gravityLog"></div>
               </div>
             </details>
-            <div class="card">
+            <div class="card" id="sugarBreakCard">
               <div class="toolbar"><h3>Sugar break board</h3></div>
               <div class="notes-box info-rows" id="sugarBreakSnapshot"></div>
             </div>
