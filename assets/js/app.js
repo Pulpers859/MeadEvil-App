@@ -1746,20 +1746,26 @@
       ? `<strong>${escapeHTML(batch.name || "Unnamed batch")}</strong><br>${escapeHTML(batch.style || "Mead")} · ${escapeHTML(batch.batchGallons || "—")} gal · target OG ${escapeHTML(batch.targetOg || "—")} · target FG ${escapeHTML(batch.targetFg || "—")} · est. ${escapeHTML(batch.estimatedAbv || batch.targetAbv || "—")}% ABV<br><span class="muted">Phase: ${escapeHTML(phase)}${batch.pitchDate ? ` · Pitched ${escapeHTML(batch.pitchDate)}` : ""}${pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : ""} · Loaded ${escapeHTML(formatDateTime(batch.loadedAt))}</span>`
       : `No active batch loaded yet.`;
 
-    renderRows("dashboardNutrientPulse", [
-      ["Simple plan", tosna ? `${round(tosna.totalFermaidO, 1)} g Fermaid O total` : "Need batch size + OG/Brix"],
-      ["Advanced plan", advanced ? `${round(advanced.gramsO, 1)} g O · ${round(advanced.gramsK, 1)} g K · ${round(advanced.gramsD, 1)} g DAP` : "Need YAN inputs"],
-      ["Go-Ferm", calculateGoFerm(data.nutrients.dryYeast) ? `${round(calculateGoFerm(data.nutrients.dryYeast).goFermGrams, 1)} g` : "Enter dry yeast grams"]
-    ]);
+    if (batchHasData()) {
+      const nutrientRows = [];
+      if (tosna) nutrientRows.push(["Simple plan", `${round(tosna.totalFermaidO, 1)} g Fermaid O total`]);
+      if (advanced) nutrientRows.push(["Advanced plan", `${round(advanced.gramsO, 1)} g O · ${round(advanced.gramsK, 1)} g K · ${round(advanced.gramsD, 1)} g DAP`]);
+      const goFerm = calculateGoFerm(data.nutrients.dryYeast);
+      if (goFerm) nutrientRows.push(["Go-Ferm", `${round(goFerm.goFermGrams, 1)} g`]);
+      if (nutrientRows.length) renderRows("dashboardNutrientPulse", nutrientRows);
+      else $("dashboardNutrientPulse").innerHTML = `<span class="muted">Set up the feed plan to see nutrient numbers here.</span>`;
 
-    renderRows("dashboardFermentationPulse", [
-      ["Phase", escapeHTML(phase) + (pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : "")],
-      ["Latest gravity", latest ? escapeHTML(latest.gravity) : "No readings"],
-      ["1/3 break", breakGravity ? `${round(breakGravity, 3)}` : "Need OG"],
-      ["Latest temp/pH", latest ? `${escapeHTML(latest.temp || "—")}°F · pH ${escapeHTML(latest.pH || "—")}` : "No readings"],
-      ["Window", latest && breakGravity ? (Number(latest.gravity) <= breakGravity ? "Past nutrient cutoff" : "Still in feeding window") : "Need OG + reading"],
-      ["Rate", escapeHTML(rate.rate)]
-    ]);
+      const fermentRows = [["Phase", escapeHTML(phase) + (pitchDaysAgo !== null ? ` (day ${pitchDaysAgo})` : "")]];
+      if (latest) fermentRows.push(["Latest gravity", escapeHTML(latest.gravity)]);
+      if (breakGravity) fermentRows.push(["1/3 break", `${round(breakGravity, 3)}`]);
+      if (latest) fermentRows.push(["Latest temp/pH", `${escapeHTML(latest.temp || "—")}°F · pH ${escapeHTML(latest.pH || "—")}`]);
+      if (latest && breakGravity) fermentRows.push(["Window", Number(latest.gravity) <= breakGravity ? "Past nutrient cutoff" : "Still in feeding window"]);
+      if (rate.rate && rate.rate !== "—") fermentRows.push(["Rate", escapeHTML(rate.rate)]);
+      renderRows("dashboardFermentationPulse", fermentRows);
+    } else {
+      $("dashboardNutrientPulse").innerHTML = "";
+      $("dashboardFermentationPulse").innerHTML = "";
+    }
 
     const batchStructure = recipeSourceSummary(batch);
     $("dashboardStructure").innerHTML = batchHasData()
@@ -1830,20 +1836,30 @@
       : "Need source rows";
     const sourceSummary = recipeSourceSummary(recipe);
 
-    renderRows("recipeTargetSummary", [
-      ["Target OG", plan ? `${round(plan.targetOg, 3)}` : "Need batch size + target ABV"],
-      ["Target FG", plan ? `${round(plan.targetFg, 3)}` : "Choose sweetness"],
-      ["Target ABV", plan ? `${round(plan.targetAbv, 1)}%` : "Set your north star"],
-      ["Traditional mead equivalent", plan ? `${round(plan.honeyLb, 2)} lb honey (${round(plan.honeyKg, 2)} kg)` : "Need targets"],
-      ["Yeast fit", plan && plan.exceedsTolerance ? `<strong>Target exceeds the entered yeast tolerance.</strong>` : "Within stated tolerance or not checked"]
-    ]);
+    if (plan) {
+      const targetRows = [
+        ["Target OG", `${round(plan.targetOg, 3)}`],
+        ["Target FG", `${round(plan.targetFg, 3)}`],
+        ["Target ABV", `${round(plan.targetAbv, 1)}%`],
+        ["Traditional mead equivalent", `${round(plan.honeyLb, 2)} lb honey (${round(plan.honeyKg, 2)} kg)`]
+      ];
+      if (plan.exceedsTolerance) targetRows.push(["Yeast fit", `<strong>Target exceeds the entered yeast tolerance.</strong>`]);
+      renderRows("recipeTargetSummary", targetRows);
+    } else {
+      $("recipeTargetSummary").innerHTML = `<span class="muted">Set batch size and target ABV to see the design target.</span>`;
+    }
 
-    renderRows("recipeMustSummary", [
-      ["Source bill OG", bill ? `${round(bill.estimatedOg, 3)}` : "Need batch size + source rows"],
-      ["OG delta vs target", ogDeltaPoints == null ? "Need target + source bill" : (ogDeltaPoints === 0 ? "On target" : `${ogDeltaPoints > 0 ? "+" : ""}${ogDeltaPoints} points`)],
-      ["Gravity points", bill ? `${round(bill.gravityPointsPerGallon, 1)} pts/gal` : "Need rows"],
-      ["Top contributors", bill ? topSources : "Need rows"]
-    ]);
+    if (bill) {
+      const mustRows = [
+        ["Source bill OG", `${round(bill.estimatedOg, 3)}`],
+        ["Gravity points", `${round(bill.gravityPointsPerGallon, 1)} pts/gal`],
+        ["Top contributors", topSources]
+      ];
+      if (ogDeltaPoints != null) mustRows.splice(1, 0, ["OG delta vs target", ogDeltaPoints === 0 ? "On target" : `${ogDeltaPoints > 0 ? "+" : ""}${ogDeltaPoints} points`]);
+      renderRows("recipeMustSummary", mustRows);
+    } else {
+      $("recipeMustSummary").innerHTML = `<span class="muted">Add source rows to see what the fermentables actually build.</span>`;
+    }
 
     const warnings = [];
     const greenlights = [];
@@ -1863,10 +1879,15 @@
     if (displayYeastName(recipe) && recipe.batchGallons && bill && bill.lineItems.length) greenlights.push("The recipe has enough structure to become a real batch instead of a rough concept.");
     if ((bill?.lineItems || []).some((item) => item.perGallonPoints > 150)) warnings.push("A single source is contributing an implausibly high gravity share (over 150 points/gallon on its own). Double-check its amount and unit — this usually means grams were entered as pounds, or a similar entry slip.");
 
-    $("recipeReadiness").innerHTML = [
-      greenlights.length ? `<div>${greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>")}</div>` : "",
-      warnings.length ? `<div>${warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>` : `<div>This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div>`
-    ].filter(Boolean).join("<br><br>");
+    const hasAnyInput = recipe.name || recipe.targetAbv || recipe.batchGallons || displayYeastName(recipe) || (bill && bill.lineItems.length);
+    if (!hasAnyInput) {
+      $("recipeReadiness").innerHTML = `<span class="muted">Start filling in the recipe and the sanity engine will wake up.</span>`;
+    } else {
+      $("recipeReadiness").innerHTML = [
+        greenlights.length ? `<div>${greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>")}</div>` : "",
+        warnings.length ? `<div>${warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>` : `<div>This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div>`
+      ].filter(Boolean).join("<br><br>");
+    }
 
     const selected = currentRecipe();
     $("currentRecipeLaunch").innerHTML = selected
@@ -2065,15 +2086,19 @@
     }
 
     const breakGravity = calcOneThirdBreak(data.currentBatch.targetOg || data.nutrients.og);
-    renderRows("sugarBreakSnapshot", [
-      ["1/3 break target", breakGravity ? `${round(breakGravity, 3)}` : "Need OG"],
-      ["Latest reading", latest ? escapeHTML(latest.gravity) : "No readings"],
-      ["Status", latest && breakGravity ? (Number(latest.gravity) <= breakGravity ? "Past nutrient cutoff" : "Still in feeding window") : "Need OG + reading"],
-      ["Recent gravity drop", escapeHTML(rate.drop)],
-      ["Fermentation rate", escapeHTML(rate.rate)],
-      ["Rate window", escapeHTML(rate.window)],
-      ["Projection", escapeHTML(rate.projection)]
-    ]);
+    if (breakGravity || latest) {
+      const sbRows = [];
+      if (breakGravity) sbRows.push(["1/3 break target", `${round(breakGravity, 3)}`]);
+      if (latest) sbRows.push(["Latest reading", escapeHTML(latest.gravity)]);
+      if (latest && breakGravity) sbRows.push(["Status", Number(latest.gravity) <= breakGravity ? "Past nutrient cutoff" : "Still in feeding window"]);
+      if (rate.drop && rate.drop !== "—") sbRows.push(["Recent gravity drop", escapeHTML(rate.drop)]);
+      if (rate.rate && rate.rate !== "—") sbRows.push(["Fermentation rate", escapeHTML(rate.rate)]);
+      if (rate.window && rate.window !== "—") sbRows.push(["Rate window", escapeHTML(rate.window)]);
+      if (rate.projection && rate.projection !== "—") sbRows.push(["Projection", escapeHTML(rate.projection)]);
+      renderRows("sugarBreakSnapshot", sbRows);
+    } else {
+      $("sugarBreakSnapshot").innerHTML = `<span class="muted">Record OG and gravity readings to see break status.</span>`;
+    }
 
     const step = calculateStepFeed({
       volumeGallons: data.currentBatch.batchGallons,
@@ -2118,14 +2143,18 @@
       if (el) el.disabled = protocol !== "custom";
     });
 
-    renderRows("nutrientSummary", [
-      ["Protocol", advanced ? escapeHTML(advanced.protocolLabel) : "Need batch size + OG/Brix"],
-      ["Resolved Brix", tosna ? `${round(tosna.brix, 1)}` : "Need batch size + OG/Brix"],
-      ["1/3 sugar break", tosna && tosna.breakGravity ? `${round(tosna.breakGravity, 3)}` : "—"],
-      ["Dry yeast", data.nutrients.dryYeast ? `${escapeHTML(String(data.nutrients.dryYeast))} g` : "Set in Build"],
-      ["Go-Ferm", goFerm ? `${round(goFerm.goFermGrams, 1)} g · ${round(goFerm.rehydrationWaterMl, 0)} mL water` : "Add dry yeast in Build"],
-      ["Suggested YAN", data.nutrients.og ? `${suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement })} ppm before fruit offset` : "Need OG"]
-    ]);
+    if (advanced || tosna) {
+      const qRows = [];
+      if (advanced) qRows.push(["Protocol", escapeHTML(advanced.protocolLabel)]);
+      if (tosna) qRows.push(["Resolved Brix", `${round(tosna.brix, 1)}`]);
+      if (tosna && tosna.breakGravity) qRows.push(["1/3 sugar break", `${round(tosna.breakGravity, 3)}`]);
+      if (data.nutrients.dryYeast) qRows.push(["Dry yeast", `${escapeHTML(String(data.nutrients.dryYeast))} g`]);
+      if (goFerm) qRows.push(["Go-Ferm", `${round(goFerm.goFermGrams, 1)} g · ${round(goFerm.rehydrationWaterMl, 0)} mL water`]);
+      if (data.nutrients.og) qRows.push(["Suggested YAN", `${suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement })} ppm before fruit offset`]);
+      renderRows("nutrientSummary", qRows);
+    } else {
+      $("nutrientSummary").innerHTML = `<span class="muted">Set batch size and OG to see the quick schedule.</span>`;
+    }
 
     $("nutrientSchedule").innerHTML = advanced
       ? advanced.schedule.map((step) => {
@@ -2143,15 +2172,19 @@
         }).join("")
       : `<div class="empty-state">No protocol schedule yet.</div>`;
 
-    renderRows("advancedNutrientSummary", [
-      ["Target YAN", advanced ? `${escapeHTML(String(data.nutrients.targetYanPpm))} ppm` : "Need inputs"],
-      ["Fruit offset", advanced ? `${round(advanced.fruitOffsetPpm, 0)} ppm` : "—"],
-      ["Caps", advanced ? (protocol === "custom" ? "Custom" : `Protocol defaults applied`) : "—"],
-      ["Effective YAN", advanced ? `${round(advanced.effectiveYanPpm, 0)} ppm` : "—"],
-      ["Fermaid O", advanced ? `${round(advanced.gramsO, 1)} g` : "—"],
-      ["Fermaid K", advanced ? `${round(advanced.gramsK, 1)} g` : "—"],
-      ["DAP", advanced ? `${round(advanced.gramsD, 1)} g` : "—"]
-    ]);
+    if (advanced) {
+      renderRows("advancedNutrientSummary", [
+        ["Target YAN", `${escapeHTML(String(data.nutrients.targetYanPpm))} ppm`],
+        ["Fruit offset", `${round(advanced.fruitOffsetPpm, 0)} ppm`],
+        ["Caps", protocol === "custom" ? "Custom" : "Protocol defaults applied"],
+        ["Effective YAN", `${round(advanced.effectiveYanPpm, 0)} ppm`],
+        ["Fermaid O", `${round(advanced.gramsO, 1)} g`],
+        ["Fermaid K", `${round(advanced.gramsK, 1)} g`],
+        ["DAP", `${round(advanced.gramsD, 1)} g`]
+      ]);
+    } else {
+      $("advancedNutrientSummary").innerHTML = `<span class="muted">Select a protocol to see the output.</span>`;
+    }
 
     $("advancedNutrientSchedule").innerHTML = advanced
       ? advanced.schedule.map((step) => `
