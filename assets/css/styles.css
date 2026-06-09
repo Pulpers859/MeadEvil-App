@@ -259,12 +259,18 @@ option{background:#140e1a;color:var(--cream)}
 }
 .card{
   border-radius:var(--radius-xl);
-  padding:var(--sp-lg);
+  padding:var(--sp-md) var(--sp-lg);
 }
 .accent-card{
   background:linear-gradient(180deg, rgba(39,18,45,.98), rgba(16,10,22,.99));
   border-left:2px solid rgba(163,38,73,.4);
 }
+.card-compact{padding:var(--sp-md)}
+.card-compact .toolbar{margin-bottom:var(--sp-sm)}
+.card-compact .toolbar h3{font-size:1.25rem}
+.card-compact .notes-box{padding:var(--sp-sm) var(--sp-md);border-radius:var(--radius-md)}
+.card-compact .info-row{padding-bottom:6px;gap:var(--sp-sm)}
+.card-compact .result{padding:var(--sp-sm) var(--sp-md)}
 .accent-soft{background:linear-gradient(180deg, rgba(23,17,31,.98), rgba(13,10,18,.99))}
 .toolbar{justify-content:space-between;align-items:center;margin-bottom:var(--sp-md)}
 .toolbar h3{margin:0;color:var(--cream);font-family:"Bebas Neue",sans-serif;font-size:1.45rem;font-weight:400;letter-spacing:.05em}
