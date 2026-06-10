@@ -443,14 +443,16 @@
   function fermentationOg(){
     const preferred = [
       Number(data.currentBatch.targetOg),
-      Number(data.nutrients.og),
-      Number(data.currentBatch.targetOg || 0)
+      Number(data.nutrients.og)
     ].find((value) => Number.isFinite(value) && value > 0);
     if (preferred) return preferred;
 
-    const highestLog = sortLogsDescending(data.fermentationLogs)
+    // No recorded OG: the best stand-in is the highest gravity ever logged,
+    // not the most recent one (which trends toward FG as fermentation runs).
+    const highestLog = data.fermentationLogs
       .map((entry) => Number(entry.gravity))
-      .find((value) => Number.isFinite(value) && value > 0);
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .reduce((max, value) => Math.max(max, value), 0);
     return highestLog || null;
   }
 
@@ -1491,7 +1493,7 @@
       warnings.push("At least one post-fermentation addition has no note about why it was used. That makes future batches harder to learn from.");
     }
     if (Number(c.backsweetenTargetSg) > Number(c.backsweetenCurrentSg || 0) && !c.benchAddition){
-      warnings.push("You are planning a sweeter finish without a best trial sample logged yet.");
+      warnings.push("You are planning a sweeter finish without a bench trial sample logged yet.");
     }
     if (c.currentPh) greenlights.push(`Current pH recorded at ${c.currentPh}. Re-check after any significant sweetening or acid shift.`);
     if (c.finishPath === "Oak / spice aging") greenlights.push("Oak / spice aging selected. Bench trials matter even more here than in fruit-forward batches.");
@@ -2218,8 +2220,8 @@
       additionAmount: c.benchAddition
     });
     $("benchTrialResult").innerHTML = bench
-      ? `The best trial sample scales to about <strong>${round(bench.scaledAmount, c.benchUnit === "drops" ? 0 : 2)} ${escapeHTML(c.benchUnit)}</strong> for the whole batch.`
-      : `Enter batch size, sample size, and the best trial sample dose.`;
+      ? `The bench trial sample scales to about <strong>${round(bench.scaledAmount, c.benchUnit === "drops" ? 0 : 2)} ${escapeHTML(c.benchUnit)}</strong> for the whole batch.`
+      : `Enter batch size, sample size, and the bench trial sample dose.`;
 
     const blend = calculateBlend({
       volume1: c.blendVol1,
@@ -2956,6 +2958,10 @@
         record.createdAt = (data.recipes.find((item) => item.id === existingId) || {}).createdAt || record.createdAt;
         data.recipes = data.recipes.map((item) => item.id === existingId ? record : item);
       } else {
+        // A draft cloned from a batch or archive entry can still carry the
+        // source recipe's id; a brand-new save must never collide with an
+        // existing recipe or edits/deletes start hitting the wrong record.
+        if (data.recipes.some((item) => item.id === record.id)) record.id = makeId("recipe");
         data.recipes.unshift(record);
       }
       data.ui.selectedRecipeId = record.id;
@@ -2985,7 +2991,9 @@
         if (!latest || daysSinceLastReading(data.fermentationLogs) > 3) {
           alert(`Phase changed to ${newPhase}. Take a gravity reading to mark this transition.`);
         }
-        const structureAdds = data.currentBatch.structureAdditions || readEnhancementStructureAdditions("currentBatch");
+        const structureAdds = (Array.isArray(data.currentBatch.structureAdditions) && data.currentBatch.structureAdditions.length)
+          ? data.currentBatch.structureAdditions
+          : readEnhancementStructureAdditions("currentBatch");
         const phaseAdds = structureAdds.filter((row) => row.ingredient && row.phase && row.phase.toLowerCase() === newPhase.toLowerCase());
         if (phaseAdds.length) {
           const names = phaseAdds.map((row) => row.ingredient).join(", ");
@@ -3406,12 +3414,17 @@
         const item = data.archive.find((entry) => entry.id === archiveClone);
         if (!item) return;
         const batch = item.batch;
-        data.recipeDraft = {
+        const draft = {
           ...defaultRecipeDraft(),
           ...clone(batch),
           name: `${batch.name || "Archived batch"} clone`,
           additions: clone(batch.additions || [defaultAdditionRow()])
         };
+        // The batch snapshot carries identity and execution-only fields that
+        // must not leak into a recipe draft (a stale id would collide with
+        // the original recipe on save).
+        ["id","createdAt","updatedAt","recipeId","fermentNotes","stepFeedPoints","stepFeedHoneyPpg","stepFeedCount","stepFeedLog","loadedAt","pitchDate","phase"].forEach((key) => { delete draft[key]; });
+        data.recipeDraft = draft;
         data.ui.selectedRecipeId = null;
         populateRecipeForm();
         persistData();
@@ -3611,8 +3624,10 @@
     const r = data.recipeDraft;
     const bill = currentSourceBill();
     const plan = estimateRecipeTargets({ batchGallons: r.batchGallons, targetAbv: r.targetAbv, sweetness: r.sweetness, yeastTolerance: r.yeastTolerance, honeyPPG: 35 });
-    const enhancement = typeof loadEnhancement === "function" ? loadEnhancement() : { recipeDraft: {} };
-    const adjuncts = (enhancement.recipeDraft.structureAdditions || []).filter((a) => a.ingredient && a.ingredient.trim());
+    const draftStructure = Array.isArray(r.structureAdditions) && r.structureAdditions.length
+      ? r.structureAdditions
+      : readEnhancementStructureAdditions("recipeDraft");
+    const adjuncts = draftStructure.filter((a) => a && a.ingredient && a.ingredient.trim());
     const tosna = currentTosnaPlan();
     const goFerm = calculateGoFerm(data.nutrients.dryYeast);
     const sources = (r.additions || []).filter((row) => row.description && row.description.trim());
@@ -3637,8 +3652,8 @@
       adjuncts.length ? `` : "",
       `NUTRIENT PLAN`,
       `${"-".repeat(30)}`,
-      tosna ? `  TOSNA: ${round(tosna.totalFermaidO, 1)} g Fermaid O total (${round(tosna.perDose, 1)} g × ${tosna.doses} doses)` : "  No nutrient plan calculated yet.",
-      goFerm ? `  Go-Ferm: ${round(goFerm.goFermGrams, 1)} g in ${round(goFerm.waterMl, 0)} mL water` : "",
+      tosna ? `  TOSNA: ${round(tosna.totalFermaidO, 1)} g Fermaid O total (${round(tosna.addEach, 1)} g × ${tosna.schedule.length} doses)` : "  No nutrient plan calculated yet.",
+      goFerm ? `  Go-Ferm: ${round(goFerm.goFermGrams, 1)} g in ${round(goFerm.rehydrationWaterMl, 0)} mL water` : "",
       r.dryYeast ? `  Dry yeast: ${r.dryYeast} g` : "",
       ``,
       r.quickNote ? `QUICK NOTE: ${r.quickNote}` : "",
@@ -3824,6 +3839,15 @@
       console.warn("Initial RAPT refresh failed", error);
     });
   }
+
+  // The Brainstorm layer owns the structure-additions editor and stores rows in
+  // its enhancement key before merging them into the main state. Refresh our
+  // in-memory copy whenever it changes, otherwise the next persistData() lets
+  // the merge layer harvest a stale (often empty) list back over the new rows.
+  window.addEventListener("meadevil-structure-sync", () => {
+    data.recipeDraft.structureAdditions = clone(readEnhancementStructureAdditions("recipeDraft"));
+    data.currentBatch.structureAdditions = clone(readEnhancementStructureAdditions("currentBatch"));
+  });
 
   window.addEventListener("meadevil-cloud-restore", () => {
     data = normalizeData(loadData());

@@ -16,6 +16,8 @@ const MEAD_IDEAS = [
     abv: "14",
     sweetness: "Semi-sweet",
     carbonation: "Still",
+    inspiration: "Fall orchard pressing day, mulled cider warmth without the spice overload",
+    vision: "Bright apple up front, honey mid-palate, gentle tannin grip on a clean finish",
     yeast: "71B",
     dryYeast: "5",
     tags: "apple, fall, dessert",
@@ -42,6 +44,8 @@ const MEAD_IDEAS = [
     abv: "16",
     sweetness: "Dry",
     carbonation: "Still",
+    inspiration: "Campfire caramel meets slow-burn chili heat",
+    vision: "Dark toffee depth with ghost pepper warmth that builds instead of punishing",
     yeast: "EC-1118",
     dryYeast: "3",
     tags: "spicy, bochet, extreme",
@@ -67,6 +71,8 @@ const MEAD_IDEAS = [
     abv: "12",
     sweetness: "Semi-sweet",
     carbonation: "Carbonated",
+    inspiration: "Provence hillside at dusk, floral but never soapy",
+    vision: "Elegant lavender nose over orange blossom honey with light sparkle",
     yeast: "D47",
     dryYeast: "7.5",
     tags: "floral, spring, elegant",
@@ -92,6 +98,8 @@ const MEAD_IDEAS = [
     abv: "13",
     sweetness: "Dry",
     carbonation: "Still",
+    inspiration: "Sicilian winter citrus, bitter peel and ruby juice",
+    vision: "Bright citrus acidity over a bone-dry honey backbone, winter sipper",
     yeast: "QA23",
     dryYeast: "5",
     tags: "citrus, winter, bold",
@@ -118,6 +126,8 @@ const MEAD_IDEAS = [
     abv: "10",
     sweetness: "Dry",
     carbonation: "Carbonated",
+    inspiration: "Norse longhouse session ale, half honey half grain",
+    vision: "Biscuit malt and honey sweetness with light hop spice, refreshing and drinkable",
     yeast: "EC-1118",
     dryYeast: "8",
     tags: "grain, session, norse",
@@ -194,11 +204,87 @@ async function verifyTabActive(page, tabName) {
   if (!isVisible) throw new Error(`Tab panel #tab-${tabName} is not active`);
 }
 
+// Reduce the source bill to exactly one blank row so the Build phase fills
+// rows deterministically even after the Brainstorm step seeded its own rows.
+async function resetSourceRows(page) {
+  for (let guard = 0; guard < 12; guard++) {
+    const count = await page.$$eval("#recipeSourceList .source-row", rows => rows.length);
+    if (count <= 1) break;
+    await page.$eval("#recipeSourceList [data-source-delete]", btn => btn.click());
+    await delay(120);
+  }
+  await page.evaluate(() => {
+    const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
+    const row = document.querySelector("#recipeSourceList .source-row");
+    if (!row) return;
+    const desc = row.querySelector('[data-source-field="description"]');
+    const amt = row.querySelector('[data-source-field="amount"]');
+    if (desc) { desc.value = ""; fire(desc, "input"); }
+    if (amt) { amt.value = ""; fire(amt, "input"); }
+  });
+  await delay(150);
+}
+
+async function runBrainstorm(page, idea, errors) {
+  console.log("  [Brainstorm] Filling concept...");
+  await clickTab(page, "meadmaker");
+  await verifyTabActive(page, "meadmaker");
+
+  await setInputValue(page, "#mentorConceptName", idea.name);
+  await setInputValue(page, "#mentorStyle", idea.style);
+  await setInputValue(page, "#mentorBatchSize", idea.gallons);
+  await setInputValue(page, "#mentorTargetAbv", idea.abv);
+  await setSelectValue(page, "#mentorSweetness", idea.sweetness);
+  await setSelectValue(page, "#mentorCarbonation", idea.carbonation);
+  await setInputValue(page, "#mentorInspiration", idea.inspiration || idea.quickNote);
+  await setInputValue(page, "#mentorVision", idea.vision || idea.tastingNotes);
+
+  console.log("  [Brainstorm] Running mentor (offline → local fallback)...");
+  await page.$eval("#mentorRunBtn", btn => btn.click());
+  // Wait for the run to finish: the button is re-enabled when done.
+  await page.waitForFunction(() => {
+    const btn = document.getElementById("mentorRunBtn");
+    return btn && !btn.disabled;
+  }, { timeout: 20000 });
+  await delay(400);
+
+  const reply = await page.$eval("#mentorCoachReply", el => el.textContent || "").catch(() => "");
+  if (reply.trim().length < 40) {
+    errors.push(`BRAINSTORM: mentor reply too short or missing (${reply.trim().length} chars)`);
+  } else {
+    console.log(`  [Brainstorm] Mentor replied (${reply.trim().length} chars)`);
+  }
+
+  console.log("  [Brainstorm] Applying mentor output to Build...");
+  await page.$eval("#mentorToRecipeBtn", btn => btn.click());
+  await delay(700);
+  await verifyTabActive(page, "recipes");
+
+  const bridged = await page.evaluate(() => ({
+    name: document.getElementById("recipeName")?.value || "",
+    gallons: document.getElementById("recipeBatchGallons")?.value || "",
+    abv: document.getElementById("recipeTargetAbv")?.value || "",
+    notes: document.getElementById("recipeNotes")?.value || ""
+  }));
+  if (bridged.name !== idea.name) errors.push(`BRAINSTORM BRIDGE: recipe name "${bridged.name}" !== concept "${idea.name}"`);
+  if (bridged.gallons !== idea.gallons) errors.push(`BRAINSTORM BRIDGE: gallons "${bridged.gallons}" !== "${idea.gallons}"`);
+  if (bridged.abv !== idea.abv) errors.push(`BRAINSTORM BRIDGE: ABV "${bridged.abv}" !== "${idea.abv}"`);
+  if (!bridged.notes.trim()) errors.push("BRAINSTORM BRIDGE: recipe notes empty after apply");
+  const warnStatus = await page.$eval("#mentorCoachStatus", el => el.textContent || "").catch(() => "");
+  if (/Build fields were not found/i.test(warnStatus)) {
+    errors.push(`BRAINSTORM BRIDGE: missing Build fields — ${warnStatus.trim()}`);
+  }
+  console.log("  [Brainstorm] Concept bridged to Build OK");
+}
+
 async function runPass(context, passNumber, idea) {
   const errors = [];
   const page = await context.newPage();
 
   page.on("pageerror", err => errors.push(`JS ERROR: ${err.message}`));
+  // One page-level dialog policy: accept everything (confirms + alerts).
+  // Scattered once-handlers collide when two alerts fire back-to-back.
+  page.on("dialog", d => d.accept().catch(() => {}));
   page.on("console", msg => {
     if (msg.type() === "error") {
       const text = msg.text();
@@ -216,10 +302,14 @@ async function runPass(context, passNumber, idea) {
     await delay(600);
     await clearAppState(page, passNumber === 1);
 
-    // 2. BUILD TAB — fill recipe
+    // 2. BRAINSTORM TAB — concept → mentor → bridge to Build
+    await runBrainstorm(page, idea, errors);
+
+    // 3. BUILD TAB — refine the bridged recipe with the real numbers
     console.log("  [Build] Filling recipe form...");
     await clickTab(page, "recipes");
     await verifyTabActive(page, "recipes");
+    await resetSourceRows(page);
 
     await setInputValue(page, "#recipeName", idea.name);
     await setSelectValue(page, "#recipeStyle", idea.style);
@@ -285,9 +375,8 @@ async function runPass(context, passNumber, idea) {
     if (!savedRecipes.length) errors.push("SAVE FAILED: No recipes in saved list after save");
     else console.log(`  [Build] Recipe saved — ${savedRecipes.length} recipe(s) in list`);
 
-    // 3. LOAD TO BATCH → auto-navigates to Ferment
+    // 4. LOAD TO BATCH → auto-navigates to Ferment
     console.log("  [Build] Loading draft to batch...");
-    page.once("dialog", d => d.accept());
     await page.$eval("#loadDraftToBatchBtn", btn => btn.click());
     await delay(500);
 
@@ -341,15 +430,10 @@ async function runPass(context, passNumber, idea) {
       console.log("  [Ferment] Trend chart rendered OK");
     }
 
-    // Change batch phase
-    // Phase change may trigger 1-2 alerts (phase transition + structure reminder)
-    const phaseDialogHandler = d => d.accept();
-    page.on("dialog", phaseDialogHandler);
+    // Change batch phase — may trigger 1-2 alerts (handled by the page-level
+    // dialog handler: phase transition reminder + structure-addition reminder)
     await setSelectValue(page, "#batchPhase", "secondary");
-    await delay(500);
-    page.off("dialog", phaseDialogHandler);
-    // May trigger alert about structure additions
-    await delay(300);
+    await delay(800);
 
     // 5. FEED TAB
     console.log("  [Feed] Switching to Feed...");
@@ -459,7 +543,6 @@ async function runPass(context, passNumber, idea) {
       errors.push(`ARCHIVE NAME MISMATCH: expected "${idea.name}", got "${archiveCheck.name}"`);
     } else {
       // Load the first entry back
-      page.once("dialog", d => d.accept());
       await page.$eval('button[data-archive-load]', btn => btn.click());
       await delay(500);
       await verifyTabActive(page, "ferment");

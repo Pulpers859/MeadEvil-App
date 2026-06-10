@@ -595,6 +595,14 @@
     return parseJSON(raw || "null", {}) || {};
   }
 
+  // app.js keeps its own in-memory copy of the main state and persists it on
+  // every edit. If structure additions change here without telling app.js, its
+  // next persist harvests the stale (often empty) list back over ours and the
+  // additions silently vanish. This event lets app.js refresh just that slice.
+  function notifyStructureSync(){
+    try { window.dispatchEvent(new Event("meadevil-structure-sync")); } catch(e) {}
+  }
+
   function saveMergedMain(updateEnhancementFn){
     const enhancement = loadEnhancement();
     if (typeof updateEnhancementFn === "function") updateEnhancementFn(enhancement);
@@ -602,6 +610,7 @@
     const main = getMainState();
     const merged = mergeEnhancementIntoMain(main, enhancement);
     originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(merged));
+    notifyStructureSync();
     return { main: merged, enhancement };
   }
 
@@ -612,6 +621,7 @@
     main.meadevilMentor = clone(enhancement.mentor);
     if (typeof updateMainFn === "function") updateMainFn(main);
     originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(mergeEnhancementIntoMain(main, enhancement)));
+    notifyStructureSync();
   }
 
   function currentEnhancementState(){
@@ -1536,9 +1546,20 @@
 
   function renderAll(){
     const { main, enhancement } = currentEnhancementState();
-    const recipeRows = enhancement.recipeDraft.structureAdditions && enhancement.recipeDraft.structureAdditions.length
+    let recipeRows = enhancement.recipeDraft.structureAdditions && enhancement.recipeDraft.structureAdditions.length
       ? enhancement.recipeDraft.structureAdditions
-      : [defaultAdjunctRow()];
+      : null;
+    if (!recipeRows){
+      // Persist the placeholder row before rendering it. An unsaved placeholder
+      // gets a fresh id every render, so edits typed into it can never bind to
+      // a stored row and are silently dropped.
+      const saved = saveMergedMain((enh) => {
+        if (!Array.isArray(enh.recipeDraft.structureAdditions) || !enh.recipeDraft.structureAdditions.length){
+          enh.recipeDraft.structureAdditions = [defaultAdjunctRow()];
+        }
+      });
+      recipeRows = saved.enhancement.recipeDraft.structureAdditions;
+    }
     renderAdjunctList(recipeRows);
     renderTranscript(enhancement.mentor.conversation);
 
@@ -1596,8 +1617,13 @@
     if (!id || !ADJUNCT_FIELDS.has(field)) return;
     saveMergedMain((enhancement) => {
       const rows = enhancement.recipeDraft.structureAdditions || [defaultAdjunctRow()];
-      const row = rows.find((item) => item.id === id);
-      if (!row) return;
+      let row = rows.find((item) => item.id === id);
+      if (!row){
+        // Self-heal: if the rendered row's id is not in storage (stale render),
+        // adopt it rather than silently dropping the user's edit.
+        row = { ...defaultAdjunctRow(), id };
+        rows.push(row);
+      }
       row[field] = event.target.value;
       enhancement.recipeDraft.structureAdditions = rows.map(normalizeAdjunctRow);
       if ((getMainState().ui || {}).selectedRecipeId){
@@ -2405,17 +2431,37 @@
     });
 
     $("loadDraftToBatchBtn")?.addEventListener("click", () => {
+      // The main app handler can be cancelled at its confirm() prompt. Only
+      // mirror draft structure additions onto the batch if the load actually
+      // happened, otherwise a cancelled load corrupts the active batch plan.
+      const beforeLoadedAt = (((getMainState() || {}).currentBatch || {}).loadedAt) || null;
       pendingContext.fromDraftToBatch = true;
-      saveMergedMain((enh) => { enh.currentBatch.structureAdditions = clone(enh.recipeDraft.structureAdditions); });
-      setTimeout(() => { pendingContext.fromDraftToBatch = false; renderAll(); }, 120);
+      setTimeout(() => {
+        const afterLoadedAt = (((getMainState() || {}).currentBatch || {}).loadedAt) || null;
+        if (afterLoadedAt && afterLoadedAt !== beforeLoadedAt){
+          saveMergedMain((enh) => { enh.currentBatch.structureAdditions = clone(enh.recipeDraft.structureAdditions); });
+        }
+        pendingContext.fromDraftToBatch = false;
+        renderAll();
+      }, 120);
     });
 
     $("saveRecipeBtn")?.addEventListener("click", () => {
+      // The main app silently ignores a save when the draft has no name.
+      // Only record structure additions for a recipe that was actually
+      // touched by this click, or a no-op save overwrites the previously
+      // selected recipe's structure record.
+      const mainBefore = getMainState() || {};
+      const updatedBefore = {};
+      (mainBefore.recipes || []).forEach((recipe) => { updatedBefore[recipe.id] = recipe.updatedAt || ""; });
       setTimeout(() => {
         saveMergedMain((enh) => {
           const main = getMainState();
           const recipeId = (((main || {}).ui || {}).selectedRecipeId) || "";
-          if (recipeId) enh.recipes[recipeId] = { structureAdditions: clone(enh.recipeDraft.structureAdditions) };
+          if (!recipeId) return;
+          const saved = ((main || {}).recipes || []).find((recipe) => recipe.id === recipeId);
+          const changed = saved && saved.updatedAt !== updatedBefore[recipeId];
+          if (changed) enh.recipes[recipeId] = { structureAdditions: clone(enh.recipeDraft.structureAdditions) };
         });
         renderAll();
       }, 80);
@@ -2449,11 +2495,16 @@
     });
 
     $("archiveBatchBtn")?.addEventListener("click", () => {
+      // The main app handler is a no-op when there is no batch to archive.
+      // Only attach structure additions to an archive entry that this click
+      // created, otherwise an older entry's record gets silently overwritten.
+      const beforeMain = getMainState() || {};
+      const beforeTopId = beforeMain.archive && beforeMain.archive[0] && beforeMain.archive[0].id ? beforeMain.archive[0].id : "";
       setTimeout(() => {
         saveMergedMain((enh) => {
           const main = getMainState();
           const archiveId = main.archive && main.archive[0] && main.archive[0].id ? main.archive[0].id : "";
-          if (archiveId) enh.archive[archiveId] = { structureAdditions: clone(enh.currentBatch.structureAdditions || enh.recipeDraft.structureAdditions) };
+          if (archiveId && archiveId !== beforeTopId) enh.archive[archiveId] = { structureAdditions: clone(enh.currentBatch.structureAdditions || enh.recipeDraft.structureAdditions) };
         });
         renderAll();
       }, 120);
