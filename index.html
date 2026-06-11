@@ -16,6 +16,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png" />
   <link rel="stylesheet" href="assets/css/styles.css" />
   <script src="assets/js/mead-logic.js" defer></script>
+  <script src="assets/js/yeast-data.js" defer></script>
   <script src="assets/js/firebase-config-loader.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -188,7 +189,7 @@
                 <div class="field"><label for="recipeDryYeast">Dry yeast (g)</label><input id="recipeDryYeast" type="number" step="0.1" placeholder="Enter actual pitch" /></div>
                 <div class="field"><label for="recipeYeastTolerance">Yeast tolerance (%)</label><input id="recipeYeastTolerance" type="number" step="0.1" placeholder="Auto from yeast" readonly /></div>
                 <div class="field"><label for="recipeTemp">Ferment temp target</label><input id="recipeTemp" placeholder="Auto from yeast" readonly /></div>
-                <div class="field"><label for="recipeNitrogenRequirement">Nitrogen requirement</label><select id="recipeNitrogenRequirement"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+                <div class="field"><label for="recipeNitrogenRequirement">Nitrogen requirement</label><select id="recipeNitrogenRequirement"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="very high">Very High</option></select></div>
                 <div class="field hidden-field" id="recipeYeastOtherWrap"><label for="recipeYeastOther">Custom yeast</label><input id="recipeYeastOther" placeholder="Mangrove Jack M05, RC212, custom isolate…" /></div>
               </div>
               <details class="recipe-extras-fold">
@@ -225,6 +226,7 @@
                   <button class="mini-btn" id="downloadRecipeCsvTemplateBtn" type="button">Sample CSV</button>
                   <button class="mini-btn" id="importRecipeCsvBtn" type="button">Import CSV</button>
                   <button class="mini-btn" id="exportRecipeCsvBtn" type="button">Export CSV</button>
+                  <button class="mini-btn" id="exportBeerJsonBtn" type="button">Export BeerJSON</button>
                   <button class="mini-btn" id="printRecipeCardBtn" type="button">Recipe card</button>
                 </div>
               </div>
@@ -419,6 +421,8 @@
                   <button class="btn btn-primary" id="addLogBtn" type="button">Add reading</button>
                   <button class="mini-btn" id="clearLogsBtn" type="button">Clear log</button>
                   <button class="mini-btn" id="toggleGravityLogBtn" type="button">Show all logs</button>
+                  <button class="mini-btn" id="importGravityCsvBtn" type="button">Import CSV</button>
+                  <input type="file" id="gravityCsvFileInput" accept=".csv,text/csv" hidden />
                 </div>
                 <div class="entry-error" id="logEntryError" hidden></div>
                 <div class="log-list" id="gravityLog"></div>

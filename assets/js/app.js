@@ -22,7 +22,8 @@
     calculateBlend,
     calculateBenchTrial,
     calculateStepFeed,
-    calculateSourceBill
+    calculateSourceBill,
+    calculateStabilizers
   } = MeadLogic;
 
   const $ = (id) => document.getElementById(id);
@@ -39,6 +40,19 @@
     "QA23": { tolerance: "16", temp: "57–82°F", nitrogenRequirement: "low" },
     "EC-1118": { tolerance: "18", temp: "50–86°F", nitrogenRequirement: "low" }
   };
+  // Fold the full strain library (assets/js/yeast-data.js) into the presets.
+  // The four literals above stay as a fallback if that script fails to load.
+  if (Array.isArray(window.MeadYeasts)){
+    window.MeadYeasts.forEach((strain) => {
+      if (!strain || !strain.name) return;
+      YEAST_PRESETS[strain.name] = {
+        tolerance: String(strain.tolerance),
+        temp: `${strain.lowTempF}–${strain.highTempF}°F`,
+        nitrogenRequirement: String(strain.nitrogenRequirement || "medium").toLowerCase(),
+        brand: strain.brand || ""
+      };
+    });
+  }
 
   const SOURCE_PRESETS = {
     "Honey": { ppg: "35", unit: "lb", locked: true },
@@ -1265,6 +1279,72 @@
     return added;
   }
 
+  // Generic hydrometer CSV import (Tilt, iSpindel, Brewfather, RAPT exports).
+  // Finds date + gravity columns by header keywords, normalizes point-style
+  // gravity (1050 -> 1.050) and Celsius temps, then downsamples to one
+  // reading per 6 hours so a 15-minute Tilt log can't bloat localStorage.
+  function parseGravityCsv(text){
+    const rows = parseCsv(text);
+    if (rows.length < 2) return null;
+    const headers = rows[0].map((cell) => String(cell || "").trim().toLowerCase());
+    const findCol = (...patterns) => headers.findIndex((h) => patterns.some((p) => h.includes(p)));
+    const dateCol = findCol("timepoint", "timestamp", "date", "time", "created");
+    const gravityCol = findCol("gravity", "sg");
+    if (dateCol < 0 || gravityCol < 0 || dateCol === gravityCol) return null;
+    const tempCol = findCol("temp");
+    const phCol = headers.findIndex((h) => h === "ph" || h.startsWith("ph"));
+    const tempHeaderCelsius = tempCol >= 0 && /\(c\)|°c|celsius|_c\b/.test(headers[tempCol]);
+
+    const candidates = [];
+    rows.slice(1).forEach((cells) => {
+      const stamp = new Date(String(cells[dateCol] || "").trim());
+      if (Number.isNaN(stamp.getTime())) return;
+      let gravity = Number(cells[gravityCol]);
+      if (gravity > 900 && gravity < 1250) gravity = gravity / 1000;
+      if (!(gravity > 0.95 && gravity < 1.25)) return;
+      const temp = tempCol >= 0 ? Number(cells[tempCol]) : NaN;
+      const pH = phCol >= 0 ? Number(cells[phCol]) : NaN;
+      candidates.push({ stamp, gravity, temp: Number.isFinite(temp) ? temp : null, pH: Number.isFinite(pH) ? pH : null });
+    });
+    if (!candidates.length) return { readings: [] };
+
+    const temps = candidates.map((c) => c.temp).filter((t) => t != null);
+    const tempsAreCelsius = tempHeaderCelsius || (temps.length > 0 && Math.max(...temps) < 45);
+
+    candidates.sort((a, b) => a.stamp - b.stamp);
+    const buckets = new Map();
+    candidates.forEach((c) => buckets.set(Math.floor(c.stamp.getTime() / (6 * 3600 * 1000)), c));
+
+    const readings = [...buckets.values()].map((c) => {
+      const iso = c.stamp.toISOString();
+      const tempF = c.temp == null ? "" : String(round(tempsAreCelsius ? (c.temp * 9 / 5) + 32 : c.temp, 1));
+      const gravity = String(round(c.gravity, 3));
+      return {
+        date: iso.slice(0, 10),
+        gravity,
+        temp: tempF,
+        pH: c.pH == null ? "" : String(c.pH),
+        note: "CSV import",
+        createdAt: iso,
+        source: "csv",
+        sourceId: `csv-${iso.slice(0, 16)}-${gravity}`,
+        telemetryAt: iso
+      };
+    });
+    return { readings };
+  }
+
+  function importGravityCsv(text){
+    const parsed = parseGravityCsv(text);
+    if (!parsed) return { added: 0, error: "Could not find date and gravity columns in that CSV. Expected headers like Date/Timepoint and SG/Gravity." };
+    const added = mergeRaptLogs(parsed.readings);
+    if (added){
+      persistData();
+      renderAll();
+    }
+    return { added, total: parsed.readings.length };
+  }
+
   function latestRateWindow(logs){
     const ordered = sortLogsAscending(logs).filter((entry) => Number.isFinite(Number(entry.gravity)));
     if (ordered.length < 2) return null;
@@ -2268,6 +2348,21 @@
     const lines = [];
     lines.push(`<strong>${escapeHTML(c.finishPath)}</strong>`);
     if (analysis.greenlights.length) lines.push(analysis.greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>"));
+    const stabVolume = Number(c.backsweetenVolume) || Number(c.cellarGallons) || Number(data.currentBatch.batchGallons) || null;
+    const stabOg = fermentationOg();
+    const stabLatestSg = analysis.latest ? Number(analysis.latest.gravity) : null;
+    const measuredAbv = (stabOg && stabLatestSg) ? calcABV(stabOg, stabLatestSg) : null;
+    const stabAbv = measuredAbv || Number(data.currentBatch.estimatedAbv) || Number(data.currentBatch.targetAbv) || null;
+    const stab = calculateStabilizers ? calculateStabilizers({ volumeGallons: stabVolume, abv: stabAbv, ph: c.currentPh }) : null;
+    if (stab){
+      const sorbateBit = stab.sorbateUnnecessary
+        ? `no sorbate needed — at ${round(stab.abv, 1)}% ABV the alcohol already blocks refermentation`
+        : `<strong>${round(stab.sorbateGrams, 1)} g</strong> potassium sorbate`;
+      const phBit = stab.phAssumed
+        ? `pH assumed 3.6 — record the actual pH above to tighten the dose`
+        : `pH ${stab.ph}`;
+      lines.push(`Stabilizer math for ${round(stab.volumeGallons, 2)} gal at ${round(stab.abv, 1)}% ABV (${phBit}): <strong>${round(stab.kmetaGrams, 1)} g</strong> k-meta for ${stab.so2Ppm} ppm free SO₂ (≈ ${round(stab.campdenTablets, 1)} Campden tablets) plus ${sorbateBit}.`);
+    }
     if (analysis.warnings.length) lines.push(`<div style="margin-top:8px">${analysis.warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>`);
     $("cellarSmartSummary").innerHTML = lines.join("<br><br>");
 
@@ -2881,7 +2976,9 @@
       syncRecipeDerived();
       syncNutrientsFromRecipe(data.recipeDraft, { force: true });
       persistData();
+      populateNutrientForm();
       renderRecipes();
+      renderNutrients();
       renderCalcs();
     });
 
@@ -2890,7 +2987,11 @@
       const handler = () => {
         data.recipeDraft[key] = el.value;
         syncRecipeDerived();
-        if (["batchGallons","targetAbv","dryYeast","nitrogenRequirement","yeastTolerance","temp"].includes(key)) syncNutrientsFromRecipe(data.recipeDraft);
+        if (["batchGallons","targetAbv","dryYeast","nitrogenRequirement","yeastTolerance","temp"].includes(key)){
+          syncNutrientsFromRecipe(data.recipeDraft);
+          populateNutrientForm();
+          renderNutrients();
+        }
         persistData();
         renderRecipes();
         renderCalcs();
@@ -3019,6 +3120,25 @@
       data.ui.showAllFermentLogs = !data.ui.showAllFermentLogs;
       persistData();
       renderFerment();
+    });
+    $("importGravityCsvBtn").addEventListener("click", () => $("gravityCsvFileInput").click());
+    $("gravityCsvFileInput").addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      try{
+        const result = importGravityCsv(await file.text());
+        if (result.error){
+          alert(result.error);
+        } else if (result.added){
+          alert(`Imported ${result.added} new reading${result.added === 1 ? "" : "s"} from ${file.name} (downsampled to one per 6 hours).`);
+        } else {
+          alert("No new readings found — everything in that file is already in the log.");
+        }
+      } catch(error){
+        console.error("Gravity CSV import failed", error);
+        alert("That file could not be read as a CSV.");
+      }
+      event.target.value = "";
     });
     $("fermentationTrendSummary").addEventListener("click", (event) => {
       const toggle = event.target.closest("[data-trend-series-toggle]");
@@ -3681,6 +3801,57 @@
     downloadTextFile(`meadevil-recipes-${todayStr()}.csv`, lines.join("\n"), "text/csv");
   }
 
+  function beerJsonFermentableType(sourceType){
+    const normalized = String(sourceType || "").toLowerCase();
+    if (normalized.includes("honey")) return "honey";
+    if (normalized.includes("fruit")) return "fruit";
+    if (normalized.includes("juice")) return "juice";
+    if (normalized.includes("sugar") || normalized.includes("syrup")) return "sugar";
+    return "other";
+  }
+
+  function recipeToBeerJson(recipe){
+    const fermentables = (recipe.additions || [])
+      .filter((row) => row && (String(row.description || "").trim() || Number(row.amount) > 0))
+      .map((row) => ({
+        name: row.description || row.sourceType || "Fermentable",
+        type: beerJsonFermentableType(row.sourceType),
+        amount: {
+          unit: String(row.unit || "lb").toLowerCase() === "kg" ? "kg" : "lb",
+          value: Number(row.amount) || 0
+        }
+      }));
+    const yeastName = displayYeastName(recipe);
+    const out = {
+      name: recipe.name || "Untitled mead",
+      type: "mead",
+      author: "MeadEvil",
+      batch_size: { unit: "gal", value: Number(recipe.batchGallons) || 0 },
+      efficiency: { brewhouse: { unit: "%", value: 100 } },
+      ingredients: {
+        fermentable_additions: fermentables,
+        culture_additions: yeastName ? [{
+          name: yeastName,
+          type: "wine",
+          form: "dry",
+          ...(Number(recipe.yeastTolerance) > 0 ? { alcohol_tolerance: { unit: "%", value: Number(recipe.yeastTolerance) } } : {})
+        }] : []
+      }
+    };
+    if (Number(recipe.targetOg) > 0) out.original_gravity = { unit: "sg", value: Number(recipe.targetOg) };
+    if (Number(recipe.targetFg) > 0) out.final_gravity = { unit: "sg", value: Number(recipe.targetFg) };
+    if (Number(recipe.targetAbv) > 0) out.alcohol_by_volume = { unit: "%", value: Number(recipe.targetAbv) };
+    const notes = [recipe.quickNote, recipe.notes].filter(Boolean).join("\n");
+    if (notes) out.notes = notes;
+    return out;
+  }
+
+  function exportRecipesBeerJson(){
+    const recipes = data.recipes.length ? data.recipes : [data.recipeDraft];
+    const doc = { beerjson: { version: 1, recipes: recipes.map(recipeToBeerJson) } };
+    downloadTextFile(`meadevil-recipes-${todayStr()}.beerjson.json`, JSON.stringify(doc, null, 2), "application/json");
+  }
+
   function importRecipesFromCsv(text){
     const rows = parseCsv(text);
     if (!rows.length) return 0;
@@ -3747,6 +3918,7 @@
   function bindUtilities(){
     $("downloadRecipeCsvTemplateBtn").addEventListener("click", downloadRecipeCsvTemplate);
     $("exportRecipeCsvBtn").addEventListener("click", exportRecipesCsv);
+    $("exportBeerJsonBtn").addEventListener("click", exportRecipesBeerJson);
     $("printRecipeCardBtn").addEventListener("click", printRecipeCard);
     $("importRecipeCsvBtn").addEventListener("click", () => $("recipeCsvFileInput").click());
     $("recipeCsvFileInput").addEventListener("change", async (event) => {
@@ -3816,7 +3988,46 @@
      Application boot
      ========================================================= */
 
+  function populateYeastSelect(){
+    if (!Array.isArray(window.MeadYeasts) || !window.MeadYeasts.length) return;
+    const select = $("recipeYeast");
+    if (!select) return;
+    const groups = new Map();
+    window.MeadYeasts.forEach((strain) => {
+      if (!strain || !strain.name) return;
+      const brand = strain.brand || "Other";
+      if (!groups.has(brand)) groups.set(brand, []);
+      groups.get(brand).push(strain.name);
+    });
+    select.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose yeast";
+    select.appendChild(placeholder);
+    [...groups.keys()].sort((a, b) => a.localeCompare(b)).forEach((brand) => {
+      const group = document.createElement("optgroup");
+      group.label = brand;
+      groups.get(brand).forEach((name) => {
+        const option = document.createElement("option");
+        option.textContent = name;
+        group.appendChild(option);
+      });
+      select.appendChild(group);
+    });
+    const custom = document.createElement("option");
+    custom.textContent = "Other / Custom";
+    select.appendChild(custom);
+    // Saved drafts may reference a strain that predates the library; keep it selectable.
+    const saved = (data.recipeDraft || {}).yeast || "";
+    if (saved && !YEAST_PRESETS[saved] && saved !== "Other / Custom"){
+      const legacy = document.createElement("option");
+      legacy.textContent = saved;
+      select.appendChild(legacy);
+    }
+  }
+
   function boot(){
+    populateYeastSelect();
     populateRecipeForm();
     populateNutrientForm();
     populateCellarForm();

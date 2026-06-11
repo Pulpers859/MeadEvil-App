@@ -121,9 +121,10 @@
   }
 
   function yeastRequirementFactor(level){
-    const normalized = String(level || "medium").toLowerCase();
+    const normalized = String(level || "medium").toLowerCase().replace(/[-_]/g, " ");
     if (normalized === "low") return 0.75;
     if (normalized === "high") return 1.25;
+    if (normalized === "very high" || normalized === "veryhigh") return 1.8;
     return 0.90;
   }
 
@@ -365,6 +366,47 @@
     };
   }
 
+  function freeSo2TargetPpm(ph){
+    const rounded = Math.round(num(ph) * 10) / 10;
+    if (!(rounded > 0)) return 50;
+    if (rounded <= 2.9) return 11;
+    if (rounded === 3.0) return 13;
+    if (rounded === 3.1) return 16;
+    if (rounded === 3.2) return 21;
+    if (rounded === 3.3) return 26;
+    if (rounded === 3.4) return 32;
+    if (rounded === 3.5) return 39;
+    if (rounded === 3.6) return 50;
+    if (rounded === 3.7) return 63;
+    if (rounded === 3.8) return 98;
+    return 123;
+  }
+
+  function calculateStabilizers({ volumeGallons, abv, ph } = {}){
+    const gallons = num(volumeGallons);
+    const abvNum = num(abv);
+    if (!(gallons > 0 && abvNum > 0)) return null;
+    const phAssumed = !(num(ph) > 0);
+    const so2Ppm = freeSo2TargetPpm(phAssumed ? 3.6 : ph);
+    const liters = gallonsToLiters(gallons);
+    // Doses follow the MeadTools open-source stabilizer model (MIT):
+    // sorbate need falls linearly with ABV and is unnecessary at 16%+.
+    const sorbateGrams = Math.max(0, ((-abvNum * 25) + 400) / 0.75) * (liters / 1000);
+    const kmetaGrams = (liters * so2Ppm) / 570;
+    const campdenTablets = (so2Ppm / 75) * gallons;
+    return {
+      volumeGallons: gallons,
+      abv: abvNum,
+      ph: phAssumed ? 3.6 : num(ph),
+      phAssumed,
+      so2Ppm,
+      sorbateGrams,
+      sorbateUnnecessary: abvNum >= 16,
+      kmetaGrams,
+      campdenTablets
+    };
+  }
+
   function poundsFromAmount(amount, unit){
     const n = num(amount);
     if (!(n > 0)) return null;
@@ -428,6 +470,8 @@
     calculateBlend,
     calculateBenchTrial,
     calculateStepFeed,
-    calculateSourceBill
+    calculateSourceBill,
+    freeSo2TargetPpm,
+    calculateStabilizers
   };
 })();

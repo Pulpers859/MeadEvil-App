@@ -8,6 +8,11 @@
  *  5. A no-op archive click must not overwrite an older archive entry's structure record
  *  6. CSV export → import must round-trip recipes losslessly
  *  7. Garbage inputs must be rejected with messages, not crashes
+ * Suites 10–13 pin the MeadTools-derived enhancements:
+ *  10. Yeast strain library autofill + very-high YAN tier
+ *  11. Stabilizer (k-meta / sorbate) dosing in the Finish summary
+ *  12. Hydrometer CSV import (downsample, dedupe, unit normalization)
+ *  13. BeerJSON recipe export
  */
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
@@ -358,6 +363,120 @@ async function testJsonBackupRoundTrip(context) {
   await page.close();
 }
 
+async function testYeastLibrary(context) {
+  console.log("\n[10] Yeast library picker and YAN sync");
+  const page = await freshPage(context);
+  page.on("dialog", d => d.accept().catch(() => {}));
+  await clickTab(page, "recipes");
+  const optionCount = await page.$eval("#recipeYeast", sel => sel.querySelectorAll("option").length);
+  check("yeast select holds the full strain library", optionCount > 100, `${optionCount} options`);
+  await setVal(page, "#recipeYeast", "BA11");
+  await delay(300);
+  const fill = await page.evaluate(() => ({
+    tolerance: document.getElementById("recipeYeastTolerance").value,
+    temp: document.getElementById("recipeTemp").value,
+    nitrogen: document.getElementById("recipeNitrogenRequirement").value,
+    feedDisplay: document.getElementById("nutrientYeastRequirementDisplay").value
+  }));
+  check("library strain autofills tolerance/temp/nitrogen", fill.tolerance === "16" && fill.temp.includes("77") && fill.nitrogen === "high", JSON.stringify(fill));
+  check("Feed tab nitrogen display follows the yeast change", fill.feedDisplay.toLowerCase() === "high", fill.feedDisplay);
+  await setVal(page, "#recipeBatchGallons", "3");
+  await setVal(page, "#recipeTargetAbv", "12");
+  await setVal(page, "#recipeYeast", "Kveik Yeast");
+  await delay(300);
+  const veryHigh = await page.evaluate(() => ({
+    nitrogen: document.getElementById("recipeNitrogenRequirement").value,
+    yan: Number(document.getElementById("nutrientTargetYan").value)
+  }));
+  check("very-high nitrogen tier reaches the YAN math (1.8x)", veryHigh.nitrogen === "very high" && veryHigh.yan > 350, JSON.stringify(veryHigh));
+  const legacyOk = await page.evaluate(() => Boolean(window.MeadLogic) && [...document.querySelectorAll("#recipeYeast option")].some(o => o.value === "71B"));
+  check("legacy preset strains (71B) still selectable", legacyOk);
+  await page.close();
+}
+
+async function testStabilizerMath(context) {
+  console.log("\n[11] Stabilizer dosing in Finish summary");
+  const page = await freshPage(context);
+  page.on("dialog", d => d.accept().catch(() => {}));
+  await buildAndSaveRecipe(page, { name: "Stabilizer Pin" });
+  await page.$eval("#loadDraftToBatchBtn", btn => btn.click());
+  await delay(400);
+  await clickTab(page, "cellar");
+  await setVal(page, "#backsweetenVolume", "3");
+  await setVal(page, "#cellarCurrentPh", "3.4");
+  await delay(300);
+  const summary = await page.$eval("#cellarSmartSummary", el => el.textContent);
+  check("stabilizer line renders with pH-driven SO₂ target", /Stabilizer math/.test(summary) && /32 ppm/.test(summary), summary.slice(0, 160));
+  check("k-meta and sorbate grams present", /g.*k-meta/i.test(summary) && /sorbate/i.test(summary));
+  // The MeadTools model: 3 gal at ~12% ABV, pH 3.4 → ~0.6 g k-meta, ~1.5–1.7 g sorbate
+  const kmeta = Number((summary.match(/([\d.]+)\s*g\s*k-meta/i) || [])[1]);
+  check("k-meta dose in expected range", kmeta > 0.4 && kmeta < 0.9, String(kmeta));
+  await page.close();
+}
+
+async function testGravityCsvImport(context) {
+  console.log("\n[12] Hydrometer CSV import");
+  const page = await freshPage(context);
+  page.on("dialog", d => d.accept().catch(() => {}));
+  await clickTab(page, "ferment");
+  const tiltCsv = [
+    "Timepoint,SG,Temp,Color,Beer",
+    "6/1/2026 8:00,1.102,68.5,PURPLE,Pin",
+    "6/1/2026 10:00,1.101,68.7,PURPLE,Pin",
+    "6/2/2026 8:00,1.080,67.9,PURPLE,Pin"
+  ].join("\n");
+  const tiltPath = "/tmp/regression-tilt.csv";
+  await fs.writeFile(tiltPath, tiltCsv);
+  await page.$eval("#gravityLogCard", el => { el.open = true; });
+  await page.setInputFiles("#gravityCsvFileInput", tiltPath);
+  await delay(600);
+  let logs = (await state(page)).fermentationLogs || [];
+  check("Tilt CSV imports and downsamples same 6h bucket", logs.length === 2, `${logs.length} logs`);
+  await page.setInputFiles("#gravityCsvFileInput", tiltPath);
+  await delay(500);
+  logs = (await state(page)).fermentationLogs || [];
+  check("re-import is a no-op (sourceId dedupe)", logs.length === 2, `${logs.length} logs`);
+  const celsiusCsv = [
+    "timestamp,gravity,temperature (C)",
+    "2026-06-05T08:00:00Z,1048,19.5"
+  ].join("\n");
+  const cPath = "/tmp/regression-ispindel.csv";
+  await fs.writeFile(cPath, celsiusCsv);
+  await page.setInputFiles("#gravityCsvFileInput", cPath);
+  await delay(500);
+  logs = (await state(page)).fermentationLogs || [];
+  const row = logs.find(l => l.date === "2026-06-05");
+  check("points gravity (1048) normalized to SG", row && row.gravity === "1.048", row && row.gravity);
+  check("Celsius temp converted to °F", row && Math.abs(Number(row.temp) - 67.1) < 0.2, row && row.temp);
+  await page.close();
+}
+
+async function testBeerJsonExport(context) {
+  console.log("\n[13] BeerJSON export");
+  const page = await freshPage(context);
+  page.on("dialog", d => d.accept().catch(() => {}));
+  await buildAndSaveRecipe(page, { name: "BeerJSON Pin" });
+  await setVal(page, "#recipeYeast", "71B");
+  await delay(250);
+  await page.$eval("#saveRecipeBtn", btn => btn.click());
+  await delay(300);
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.$eval("#exportBeerJsonBtn", btn => btn.click())
+  ]);
+  const raw = await fs.readFile(await download.path(), "utf8");
+  let doc = null;
+  try { doc = JSON.parse(raw); } catch (e) { /* checked below */ }
+  check("export parses as JSON", Boolean(doc));
+  const recipe = doc?.beerjson?.recipes?.[0];
+  check("beerjson v1 envelope with mead recipe", doc?.beerjson?.version === 1 && recipe?.type === "mead", JSON.stringify({ v: doc?.beerjson?.version, t: recipe?.type }));
+  const honey = recipe?.ingredients?.fermentable_additions?.find(f => f.type === "honey");
+  check("honey fermentable carried with amount", honey && honey.amount?.value === 9, JSON.stringify(honey));
+  const culture = recipe?.ingredients?.culture_additions?.[0];
+  check("yeast culture carried with tolerance", culture?.name === "71B" && culture?.alcohol_tolerance?.value === 14, JSON.stringify(culture));
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -371,6 +490,10 @@ async function main() {
   await testGarbageInputs(context);
   await testAdjunctUiPersistence(context);
   await testJsonBackupRoundTrip(context);
+  await testYeastLibrary(context);
+  await testStabilizerMath(context);
+  await testGravityCsvImport(context);
+  await testBeerJsonExport(context);
 
   await context.close();
   await browser.close();
