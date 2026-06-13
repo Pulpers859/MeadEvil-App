@@ -1,6 +1,6 @@
 ---
 name: meadevil-handoff
-description: Orient Claude Code to the real MeadEvil repo, stale-copy traps, main-only git workflow, and high-risk app hotspots. Use at the start of a MeadEvil task, when preparing a handoff summary, or when a session needs to rebuild the repo's operating rules before editing.
+description: Orient Codex to the real MeadEvil repo, stale-copy traps, main-only git workflow, and high-risk app hotspots. Use at the start of a MeadEvil task, when preparing a handoff summary, or when a session needs to rebuild the repo's operating rules before editing.
 ---
 
 # MeadEvil Handoff
