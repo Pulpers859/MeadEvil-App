@@ -445,6 +445,60 @@
     };
   }
 
+  function calculateFermenterVolumeEstimate({ bottomDiameter, topDiameter, totalHeight, liquidHeight, sedimentHeight = 0 } = {}){
+    const bottomNum = num(bottomDiameter);
+    const topNum = num(topDiameter);
+    const heightNum = num(totalHeight);
+    const liquidNum = num(liquidHeight);
+    const sedimentNum = num(sedimentHeight) ?? 0;
+    if (!(bottomNum > 0 && topNum > 0 && heightNum > 0 && liquidNum > 0)) return null;
+    if (liquidNum > heightNum) return null;
+    if (!(sedimentNum >= 0) || sedimentNum > liquidNum) return null;
+
+    const bottomRadius = bottomNum / 2;
+    const topRadius = topNum / 2;
+    const slope = (topRadius - bottomRadius) / heightNum;
+    const radiusAtHeight = (height) => bottomRadius + (slope * height);
+    const segmentVolume = (height) => {
+      if (!(height > 0)) return 0;
+      const topSegmentRadius = radiusAtHeight(height);
+      return (Math.PI * height / 3) * (
+        (bottomRadius * bottomRadius) +
+        (bottomRadius * topSegmentRadius) +
+        (topSegmentRadius * topSegmentRadius)
+      );
+    };
+    const toGallons = (cubicInches) => cubicInches / 231;
+    const toLiters = (cubicInches) => cubicInches * 0.0163871;
+    const toFluidOunces = (cubicInches) => cubicInches * 0.554113;
+
+    const totalCubicInches = segmentVolume(liquidNum);
+    const sedimentCubicInches = segmentVolume(sedimentNum);
+    const netLiquidCubicInches = Math.max(0, totalCubicInches - sedimentCubicInches);
+    const fillLineRadius = radiusAtHeight(liquidNum);
+
+    return {
+      bottomDiameter: bottomNum,
+      topDiameter: topNum,
+      totalHeight: heightNum,
+      liquidHeight: liquidNum,
+      sedimentHeight: sedimentNum,
+      fillLineDiameter: fillLineRadius * 2,
+      totalCubicInches,
+      sedimentCubicInches,
+      netLiquidCubicInches,
+      totalGallons: toGallons(totalCubicInches),
+      totalLiters: toLiters(totalCubicInches),
+      totalFluidOunces: toFluidOunces(totalCubicInches),
+      sedimentGallons: toGallons(sedimentCubicInches),
+      sedimentLiters: toLiters(sedimentCubicInches),
+      sedimentFluidOunces: toFluidOunces(sedimentCubicInches),
+      netLiquidGallons: toGallons(netLiquidCubicInches),
+      netLiquidLiters: toLiters(netLiquidCubicInches),
+      netLiquidFluidOunces: toFluidOunces(netLiquidCubicInches)
+    };
+  }
+
   window.MeadLogic = {
     num,
     round,
@@ -471,6 +525,7 @@
     calculateBenchTrial,
     calculateStepFeed,
     calculateSourceBill,
+    calculateFermenterVolumeEstimate,
     freeSo2TargetPpm,
     calculateStabilizers
   };

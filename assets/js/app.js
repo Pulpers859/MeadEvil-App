@@ -13,6 +13,7 @@
     estimateHoneyForTargetOG,
     estimateOGFromHoney,
     estimateRecipeTargets,
+    calculateFermenterVolumeEstimate,
     calculateTosna,
     suggestYanPpm,
     calculateAdvancedNutrients,
@@ -945,7 +946,15 @@
       recipeBatch: "",
       recipeAbv: "",
       recipeSweetness: "Dry",
-      recipeTolerance: ""
+      recipeTolerance: "",
+      fermenterProfiles: [],
+      fermenterProfileId: "",
+      fermenterProfileName: "",
+      fermenterBottomDiameter: "",
+      fermenterTopDiameter: "",
+      fermenterTotalHeight: "",
+      fermenterLiquidHeight: "",
+      fermenterSedimentHeight: ""
     };
   }
 
@@ -2489,6 +2498,31 @@
     $("calcTargetRecipeResult").innerHTML = targetRecipe
       ? `For ${escapeHTML(String(data.calcs.recipeBatch))} gal at ${escapeHTML(String(data.calcs.recipeAbv))}% ABV and a ${escapeHTML(data.calcs.recipeSweetness)} finish, start near <strong>${round(targetRecipe.targetOg, 3)}</strong> OG and expect roughly <strong>${round(targetRecipe.honeyLb, 2)} lb</strong> honey.`
       : `Enter batch size and target ABV.`;
+
+    renderFermenterProfileSelect();
+    const updateProfileBtn = $("updateFermenterProfileBtn");
+    const deleteProfileBtn = $("deleteFermenterProfileBtn");
+    const selectedProfile = getSelectedFermenterProfile();
+    if (updateProfileBtn) updateProfileBtn.disabled = !selectedProfile;
+    if (deleteProfileBtn) deleteProfileBtn.disabled = !selectedProfile;
+
+    const fermenter = calculateFermenterVolumeEstimate({
+      bottomDiameter: data.calcs.fermenterBottomDiameter,
+      topDiameter: data.calcs.fermenterTopDiameter,
+      totalHeight: data.calcs.fermenterTotalHeight,
+      liquidHeight: data.calcs.fermenterLiquidHeight,
+      sedimentHeight: data.calcs.fermenterSedimentHeight
+    });
+    const liquidHeight = Number(data.calcs.fermenterLiquidHeight);
+    const totalHeight = Number(data.calcs.fermenterTotalHeight);
+    const sedimentHeight = Number(data.calcs.fermenterSedimentHeight || 0);
+    $("calcFermenterVolumeResult").innerHTML = fermenter
+      ? `${selectedProfile ? `${escapeHTML(selectedProfile.name)}: ` : ""}Fill height estimates <strong>${round(fermenter.totalGallons, 2)} gal</strong> (${round(fermenter.totalLiters, 2)} L / ${round(fermenter.totalFluidOunces, 1)} fl oz) total. Subtracting ${round(fermenter.sedimentHeight, 2)} in of sediment leaves about <strong>${round(fermenter.netLiquidGallons, 2)} gal</strong> (${round(fermenter.netLiquidLiters, 2)} L / ${round(fermenter.netLiquidFluidOunces, 1)} fl oz) of liquid above the cake.`
+      : liquidHeight > 0 && totalHeight > 0 && liquidHeight > totalHeight
+        ? `Liquid height cannot exceed total inside height.`
+        : sedimentHeight > liquidHeight && liquidHeight > 0
+          ? `Sediment height cannot exceed liquid height.`
+          : `Enter fermenter dimensions and liquid height.`;
   }
 
   function mentorKeywordBag(state){
@@ -2844,6 +2878,82 @@
     $("calcRecipeAbv").value = c.recipeAbv || "";
     $("calcRecipeSweetness").value = c.recipeSweetness || "Dry";
     $("calcRecipeTolerance").value = c.recipeTolerance || "";
+    $("calcFermenterProfileName").value = c.fermenterProfileName || "";
+    $("calcFermenterBottomDiameter").value = c.fermenterBottomDiameter || "";
+    $("calcFermenterTopDiameter").value = c.fermenterTopDiameter || "";
+    $("calcFermenterTotalHeight").value = c.fermenterTotalHeight || "";
+    $("calcFermenterLiquidHeight").value = c.fermenterLiquidHeight || "";
+    $("calcFermenterSedimentHeight").value = c.fermenterSedimentHeight || "";
+    renderFermenterProfileSelect();
+  }
+
+  function getFermenterProfiles(){
+    const raw = Array.isArray(data.calcs.fermenterProfiles) ? data.calcs.fermenterProfiles : [];
+    return raw
+      .map((profile, index) => ({
+        id: profile && profile.id ? String(profile.id) : `fermenter-${index}`,
+        name: String((profile && profile.name) || "").trim(),
+        bottomDiameter: profile && profile.bottomDiameter != null ? String(profile.bottomDiameter) : "",
+        topDiameter: profile && profile.topDiameter != null ? String(profile.topDiameter) : "",
+        totalHeight: profile && profile.totalHeight != null ? String(profile.totalHeight) : ""
+      }))
+      .filter((profile) => profile.name);
+  }
+
+  function getSelectedFermenterProfile(){
+    const selectedId = String(data.calcs.fermenterProfileId || "");
+    if (!selectedId) return null;
+    return getFermenterProfiles().find((profile) => profile.id === selectedId) || null;
+  }
+
+  function renderFermenterProfileSelect(){
+    const select = $("calcFermenterProfileSelect");
+    if (!select) return;
+    const profiles = getFermenterProfiles().slice().sort((a, b) => a.name.localeCompare(b.name));
+    const currentValue = String(data.calcs.fermenterProfileId || "");
+    select.innerHTML = "";
+    const custom = document.createElement("option");
+    custom.value = "";
+    custom.textContent = "Custom / unsaved";
+    select.appendChild(custom);
+    profiles.forEach((profile) => {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.name;
+      select.appendChild(option);
+    });
+    select.value = profiles.some((profile) => profile.id === currentValue) ? currentValue : "";
+  }
+
+  function currentFermenterProfileDraft(){
+    return {
+      name: String(data.calcs.fermenterProfileName || "").trim(),
+      bottomDiameter: String(data.calcs.fermenterBottomDiameter || "").trim(),
+      topDiameter: String(data.calcs.fermenterTopDiameter || "").trim(),
+      totalHeight: String(data.calcs.fermenterTotalHeight || "").trim()
+    };
+  }
+
+  function validateFermenterProfileDraft(profile){
+    if (!profile.name) return "Enter a fermenter profile name.";
+    const estimate = calculateFermenterVolumeEstimate({
+      bottomDiameter: profile.bottomDiameter,
+      topDiameter: profile.topDiameter,
+      totalHeight: profile.totalHeight,
+      liquidHeight: profile.totalHeight,
+      sedimentHeight: 0
+    });
+    if (!estimate) return "Enter valid positive inside dimensions for the fermenter profile.";
+    return "";
+  }
+
+  function applyFermenterProfile(profile){
+    if (!profile) return;
+    data.calcs.fermenterProfileId = profile.id;
+    data.calcs.fermenterProfileName = profile.name;
+    data.calcs.fermenterBottomDiameter = profile.bottomDiameter;
+    data.calcs.fermenterTopDiameter = profile.topDiameter;
+    data.calcs.fermenterTotalHeight = profile.totalHeight;
   }
 
   function populateMentorForm(){
@@ -3576,7 +3686,13 @@
       calcRecipeBatch: "recipeBatch",
       calcRecipeAbv: "recipeAbv",
       calcRecipeSweetness: "recipeSweetness",
-      calcRecipeTolerance: "recipeTolerance"
+      calcRecipeTolerance: "recipeTolerance",
+      calcFermenterProfileName: "fermenterProfileName",
+      calcFermenterBottomDiameter: "fermenterBottomDiameter",
+      calcFermenterTopDiameter: "fermenterTopDiameter",
+      calcFermenterTotalHeight: "fermenterTotalHeight",
+      calcFermenterLiquidHeight: "fermenterLiquidHeight",
+      calcFermenterSedimentHeight: "fermenterSedimentHeight"
     };
     Object.entries(mapping).forEach(([id, key]) => {
       const el = $(id);
@@ -3587,6 +3703,78 @@
       };
       el.addEventListener("input", handler);
       el.addEventListener("change", handler);
+    });
+
+    $("calcFermenterProfileSelect").addEventListener("change", (event) => {
+      const selectedId = String(event.target.value || "");
+      data.calcs.fermenterProfileId = selectedId;
+      if (selectedId){
+        const profile = getFermenterProfiles().find((item) => item.id === selectedId);
+        if (profile) applyFermenterProfile(profile);
+      }
+      populateCalcForm();
+      persistData();
+      renderCalcs();
+    });
+
+    $("saveFermenterProfileBtn").addEventListener("click", () => {
+      const draft = currentFermenterProfileDraft();
+      const error = validateFermenterProfileDraft(draft);
+      if (error){
+        alert(error);
+        return;
+      }
+      const existingName = getFermenterProfiles().find((profile) => profile.name.toLowerCase() === draft.name.toLowerCase());
+      if (existingName){
+        alert(`A fermenter profile named "${draft.name}" already exists. Use Update selected instead or choose a different name.`);
+        return;
+      }
+      const nextProfile = { id: makeId("fermenter"), ...draft };
+      data.calcs.fermenterProfiles = [...getFermenterProfiles(), nextProfile];
+      applyFermenterProfile(nextProfile);
+      populateCalcForm();
+      persistData();
+      renderCalcs();
+    });
+
+    $("updateFermenterProfileBtn").addEventListener("click", () => {
+      const selected = getSelectedFermenterProfile();
+      if (!selected){
+        alert("Select a saved fermenter profile to update.");
+        return;
+      }
+      const draft = currentFermenterProfileDraft();
+      const error = validateFermenterProfileDraft(draft);
+      if (error){
+        alert(error);
+        return;
+      }
+      const profiles = getFermenterProfiles();
+      const conflicting = profiles.find((profile) => profile.id !== selected.id && profile.name.toLowerCase() === draft.name.toLowerCase());
+      if (conflicting){
+        alert(`A fermenter profile named "${draft.name}" already exists. Choose a different name before updating.`);
+        return;
+      }
+      const updated = { id: selected.id, ...draft };
+      data.calcs.fermenterProfiles = profiles.map((profile) => profile.id === selected.id ? updated : profile);
+      applyFermenterProfile(updated);
+      populateCalcForm();
+      persistData();
+      renderCalcs();
+    });
+
+    $("deleteFermenterProfileBtn").addEventListener("click", () => {
+      const selected = getSelectedFermenterProfile();
+      if (!selected){
+        alert("Select a saved fermenter profile to delete.");
+        return;
+      }
+      if (!confirm(`Delete fermenter profile "${selected.name}"? This cannot be undone.`)) return;
+      data.calcs.fermenterProfiles = getFermenterProfiles().filter((profile) => profile.id !== selected.id);
+      data.calcs.fermenterProfileId = "";
+      populateCalcForm();
+      persistData();
+      renderCalcs();
     });
   }
 

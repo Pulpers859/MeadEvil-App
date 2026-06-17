@@ -310,6 +310,35 @@
                     </div>
                     <div class="result" id="calcTargetRecipeResult"></div>
                   </div>
+                  <div class="calc-cell calc-span-2">
+                    <div class="calc-label">Fermenter volume estimate</div>
+                    <div class="form-grid-3">
+                      <div class="field">
+                        <label for="calcFermenterProfileSelect">Saved fermenter</label>
+                        <select id="calcFermenterProfileSelect"></select>
+                      </div>
+                      <div class="field">
+                        <label for="calcFermenterProfileName">Profile name</label>
+                        <input id="calcFermenterProfileName" type="text" placeholder="2 gal bottling bucket" />
+                      </div>
+                      <div class="field">
+                        <label for="calcFermenterSedimentHeight">Sediment / cake height (in)</label>
+                        <input id="calcFermenterSedimentHeight" type="number" step="0.1" min="0" />
+                      </div>
+                    </div>
+                    <div class="form-grid-4">
+                      <div class="field"><label for="calcFermenterBottomDiameter">Bottom inside diameter (in)</label><input id="calcFermenterBottomDiameter" type="number" step="0.01" min="0" /></div>
+                      <div class="field"><label for="calcFermenterTopDiameter">Top inside diameter (in)</label><input id="calcFermenterTopDiameter" type="number" step="0.01" min="0" /></div>
+                      <div class="field"><label for="calcFermenterTotalHeight">Total inside height (in)</label><input id="calcFermenterTotalHeight" type="number" step="0.01" min="0" /></div>
+                      <div class="field"><label for="calcFermenterLiquidHeight">Liquid height (in)</label><input id="calcFermenterLiquidHeight" type="number" step="0.01" min="0" /></div>
+                    </div>
+                    <div class="tag-row">
+                      <button class="mini-btn" id="saveFermenterProfileBtn" type="button">Save as new</button>
+                      <button class="mini-btn" id="updateFermenterProfileBtn" type="button">Update selected</button>
+                      <button class="mini-btn utility-danger" id="deleteFermenterProfileBtn" type="button">Delete selected</button>
+                    </div>
+                    <div class="result" id="calcFermenterVolumeResult"></div>
+                  </div>
                 </div>
               </div>
             </details>

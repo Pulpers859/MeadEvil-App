@@ -200,6 +200,10 @@
     const primary = preferCloud ? cloud : local;
     const secondary = preferCloud ? local : cloud;
     const merged = { ...clone(secondary), ...clone(primary) };
+    merged.calcs = {
+      ...clone((secondary || {}).calcs || {}),
+      ...clone((primary || {}).calcs || {})
+    };
 
     merged.fermentationLogs = mergeFermentationLogs(local, cloud);
     merged.recipes = mergeByKey(
