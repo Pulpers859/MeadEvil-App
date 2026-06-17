@@ -2516,13 +2516,39 @@
     const liquidHeight = Number(data.calcs.fermenterLiquidHeight);
     const totalHeight = Number(data.calcs.fermenterTotalHeight);
     const sedimentHeight = Number(data.calcs.fermenterSedimentHeight || 0);
+    const fermenterName = String((selectedProfile && selectedProfile.name) || data.calcs.fermenterProfileName || "Custom vessel").trim() || "Custom vessel";
     $("calcFermenterVolumeResult").innerHTML = fermenter
-      ? `${selectedProfile ? `${escapeHTML(selectedProfile.name)}: ` : ""}Fill height estimates <strong>${round(fermenter.totalGallons, 2)} gal</strong> (${round(fermenter.totalLiters, 2)} L / ${round(fermenter.totalFluidOunces, 1)} fl oz) total. Subtracting ${round(fermenter.sedimentHeight, 2)} in of sediment leaves about <strong>${round(fermenter.netLiquidGallons, 2)} gal</strong> (${round(fermenter.netLiquidLiters, 2)} L / ${round(fermenter.netLiquidFluidOunces, 1)} fl oz) of liquid above the cake.`
+      ? `<div class="calc-fermenter-readout">
+          <div class="calc-fermenter-topline">
+            <div class="calc-fermenter-eyebrow">Live vessel estimate</div>
+            <div class="calc-fermenter-profile-pill">${escapeHTML(fermenterName)}</div>
+          </div>
+          <div class="calc-fermenter-summary">
+            At a <strong>${round(fermenter.liquidHeight, 2)} in</strong> fill line, this vessel holds about <strong>${round(fermenter.totalGallons, 2)} gal</strong> total. Removing <strong>${round(fermenter.sedimentHeight, 2)} in</strong> of settled cake leaves about <strong>${round(fermenter.netLiquidGallons, 2)} gal</strong> of liquid above the layer.
+          </div>
+          <div class="calc-fermenter-stat-grid">
+            <div class="calc-fermenter-stat">
+              <div class="calc-fermenter-stat-label">At Fill Line</div>
+              <div class="calc-fermenter-stat-value">${round(fermenter.totalGallons, 2)} gal</div>
+              <div class="calc-fermenter-stat-meta">${round(fermenter.totalLiters, 2)} L · ${round(fermenter.totalFluidOunces, 1)} fl oz</div>
+            </div>
+            <div class="calc-fermenter-stat">
+              <div class="calc-fermenter-stat-label">Above Cake</div>
+              <div class="calc-fermenter-stat-value">${round(fermenter.netLiquidGallons, 2)} gal</div>
+              <div class="calc-fermenter-stat-meta">${round(fermenter.netLiquidLiters, 2)} L · ${round(fermenter.netLiquidFluidOunces, 1)} fl oz</div>
+            </div>
+            <div class="calc-fermenter-stat">
+              <div class="calc-fermenter-stat-label">Excluded Layer</div>
+              <div class="calc-fermenter-stat-value">${round(fermenter.sedimentGallons, 2)} gal</div>
+              <div class="calc-fermenter-stat-meta">${round(fermenter.sedimentHeight, 2)} in cake depth · fill diameter ${round(fermenter.fillLineDiameter, 2)} in</div>
+            </div>
+          </div>
+        </div>`
       : liquidHeight > 0 && totalHeight > 0 && liquidHeight > totalHeight
-        ? `Liquid height cannot exceed total inside height.`
+        ? `<div class="calc-fermenter-empty error"><strong>Liquid height is past the vessel height.</strong> Reduce the fill-line measurement or correct the fermenter dimensions.</div>`
         : sedimentHeight > liquidHeight && liquidHeight > 0
-          ? `Sediment height cannot exceed liquid height.`
-          : `Enter fermenter dimensions and liquid height.`;
+          ? `<div class="calc-fermenter-empty error"><strong>Sediment height is larger than the fill line.</strong> The excluded layer must stay at or below the liquid height.</div>`
+          : `<div class="calc-fermenter-empty"><strong>Start with a vessel and a fill line.</strong> Save a fermenter profile or enter its dimensions, then add the current liquid and cake heights.</div>`;
   }
 
   function mentorKeywordBag(state){

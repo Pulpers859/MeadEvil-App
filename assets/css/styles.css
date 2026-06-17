@@ -478,16 +478,228 @@ option{background:#140e1a;color:var(--cream)}
 }
 
 /* ─── Quick math (inside Build) ─── */
+.calc-stack{
+  display:grid;
+  gap:var(--sp-lg);
+}
+.calc-cluster{
+  display:grid;
+  gap:var(--sp-md);
+  padding:var(--sp-md);
+  border-radius:calc(var(--radius-xl) - 4px);
+  background:
+    radial-gradient(circle at top right, rgba(186,59,102,.12), transparent 34%),
+    linear-gradient(180deg, rgba(24,16,33,.96), rgba(13,10,19,.98));
+  border:1px solid rgba(244,230,208,.08);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 20px 36px rgba(0,0,0,.16);
+}
+.calc-cluster-head{
+  display:grid;
+  gap:6px;
+}
+.calc-cluster-kicker{
+  font-size:.72rem;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  font-weight:800;
+  color:#ffb58d;
+}
+.calc-cluster-head h3{
+  margin:0;
+  font-family:"Bebas Neue",sans-serif;
+  font-size:1.5rem;
+  font-weight:400;
+  letter-spacing:.05em;
+  color:var(--cream);
+}
+.calc-cluster-head p{
+  margin:0;
+  color:var(--cream-dim);
+  line-height:1.5;
+  max-width:64ch;
+}
 .calc-cell{
   display:grid;
   gap:var(--sp-sm);
 }
+.calc-tool{
+  padding:var(--sp-md);
+  border-radius:var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgba(22,16,30,.98), rgba(12,9,18,.98));
+  border:1px solid rgba(244,230,208,.06);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.02);
+}
+.calc-tool-head{
+  display:grid;
+  gap:6px;
+}
+.calc-tool-title{
+  margin:0;
+  font-size:1.04rem;
+  color:var(--cream);
+}
+.calc-tool-copy{
+  margin:0;
+  color:var(--cream-dim);
+  font-size:.88rem;
+  line-height:1.5;
+}
 .calc-label{
   font-size:.82rem;
   font-weight:800;
-  color:var(--cream);
+  color:var(--cream-2);
   text-transform:uppercase;
-  letter-spacing:.04em;
+  letter-spacing:.08em;
+}
+.calc-result{
+  min-height:68px;
+  display:grid;
+  align-content:center;
+  line-height:1.45;
+}
+.calc-fermenter-layout{
+  display:grid;
+  grid-template-columns:minmax(0,1.4fr) minmax(280px,.9fr);
+  gap:var(--sp-md);
+}
+.calc-fermenter-panel{
+  gap:var(--sp-md);
+}
+.calc-step-badge{
+  width:36px;
+  height:36px;
+  border-radius:999px;
+  display:grid;
+  place-items:center;
+  font-size:.82rem;
+  font-weight:900;
+  color:#fff3e8;
+  background:linear-gradient(180deg, rgba(255,179,120,.22), rgba(186,59,102,.28));
+  border:1px solid rgba(255,215,179,.18);
+  box-shadow:0 10px 20px rgba(163,38,73,.18);
+}
+.calc-fermenter-panel .calc-tool-head{
+  grid-template-columns:auto 1fr;
+  align-items:start;
+  gap:var(--sp-md);
+}
+.calc-action-row{
+  margin-top:2px;
+}
+.calc-fermenter-band{
+  display:grid;
+  gap:4px;
+  padding:12px 14px;
+  border-radius:var(--radius-md);
+  background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+  border:1px solid rgba(244,230,208,.07);
+}
+.calc-band-title{
+  font-size:.74rem;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-weight:800;
+  color:#ffcc9f;
+}
+.calc-band-copy{
+  color:var(--cream-2);
+  line-height:1.45;
+}
+.calc-fermenter-result{
+  padding:0;
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  min-height:0;
+}
+.calc-fermenter-readout{
+  display:grid;
+  gap:var(--sp-md);
+  padding:var(--sp-md);
+  border-radius:var(--radius-lg);
+  background:
+    radial-gradient(circle at top right, rgba(255,179,120,.12), transparent 32%),
+    linear-gradient(180deg, rgba(33,22,42,.98), rgba(17,11,23,.98));
+  border:1px solid rgba(255,191,145,.12);
+  box-shadow:0 18px 30px rgba(0,0,0,.18);
+}
+.calc-fermenter-topline{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  justify-content:space-between;
+}
+.calc-fermenter-eyebrow{
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-weight:800;
+  color:#ffcc9f;
+}
+.calc-fermenter-profile-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(244,230,208,.08);
+  color:var(--cream);
+  font-size:.8rem;
+  font-weight:700;
+}
+.calc-fermenter-summary{
+  color:var(--cream);
+  font-size:1rem;
+  line-height:1.5;
+}
+.calc-fermenter-stat-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:var(--sp-sm);
+}
+.calc-fermenter-stat{
+  padding:12px;
+  border-radius:var(--radius-md);
+  background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+  border:1px solid rgba(244,230,208,.08);
+  display:grid;
+  gap:6px;
+}
+.calc-fermenter-stat-label{
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-weight:800;
+  color:var(--cream-dim);
+}
+.calc-fermenter-stat-value{
+  color:var(--cream);
+  font-size:1.02rem;
+  font-weight:800;
+}
+.calc-fermenter-stat-meta{
+  color:var(--cream-dim);
+  font-size:.8rem;
+  line-height:1.4;
+}
+.calc-fermenter-empty{
+  padding:var(--sp-md);
+  border-radius:var(--radius-lg);
+  color:var(--cream-dim);
+  background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+  border:1px dashed rgba(244,230,208,.12);
+}
+.calc-fermenter-empty strong{
+  color:var(--cream);
+}
+.calc-fermenter-empty.error{
+  color:#ffd2dd;
+  border-style:solid;
+  border-color:rgba(255,155,184,.28);
+  background:linear-gradient(180deg, rgba(163,38,73,.16), rgba(37,14,24,.35));
 }
 
 /* ─── Mentor / Brainstorm ─── */
@@ -760,7 +972,7 @@ option{background:#140e1a;color:var(--cream)}
 
 /* ─── Responsive ─── */
 @media (max-width: 980px){
-  .grid-2,.calc-grid,.form-grid-2,.form-grid-3,.form-grid-4,.span-2,.calc-span-2{grid-template-columns:1fr;grid-column:auto}
+  .grid-2,.calc-grid,.form-grid-2,.form-grid-3,.form-grid-4,.span-2,.calc-span-2,.calc-fermenter-layout,.calc-fermenter-stat-grid{grid-template-columns:1fr;grid-column:auto}
   .header-top-row{flex-wrap:wrap}
   .compact-search{max-width:none;width:100%}
 }
@@ -790,6 +1002,11 @@ option{background:#140e1a;color:var(--cream)}
   .card{border-radius:var(--radius-lg);padding:var(--sp-md)}
   .accord-summary{padding:var(--sp-md);min-height:44px}
   .accord-body{padding:0 var(--sp-md) var(--sp-md)}
+  .calc-cluster{padding:var(--sp-md)}
+  .calc-tool{padding:var(--sp-md)}
+  .calc-cluster-head h3{font-size:1.28rem}
+  .calc-tool-copy,.calc-cluster-head p{font-size:.84rem}
+  .calc-fermenter-topline{align-items:flex-start}
   input,textarea,select{font-size:16px;padding:12px}
   .btn,.mini-btn{min-height:44px}
   .mini-btn{padding:0 12px}
