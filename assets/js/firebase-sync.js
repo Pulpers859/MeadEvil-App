@@ -350,7 +350,11 @@
       const localHtmlMessage = "Missing Firebase config. Copy config/firebase/meadevil-firebase-config.example.js to config/firebase/meadevil-firebase-config.local.js for local HTML use.";
       const genericMessage = "No Firebase config found. Staying local-only.";
       const message = window.location.protocol === "file:" ? localHtmlMessage : genericMessage;
-      warn(message);
+      if (window.location.protocol === "file:") {
+        warn(message);
+      } else {
+        console.info(`[Meadevil Firebase Sync] ${message}`);
+      }
       setStatus({ enabled: false, mode: "local", lastError: message });
       return;
     }

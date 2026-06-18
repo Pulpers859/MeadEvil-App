@@ -372,9 +372,21 @@ option{background:#140e1a;color:var(--cream)}
 .checkbox-field{display:flex;align-items:flex-end}
 .switch{display:inline-flex;align-items:center;gap:8px;color:var(--cream);font-weight:700}
 .switch input{width:18px;height:18px;accent-color:var(--purple)}
+#tab-cellar .finish-wide{grid-column:span 2}
+#tab-cellar .work-card.accent-soft > .form-grid-3{grid-template-columns:repeat(4,minmax(0,1fr))}
 
 .notes-box{padding:var(--sp-md);border-radius:var(--radius-md);color:var(--cream-2);background:linear-gradient(180deg, rgba(10,8,15,.54), rgba(10,8,15,.25));border:1px solid rgba(244,230,208,.055)}
 .result{padding:var(--sp-md);border-radius:var(--radius-lg);color:var(--cream);font-weight:700;background:linear-gradient(180deg, rgba(107,59,164,.10), rgba(163,38,73,.08))}
+.cellar-status{display:grid;gap:10px}
+.cellar-status-head,.cellar-status-check{display:flex;justify-content:space-between;gap:var(--sp-md);align-items:flex-start}
+.cellar-status-head span{color:var(--cream);font-size:1.03rem}
+.cellar-status-head strong,.cellar-status-check strong{flex:0 0 auto;color:var(--cream)}
+.cellar-status.warn .cellar-status-head strong,.cellar-status-check strong{color:#ffcc9f}
+.cellar-status.good .cellar-status-head strong,.cellar-status-check.good strong{color:var(--toxic)}
+.cellar-status-line,.cellar-status-check span,.cellar-status-more{color:var(--cream-2);font-weight:650;line-height:1.4}
+.cellar-status-check{padding-top:10px;border-top:1px solid rgba(244,230,208,.08)}
+.cellar-status-more summary{cursor:pointer;color:var(--cream-dim);font-size:.86rem;font-weight:800}
+.cellar-status-more div{margin-top:8px;color:var(--cream-dim);font-weight:650;line-height:1.38}
 .batch-summary-card{padding:var(--sp-md);border-radius:var(--radius-lg);color:var(--cream-2);display:grid;gap:var(--sp-sm);background:linear-gradient(180deg, rgba(13,10,19,.76), rgba(13,10,19,.46))}
 .info-rows{display:grid;gap:var(--sp-sm)}
 .info-row{display:grid;grid-template-columns:minmax(120px,150px) 1fr;gap:var(--sp-md);padding-bottom:var(--sp-sm);border-bottom:1px solid rgba(244,230,208,.06)}

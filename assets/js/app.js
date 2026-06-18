@@ -1485,6 +1485,15 @@
         if (!response.ok){
           throw new Error(String(payload.error || `Bridge returned ${response.status}`));
         }
+        if (payload.configured === false){
+          data.rapt.lastFetchedAt = new Date().toISOString();
+          data.rapt.lastImportCount = 0;
+          data.rapt.lastStatus = "RAPT bridge not configured";
+          data.rapt.lastError = "";
+          persistData();
+          renderFerment();
+          return { added: 0, total: 0, configured: false };
+        }
 
         const incoming = Array.isArray(payload.readings) ? payload.readings.map(normalizeRaptReading).filter(Boolean) : [];
         incoming.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -1565,24 +1574,24 @@
     const warnings = [];
     const greenlights = [];
     if (!gateReady){
-      warnings.push("Do not treat stabilization as a substitute for finishing fermentation. Get two stable SG readings at least a week apart first.");
+      warnings.push("Need two stable SG readings at least a week apart before stabilization.");
     } else {
       greenlights.push(`Gravity looks stable across ${spacingDays} day${spacingDays === 1 ? "" : "s"}.`);
     }
     if (backsweeteningPlanned && (!c.kmetaAmount || !c.sorbateAmount)){
-      warnings.push("You are planning a sweeter finish but have not recorded both potassium metabisulfite and potassium sorbate yet.");
+      warnings.push("Record both k-meta and sorbate before backsweetening.");
     }
     if (c.finishPath === "Bottle-conditioned" && (backsweeteningPlanned || c.kmetaAmount || c.sorbateAmount)){
-      warnings.push("Bottle-conditioning does not play nicely with a chemically stabilized backsweetened finish. Pick one path deliberately.");
+      warnings.push("Bottle-conditioning conflicts with a stabilized backsweetened finish.");
     }
     if ((c.kmetaAmount || c.sorbateAmount) && !gateReady){
-      warnings.push("Chemical additions recorded before the stability gate is truly cleared. Make sure this was intentional and not an attempt to stop an active ferment.");
+      warnings.push("Chemical additions are recorded before the stability gate is clear.");
     }
     if (c.additions.some((row) => row.amount && !row.notes)){
-      warnings.push("At least one post-fermentation addition has no note about why it was used. That makes future batches harder to learn from.");
+      warnings.push("One post-fermentation addition is missing a note.");
     }
     if (Number(c.backsweetenTargetSg) > Number(c.backsweetenCurrentSg || 0) && !c.benchAddition){
-      warnings.push("You are planning a sweeter finish without a bench trial sample logged yet.");
+      warnings.push("Run a bench trial before scaling a sweeter finish.");
     }
     if (c.currentPh) greenlights.push(`Current pH recorded at ${c.currentPh}. Re-check after any significant sweetening or acid shift.`);
     if (c.finishPath === "Oak / spice aging") greenlights.push("Oak / spice aging selected. Bench trials matter even more here than in fruit-forward batches.");
@@ -2367,9 +2376,11 @@
     `).join("");
 
     const analysis = cellarAnalysis();
-    const lines = [];
-    lines.push(`<strong>${escapeHTML(c.finishPath)}</strong>`);
-    if (analysis.greenlights.length) lines.push(analysis.greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>"));
+    const statusLabel = analysis.gateReady ? "Gate clear" : "Gate waiting";
+    const statusClass = analysis.gateReady ? "good" : "warn";
+    const greenlightHtml = analysis.greenlights.length
+      ? `<div class="cellar-status-line">${analysis.greenlights.map(escapeHTML).join("</div><div class=\"cellar-status-line\">")}</div>`
+      : "";
     const stabVolume = Number(c.backsweetenVolume) || Number(c.cellarGallons) || Number(data.currentBatch.batchGallons) || null;
     const stabOg = fermentationOg();
     const stabLatestSg = analysis.latest ? Number(analysis.latest.gravity) : null;
@@ -2383,10 +2394,29 @@
       const phBit = stab.phAssumed
         ? `pH assumed 3.6 — record the actual pH above to tighten the dose`
         : `pH ${stab.ph}`;
-      lines.push(`Stabilizer math for ${round(stab.volumeGallons, 2)} gal at ${round(stab.abv, 1)}% ABV (${phBit}): <strong>${round(stab.kmetaGrams, 1)} g</strong> k-meta for ${stab.so2Ppm} ppm free SO₂ (≈ ${round(stab.campdenTablets, 1)} Campden tablets) plus ${sorbateBit}.`);
     }
-    if (analysis.warnings.length) lines.push(`<div style="margin-top:8px">${analysis.warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>`);
-    $("cellarSmartSummary").innerHTML = lines.join("<br><br>");
+    const stabilizerHtml = stab
+      ? `<div class="cellar-status-line">Dose ${round(stab.volumeGallons, 2)} gal at ${round(stab.abv, 1)}% ABV: <strong>${round(stab.kmetaGrams, 1)} g</strong> k-meta for ${stab.so2Ppm} ppm free SO2 plus ${sorbateBit}. <span>${phBit}.</span></div>`
+      : "";
+    const [primaryWarning, ...extraWarnings] = analysis.warnings;
+    const warningHtml = primaryWarning
+      ? `<div class="cellar-status-check"><strong>Check</strong><span>${escapeHTML(primaryWarning)}</span></div>`
+      : `<div class="cellar-status-check good"><strong>Ready</strong><span>Stability gate and finish path are internally consistent.</span></div>`;
+    const extraWarningHtml = extraWarnings.length
+      ? `<details class="cellar-status-more"><summary>${extraWarnings.length} more finish check${extraWarnings.length === 1 ? "" : "s"}</summary>${extraWarnings.map((line) => `<div>${escapeHTML(line)}</div>`).join("")}</details>`
+      : "";
+    $("cellarSmartSummary").innerHTML = `
+      <div class="cellar-status ${statusClass}">
+        <div class="cellar-status-head">
+          <span>${escapeHTML(c.finishPath)}</span>
+          <strong>${statusLabel}</strong>
+        </div>
+        ${greenlightHtml}
+        ${stabilizerHtml}
+        ${warningHtml}
+        ${extraWarningHtml}
+      </div>
+    `;
 
     const additionCount = c.additions.filter((row) => row.amount || row.notes).length;
     const structureCount = Array.isArray(data.currentBatch.structureAdditions) ? data.currentBatch.structureAdditions.filter((row) => row && String(row.ingredient || "").trim()).length : 0;

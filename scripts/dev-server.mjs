@@ -24,6 +24,7 @@ const CONTENT_TYPES = {
 async function main() {
   const mentorModule = await import(pathToFileURL(path.join(rootDir, "netlify", "functions", "meadevil-mentor.mjs")).href);
   const firebaseModule = await import(pathToFileURL(path.join(rootDir, "netlify", "functions", "firebase-config.mjs")).href);
+  const raptModule = await import(pathToFileURL(path.join(rootDir, "netlify", "functions", "rapt-bridge.mjs")).href);
 
   const server = createServer(async (req, res) => {
     try {
@@ -41,6 +42,11 @@ async function main() {
 
       if (requestUrl.pathname === "/.netlify/functions/firebase-config") {
         await handleFunction(req, res, firebaseModule.handler, requestUrl);
+        return;
+      }
+
+      if (requestUrl.pathname === "/.netlify/functions/rapt-bridge") {
+        await handleFunction(req, res, raptModule.handler, requestUrl);
         return;
       }
 
@@ -63,6 +69,7 @@ async function main() {
     console.log("Functions mounted:");
     console.log("  /.netlify/functions/meadevil-mentor");
     console.log("  /.netlify/functions/firebase-config");
+    console.log("  /.netlify/functions/rapt-bridge");
     if (!process.env.OPENAI_API_KEY) {
       console.log("OPENAI_API_KEY is not set. Add it to .env.local or your shell before testing the live mentor.");
     }

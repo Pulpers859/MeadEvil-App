@@ -30,12 +30,27 @@ export async function handler(event) {
 async function handleRead(event) {
   const batchKey = sanitizeBatchKey(event.queryStringParameters?.batch || "active");
   const limit = clamp(Number(event.queryStringParameters?.limit || 120), 1, 300);
+  if (!hasFirestoreBridgeConfig()) {
+    return respond(200, {
+      ok: true,
+      configured: false,
+      batchKey,
+      deviceId: "",
+      deviceName: "",
+      lastReadingAt: "",
+      latestGravity: "",
+      latestTempF: "",
+      readings: []
+    });
+  }
+
   const { projectId, accessToken } = await firestoreContext();
   const readings = await fetchReadings({ projectId, accessToken, batchKey, limit });
   const latest = readings[0] || null;
 
   return respond(200, {
     ok: true,
+    configured: true,
     batchKey,
     deviceId: latest?.deviceId || "",
     deviceName: latest?.deviceName || "",
@@ -80,6 +95,14 @@ function validateWebhookSecret(event, body) {
   if (provided !== expected) {
     throw Object.assign(new Error("Invalid webhook secret"), { statusCode: 401 });
   }
+}
+
+function hasFirestoreBridgeConfig() {
+  return Boolean(
+    (process.env.GOOGLE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID) &&
+    process.env.GOOGLE_CLIENT_EMAIL &&
+    process.env.GOOGLE_PRIVATE_KEY
+  );
 }
 
 function parseBody(event) {

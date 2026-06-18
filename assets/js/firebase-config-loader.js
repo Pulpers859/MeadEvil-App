@@ -27,18 +27,20 @@
   }
 
   async function hydrateFirebaseConfig(){
+    if (hasFirebaseConfig()) return true;
+
+    const isHttp = window.location.protocol === "http:" || window.location.protocol === "https:";
+    if (isHttp) {
+      const netlifyConfigUrl = new URL("/.netlify/functions/firebase-config", window.location.origin).toString();
+      await loadScript(netlifyConfigUrl);
+      return hasFirebaseConfig();
+    }
+
     for (const src of LOCAL_CONFIG_SCRIPTS){
       if (hasFirebaseConfig()) return true;
       await loadScript(src);
     }
 
-    if (hasFirebaseConfig()) return true;
-
-    const isHttp = window.location.protocol === "http:" || window.location.protocol === "https:";
-    if (!isHttp) return false;
-
-    const netlifyConfigUrl = new URL("/.netlify/functions/firebase-config", window.location.origin).toString();
-    await loadScript(netlifyConfigUrl);
     return hasFirebaseConfig();
   }
 
