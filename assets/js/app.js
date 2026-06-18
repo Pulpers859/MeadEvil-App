@@ -1772,6 +1772,9 @@
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", active ? "true" : "false");
       button.setAttribute("tabindex", active ? "0" : "-1");
+      if (active && button.parentElement && button.parentElement.scrollWidth > button.parentElement.clientWidth) {
+        button.scrollIntoView({ block: "nearest", inline: "center" });
+      }
     });
     document.querySelectorAll(".tab-panel").forEach((panel) => {
       const active = panel.id === `tab-${data.ui.activeTab}`;
