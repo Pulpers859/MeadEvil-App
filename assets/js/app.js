@@ -1895,18 +1895,18 @@
       return `
       <div class="source-row">
         <div class="form-grid-4">
-          <div class="field">
+          <div class="field source-type-field">
             <label>Source</label>
             <select data-source-id="${row.id}" data-source-field="sourceType">
               ${Object.keys(SOURCE_PRESETS).map((option) => `<option ${row.sourceType === option ? "selected" : ""}>${option}</option>`).join("")}
             </select>
           </div>
-          <div class="field"><label>Description</label><input data-source-id="${row.id}" data-source-field="description" value="${escapeHTML(row.description)}" placeholder="Orange blossom, tart cherry, medium toast oak..." /></div>
-          <div class="field"><label>Amount</label><input data-source-id="${row.id}" data-source-field="amount" type="number" step="0.1" value="${escapeHTML(row.amount)}" /></div>
-          <div class="field"><label>Unit</label><select data-source-id="${row.id}" data-source-field="unit"><option ${row.unit === "lb" ? "selected" : ""}>lb</option><option ${row.unit === "kg" ? "selected" : ""}>kg</option></select></div>
+          <div class="field source-desc-field"><label>Description</label><input data-source-id="${row.id}" data-source-field="description" value="${escapeHTML(row.description)}" placeholder="Orange blossom, tart cherry, medium toast oak..." /></div>
+          <div class="field source-amount-field"><label>Amount</label><input data-source-id="${row.id}" data-source-field="amount" type="number" step="0.1" value="${escapeHTML(row.amount)}" /></div>
+          <div class="field source-unit-field"><label>Unit</label><select data-source-id="${row.id}" data-source-field="unit"><option ${row.unit === "lb" ? "selected" : ""}>lb</option><option ${row.unit === "kg" ? "selected" : ""}>kg</option></select></div>
         </div>
-        <div class="form-grid-2">
-          <div class="field"><label>PPG</label><input data-source-id="${row.id}" data-source-field="ppg" type="number" step="0.1" value="${escapeHTML(row.ppg)}" ${locked ? "readonly" : ""} /><span class="input-hint">${presetLabel}</span></div>
+        <div class="form-grid-2 source-row-footer">
+          <div class="field source-ppg-field"><label>PPG</label><input data-source-id="${row.id}" data-source-field="ppg" type="number" step="0.1" value="${escapeHTML(row.ppg)}" ${locked ? "readonly" : ""} /><span class="input-hint">${presetLabel}</span></div>
           <div class="field checkbox-field"><button class="mini-btn" data-source-delete="${row.id}" type="button">Remove source</button></div>
         </div>
       </div>
@@ -1980,9 +1980,11 @@
     if (!hasAnyInput) {
       $("recipeReadiness").innerHTML = `<span class="muted">Start filling in the recipe and the sanity engine will wake up.</span>`;
     } else {
+      const visibleWarnings = warnings.slice(0, 2);
+      const extraWarnings = warnings.slice(2);
       $("recipeReadiness").innerHTML = `
         ${greenlights.length ? `<div class="readiness-group good"><div class="readiness-label">Working</div>${greenlights.map((line) => `<div class="readiness-item">${escapeHTML(line)}</div>`).join("")}</div>` : ""}
-        ${warnings.length ? `<div class="readiness-group warn"><div class="readiness-label">Check</div>${warnings.map((line) => `<div class="readiness-item">${escapeHTML(line)}</div>`).join("")}</div>` : `<div class="readiness-group good"><div class="readiness-label">Coherent</div><div class="readiness-item">This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div></div>`}
+        ${warnings.length ? `<div class="readiness-group warn"><div class="readiness-label">Check</div>${visibleWarnings.map((line) => `<div class="readiness-item">${escapeHTML(line)}</div>`).join("")}${extraWarnings.length ? `<details class="readiness-more"><summary>${extraWarnings.length} more check${extraWarnings.length === 1 ? "" : "s"}</summary>${extraWarnings.map((line) => `<div class="readiness-item">${escapeHTML(line)}</div>`).join("")}</details>` : ""}</div>` : `<div class="readiness-group good"><div class="readiness-label">Coherent</div><div class="readiness-item">This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div></div>`}
       `;
     }
 
@@ -2000,17 +2002,22 @@
   function renderCurrentBatchSummary(){
     const batch = data.currentBatch;
     const batchSummary = recipeSourceSummary(batch);
-    $("currentBatchSummary").innerHTML = batchHasData()
-      ? `
-        <div><strong>${escapeHTML(batch.name || "Unnamed mead")}</strong></div>
-        <div>${escapeHTML(batch.style || "Mead")} · ${escapeHTML(batch.batchGallons || "—")} gal · ${escapeHTML(batch.targetAbv || batch.estimatedAbv || "—")}% target ABV</div>
-        <div>Target OG ${escapeHTML(batch.targetOg || "—")} · Target FG ${escapeHTML(batch.targetFg || "—")} · Sweetness ${escapeHTML(batch.sweetness || "—")}</div>
-        <div>Honey: ${escapeHTML(batchSummary.honey || "—")}</div>
-        <div>Other sources: ${escapeHTML(batchSummary.other || "—")}</div>
-        <div>Yeast: ${escapeHTML(displayYeastName(batch) || "—")} · Temp: ${escapeHTML(batch.temp || "—")}</div>
-        <div>Loaded: <span class="muted">${escapeHTML(formatDateTime(batch.loadedAt))}</span></div>
-      `
-      : `<div><strong>No active batch loaded.</strong></div><div class="muted">Build a recipe in <strong>Recipes</strong> (or send one from <strong>Brainstorm</strong>), then click <strong>"Load to active batch"</strong> there to start tracking fermentation here. You can also restore a batch from <strong>Archive</strong>.</div>`;
+    if (!batchHasData()){
+      $("currentBatchSummary").innerHTML = `<div><strong>No active batch loaded.</strong></div><div class="muted">Build a recipe in <strong>Recipes</strong> (or send one from <strong>Brainstorm</strong>), then click <strong>"Load to active batch"</strong> there to start tracking fermentation here. You can also restore a batch from <strong>Archive</strong>.</div>`;
+      return;
+    }
+    const batchFacts = [
+      { text: `${batch.style || "Mead"} · ${batch.batchGallons || "—"} gal · ${batch.targetAbv || batch.estimatedAbv || "—"}% target ABV` },
+      { text: `Target OG ${batch.targetOg || "—"} · Target FG ${batch.targetFg || "—"} · ${batch.sweetness || "—"}` },
+      batchSummary.honey ? { text: `Honey: ${batchSummary.honey}` } : null,
+      batchSummary.other ? { text: `Other sources: ${batchSummary.other}` } : null,
+      displayYeastName(batch) || batch.temp ? { text: `Yeast: ${displayYeastName(batch) || "—"} · Temp: ${batch.temp || "—"}` } : null,
+      batch.loadedAt ? { html: `Loaded: <span class="muted">${escapeHTML(formatDateTime(batch.loadedAt))}</span>` } : null
+    ].filter(Boolean);
+    $("currentBatchSummary").innerHTML = `
+      <div><strong>${escapeHTML(batch.name || "Unnamed mead")}</strong></div>
+      ${batchFacts.map((line) => `<div>${line.html || escapeHTML(line.text)}</div>`).join("")}
+    `;
   }
 
   function formatStructureAdditionLine(row){
