@@ -1980,10 +1980,10 @@
     if (!hasAnyInput) {
       $("recipeReadiness").innerHTML = `<span class="muted">Start filling in the recipe and the sanity engine will wake up.</span>`;
     } else {
-      $("recipeReadiness").innerHTML = [
-        greenlights.length ? `<div>${greenlights.map((line) => `• ${escapeHTML(line)}`).join("<br>")}</div>` : "",
-        warnings.length ? `<div>${warnings.map((line) => `⚠ ${escapeHTML(line)}`).join("<br>")}</div>` : `<div>This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div>`
-      ].filter(Boolean).join("<br><br>");
+      $("recipeReadiness").innerHTML = `
+        ${greenlights.length ? `<div class="readiness-group good"><div class="readiness-label">Working</div>${greenlights.map((line) => `<div class="readiness-item">${escapeHTML(line)}</div>`).join("")}</div>` : ""}
+        ${warnings.length ? `<div class="readiness-group warn"><div class="readiness-label">Check</div>${warnings.map((line) => `<div class="readiness-item">${escapeHTML(line)}</div>`).join("")}</div>` : `<div class="readiness-group good"><div class="readiness-label">Coherent</div><div class="readiness-item">This design looks coherent. Next question: do the fermentation plan and finish path actually support it?</div></div>`}
+      `;
     }
 
     const selected = currentRecipe();

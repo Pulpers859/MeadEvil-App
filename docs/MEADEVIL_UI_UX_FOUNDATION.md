@@ -61,6 +61,17 @@ Rank these first when deciding whether external UI/UX resources should influence
 - Do not import another product's layout language wholesale.
 - Do not add design-system complexity that the no-build stack cannot sustain.
 
+## Panel Taxonomy
+
+Use these panel roles before adding new card styling:
+
+- **Work panels**: editable source-of-truth surfaces. These get the strongest card treatment and should be used for recipe entry, source bill editing, active fermentation entry, cellar records, and other primary tasks.
+- **Summary panels**: read-only calculated or derived context. These should be calmer than work panels, compact, and easy to scan.
+- **Warning panels**: decision or risk surfaces. These get a distinct warm signal and grouped messages, but should not look like generic error boxes.
+- **Utility panels**: imports, exports, shortcuts, archived helpers, and occasional tools. These should recede visually and usually use progressive disclosure.
+
+If a screen feels dense, first classify every panel into one of these roles. Then reduce the visual weight of secondary and utility panels before changing the brand style.
+
 ## Resource Decisions For MeadEvil
 
 These are the default outcomes unless a future task reveals a stronger need:
