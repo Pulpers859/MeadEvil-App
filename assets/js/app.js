@@ -1771,9 +1771,12 @@
       const active = button.dataset.tab === data.ui.activeTab;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", active ? "true" : "false");
+      button.setAttribute("tabindex", active ? "0" : "-1");
     });
     document.querySelectorAll(".tab-panel").forEach((panel) => {
-      panel.classList.toggle("active", panel.id === `tab-${data.ui.activeTab}`);
+      const active = panel.id === `tab-${data.ui.activeTab}`;
+      panel.classList.toggle("active", active);
+      panel.setAttribute("aria-hidden", active ? "false" : "true");
     });
   }
 

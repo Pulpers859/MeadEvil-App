@@ -41,6 +41,7 @@
 - At the start of a fresh session in `C:\Dev\MeadEvilApp`, first apply `meadevil-handoff` unless the task is already deep in one known file.
 - If resuming prior work, mixed context, or long threads, apply `meadevil-context-compact` before broader repo exploration.
 - For frontend structure, tab workflow, save/load, import/export, or no-build browser-app work, automatically apply `meadevil-static-app`.
+- For design-system decisions, external UI/UX references, redesign planning, or deciding whether outside UI patterns should influence MeadEvil, automatically apply `ui-ux-resource-eval`.
 - For Brainstorm, Mentor, Netlify function, fallback, API boundary, or local-vs-deployed mentor issues, automatically apply `meadevil-mentor-runtime`.
 - If more than one repo skill could apply, prefer the smallest combination that fits the task instead of loading everything.
 - Do not wait for the user to explicitly name these skills when the task clearly matches them.
@@ -48,12 +49,16 @@
 ## Repo Skills
 - `meadevil-handoff`: repo orientation, stale-copy warnings, main-only git workflow, hotspots.
 - `meadevil-static-app`: no-build app structure, UI/runtime guardrails, tab/workflow integrity.
+- `ui-ux-resource-eval`: neutral UI/UX resource evaluation, design-system fit checks, and redesign-planning guardrails.
 - `meadevil-mentor-runtime`: Brainstorm and Mentor backend/frontend boundary, fallback logic, Netlify function triage.
 - `meadevil-context-compact`: compact summaries, selective context loading, low-token handoffs.
 
 ## Read Deeper Only When Needed
 - `docs/HANDOFF.md`
 - `docs/SETUP.md`
+- `docs/AI_UI_UX_RESOURCE_EVALUATION_PLAYBOOK.md`
+- `docs/MEADEVIL_UI_UX_FOUNDATION.md`
+- `docs/EXTERNAL_AGENT_RECONCILIATION.md`
 - `netlify/functions/meadevil-mentor.mjs`
 - `assets/js/app.js`
 

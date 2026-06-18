@@ -46,17 +46,17 @@
   <main id="main-content">
     <section class="tabs-wrap">
       <div class="tabs" id="tabs" role="tablist" aria-label="Meadevil sections">
-        <button class="tab-btn" data-tab="meadmaker" type="button">Brainstorm</button>
-        <button class="tab-btn active" data-tab="recipes" type="button">Build</button>
-        <button class="tab-btn" data-tab="ferment" type="button">Ferment</button>
-        <button class="tab-btn" data-tab="nutrients" type="button">Feed</button>
-        <button class="tab-btn" data-tab="cellar" type="button">Finish</button>
-        <button class="tab-btn" data-tab="archive" type="button">Vault</button>
+        <button class="tab-btn" data-tab="meadmaker" id="tab-btn-meadmaker" role="tab" aria-controls="tab-meadmaker" aria-selected="false" type="button"><span class="tab-btn-label">Brainstorm</span><span class="tab-btn-meta" aria-hidden="true">Ideas</span></button>
+        <button class="tab-btn active" data-tab="recipes" id="tab-btn-recipes" role="tab" aria-controls="tab-recipes" aria-selected="true" type="button"><span class="tab-btn-label">Build</span><span class="tab-btn-meta" aria-hidden="true">Recipe</span></button>
+        <button class="tab-btn" data-tab="ferment" id="tab-btn-ferment" role="tab" aria-controls="tab-ferment" aria-selected="false" type="button"><span class="tab-btn-label">Ferment</span><span class="tab-btn-meta" aria-hidden="true">Track</span></button>
+        <button class="tab-btn" data-tab="nutrients" id="tab-btn-nutrients" role="tab" aria-controls="tab-nutrients" aria-selected="false" type="button"><span class="tab-btn-label">Feed</span><span class="tab-btn-meta" aria-hidden="true">Nutrients</span></button>
+        <button class="tab-btn" data-tab="cellar" id="tab-btn-cellar" role="tab" aria-controls="tab-cellar" aria-selected="false" type="button"><span class="tab-btn-label">Finish</span><span class="tab-btn-meta" aria-hidden="true">Cellar</span></button>
+        <button class="tab-btn" data-tab="archive" id="tab-btn-archive" role="tab" aria-controls="tab-archive" aria-selected="false" type="button"><span class="tab-btn-label">Vault</span><span class="tab-btn-meta" aria-hidden="true">Archive</span></button>
       </div>
     </section>
 
     <!-- ========== BRAINSTORM ========== -->
-    <section class="tab-panel" id="tab-meadmaker">
+    <section class="tab-panel" id="tab-meadmaker" role="tabpanel" aria-labelledby="tab-btn-meadmaker" aria-hidden="true">
       <div class="container">
         <div class="section-head">
           <div><h2>Brainstorm</h2></div>
@@ -161,7 +161,7 @@
     </section>
 
     <!-- ========== BUILD ========== -->
-    <section class="tab-panel" id="tab-recipes">
+    <section class="tab-panel" id="tab-recipes" role="tabpanel" aria-labelledby="tab-btn-recipes" aria-hidden="false">
       <div class="container">
         <div class="section-head">
           <div><h2>Build the batch</h2></div>
@@ -432,7 +432,7 @@
     </section>
 
     <!-- ========== FERMENT ========== -->
-    <section class="tab-panel" id="tab-ferment">
+    <section class="tab-panel" id="tab-ferment" role="tabpanel" aria-labelledby="tab-btn-ferment" aria-hidden="true">
       <div class="container">
         <div class="section-head">
           <div><h2>Fermentation</h2></div>
@@ -565,7 +565,7 @@
     </section>
 
     <!-- ========== FEED ========== -->
-    <section class="tab-panel" id="tab-nutrients">
+    <section class="tab-panel" id="tab-nutrients" role="tabpanel" aria-labelledby="tab-btn-nutrients" aria-hidden="true">
       <div class="container">
         <div class="section-head">
           <div><h2>Feed control</h2></div>
@@ -632,7 +632,7 @@
     </section>
 
     <!-- ========== FINISH ========== -->
-    <section class="tab-panel" id="tab-cellar">
+    <section class="tab-panel" id="tab-cellar" role="tabpanel" aria-labelledby="tab-btn-cellar" aria-hidden="true">
       <div class="container">
         <div class="section-head">
           <div><h2>Finish</h2></div>
@@ -728,7 +728,7 @@
     </section>
 
     <!-- ========== VAULT ========== -->
-    <section class="tab-panel" id="tab-archive">
+    <section class="tab-panel" id="tab-archive" role="tabpanel" aria-labelledby="tab-btn-archive" aria-hidden="true">
       <div class="container">
         <div class="section-head">
           <div><h2>The vault</h2></div>

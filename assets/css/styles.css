@@ -187,41 +187,89 @@ option{background:#140e1a;color:var(--cream)}
   right:0;
   bottom:0;
   z-index:120;
-  padding:6px 8px calc(8px + env(safe-area-inset-bottom));
-  background:linear-gradient(180deg, rgba(9,7,13,0), rgba(9,7,13,.94) 30%, rgba(9,7,13,.98));
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg, rgba(9,7,13,0), rgba(9,7,13,.9) 24%, rgba(9,7,13,.98));
   backdrop-filter:blur(14px);
 }
 .tabs{
-  display:flex;
-  gap:4px;
-  padding:4px;
-  border-radius:var(--radius-lg);
-  background:rgba(14,10,19,.96);
-  border:1px solid rgba(244,230,208,.08);
-  box-shadow:var(--shadow-soft);
+  display:grid;
+  grid-template-columns:repeat(6, minmax(0, 1fr));
+  gap:8px;
+  width:min(var(--max), calc(100% - 8px));
+  margin:0 auto;
+  padding:8px;
+  border-radius:18px;
+  background:linear-gradient(180deg, rgba(18,12,25,.98), rgba(11,8,17,.98));
+  border:1px solid rgba(244,230,208,.10);
+  box-shadow:0 14px 34px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.03);
+  flex-wrap:nowrap;
+  align-items:stretch;
   overflow-x:auto;
   -webkit-overflow-scrolling:touch;
   scrollbar-width:none;
 }
 .tabs::-webkit-scrollbar{display:none}
 .tab-btn{
-  flex:1 0 0;
+  position:relative;
   min-width:0;
-  min-height:42px;
-  padding:0 8px;
+  min-height:58px;
+  padding:8px 12px 10px;
   color:var(--cream-dim);
-  background:transparent;
-  border:1px solid transparent;
-  border-radius:var(--radius-md);
+  background:linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,.01));
+  border:1px solid rgba(244,230,208,.08);
+  border-radius:14px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
   font-size:.88rem;
-  font-weight:700;
+  font-weight:800;
   white-space:nowrap;
+  display:grid;
+  justify-items:center;
+  align-content:center;
+  gap:4px;
+  text-align:center;
+}
+.tab-btn::before{
+  content:"";
+  position:absolute;
+  left:14px;
+  right:14px;
+  top:0;
+  height:2px;
+  border-radius:999px;
+  background:linear-gradient(90deg, transparent, rgba(244,230,208,.24), transparent);
+  opacity:.35;
+}
+.tab-btn-label{
+  font-size:.92rem;
+  font-weight:800;
+  letter-spacing:.015em;
+  color:inherit;
+}
+.tab-btn-meta{
+  font-size:.62rem;
+  font-weight:800;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--cream-dim);
+  opacity:.82;
 }
 .tab-btn.active{
-  background:linear-gradient(180deg, rgba(107,59,164,.24), rgba(163,38,73,.16));
+  background:linear-gradient(180deg, rgba(107,59,164,.30), rgba(163,38,73,.18));
+  color:var(--cream);
+  border-color:rgba(244,230,208,.18);
+  box-shadow:0 10px 24px rgba(107,59,164,.20), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.tab-btn.active::before{
+  background:linear-gradient(90deg, rgba(255,196,151,0), rgba(255,196,151,.9), rgba(171,110,255,.9), rgba(255,196,151,0));
+  opacity:1;
+}
+.tab-btn.active .tab-btn-meta{
+  color:#ffd6ae;
+}
+.tab-btn:hover{
   color:var(--cream);
   border-color:rgba(244,230,208,.14);
-  box-shadow:0 6px 16px rgba(107,59,164,.16), inset 0 1px 0 rgba(255,255,255,.04);
+  background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.015));
 }
 .tab-panel{display:none;padding:var(--sp-lg) 0 120px}
 .tab-panel.active{display:block}
@@ -1137,7 +1185,14 @@ option{background:#140e1a;color:var(--cream)}
   .header-left{width:100%}
   .header-right{width:100%;justify-content:flex-end}
   .brand-badge{font-size:.95rem;padding:6px 12px}
-  .tabs{border-radius:var(--radius-md);background:rgba(14,10,19,.97)}
+  .tabs{
+    display:flex;
+    gap:6px;
+    width:auto;
+    margin:0;
+    border-radius:var(--radius-md);
+    background:rgba(14,10,19,.97)
+  }
   .tabs-wrap::after{
     content:"";
     position:absolute;
@@ -1147,7 +1202,16 @@ option{background:#140e1a;color:var(--cream)}
     pointer-events:none;
     border-radius:0 var(--radius-md) var(--radius-md) 0;
   }
-  .tab-btn{min-height:44px;padding:0 10px;font-size:.82rem}
+  .tab-btn{
+    flex:1 0 auto;
+    min-height:44px;
+    padding:0 12px;
+    font-size:.82rem;
+    gap:0;
+  }
+  .tab-btn::before{left:10px;right:10px}
+  .tab-btn-label{font-size:.84rem}
+  .tab-btn-meta{display:none}
   .tab-panel{padding-bottom:110px}
   .toolbar{align-items:flex-start}
   .info-row{grid-template-columns:1fr;gap:2px}
@@ -1178,7 +1242,7 @@ option{background:#140e1a;color:var(--cream)}
 }
 
 @media (max-width: 400px){
-  .tab-btn{font-size:.76rem;padding:0 6px}
+  .tab-btn{font-size:.76rem;padding:0 10px}
   .brand-badge{font-size:.88rem;padding:5px 10px}
   .pill.gold{font-size:.76rem;padding:4px 8px}
   .header-right .mini-btn{font-size:.78rem;padding:0 8px}
