@@ -428,6 +428,17 @@
     `).join("");
   }
 
+  function emptyState(title, body, tone = "calm", kicker = "Waiting"){
+    const toneClass = tone && tone !== "calm" ? ` ${tone}` : "";
+    return `
+      <div class="empty-state${toneClass}">
+        <div class="empty-state-kicker">${escapeHTML(kicker)}</div>
+        <div class="empty-state-title">${escapeHTML(title)}</div>
+        <div class="empty-state-body">${escapeHTML(body)}</div>
+      </div>
+    `;
+  }
+
   function sortLogsDescending(logs){
     return clone(logs || []).sort((a, b) => {
       const aTime = new Date(`${a.date}T00:00:00`).getTime();
@@ -608,7 +619,7 @@
     if (!model || model.points.length < 2){
       trendHoverPoints = [];
       summary.innerHTML = "";
-      chart.innerHTML = `<div class="empty-state">Add at least two readings and the trend graph will light up.</div>`;
+      chart.innerHTML = emptyState("Trend graph waiting", "Add at least two readings before the fermentation curve can mean anything.", "focus", "Trend");
       return;
     }
 
@@ -1886,7 +1897,7 @@
             <span>${escapeHTML(item.text)}</span>
           </label>
         `).join("")
-      : `<div class="empty-state">Nothing urgent left on the active run sheet.</div>`;
+      : emptyState("Run sheet clear", "Nothing urgent is left on the active batch checklist.", "good", "Clear");
 
     const oneLiner = $("pulseOneLiner");
     if (oneLiner) {
@@ -1952,7 +1963,7 @@
       if (plan.exceedsTolerance) targetRows.push(["Yeast fit", `<strong>Target exceeds the entered yeast tolerance.</strong>`]);
       renderRows("recipeTargetSummary", targetRows);
     } else {
-      $("recipeTargetSummary").innerHTML = `<span class="muted">Set batch size and target ABV to see the design target.</span>`;
+      $("recipeTargetSummary").innerHTML = emptyState("Design target waiting", "Set batch size and target ABV to lock the north star for this batch.", "focus", "Build");
     }
 
     if (bill) {
@@ -1964,7 +1975,7 @@
       if (ogDeltaPoints != null) mustRows.splice(1, 0, ["OG delta vs target", ogDeltaPoints === 0 ? "On target" : `${ogDeltaPoints > 0 ? "+" : ""}${ogDeltaPoints} points`]);
       renderRows("recipeMustSummary", mustRows);
     } else {
-      $("recipeMustSummary").innerHTML = `<span class="muted">Add source rows to see what the fermentables actually build.</span>`;
+      $("recipeMustSummary").innerHTML = emptyState("Source bill waiting", "Add fermentable rows to see the gravity this recipe really builds.", "focus", "Source");
     }
 
     const warnings = [];
@@ -1987,7 +1998,7 @@
 
     const hasAnyInput = recipe.name || recipe.targetAbv || recipe.batchGallons || displayYeastName(recipe) || (bill && bill.lineItems.length);
     if (!hasAnyInput) {
-      $("recipeReadiness").innerHTML = `<span class="muted">Start filling in the recipe and the sanity engine will wake up.</span>`;
+      $("recipeReadiness").innerHTML = emptyState("Sanity engine idle", "Start the recipe and the checks will sort out what is missing or contradictory.", "focus", "Checks");
     } else {
       const visibleWarnings = warnings.slice(0, 2);
       const extraWarnings = warnings.slice(2);
@@ -2000,7 +2011,7 @@
     const selected = currentRecipe();
     $("currentRecipeLaunch").innerHTML = selected
       ? `<strong>${escapeHTML(selected.name)}</strong><br>${escapeHTML(selected.style)} · ${escapeHTML(selected.batchGallons || "—")} gal · target ${escapeHTML(selected.targetAbv || selected.estimatedAbv || "—")}% ABV<br><span class="muted">${escapeHTML(selected.quickNote || recipeSourceSummary(selected).honey || "No quick note")}</span>`
-      : `No saved recipe selected yet.`;
+      : emptyState("No loaded draft", "Pick a saved build from Vault when you want to compare or reload prior work.", "calm", "Vault");
   }
 
   function renderRecipes(){
@@ -2012,7 +2023,7 @@
     const batch = data.currentBatch;
     const batchSummary = recipeSourceSummary(batch);
     if (!batchHasData()){
-      $("currentBatchSummary").innerHTML = `<div><strong>No active batch loaded.</strong></div><div class="muted">Build a recipe in <strong>Recipes</strong> (or send one from <strong>Brainstorm</strong>), then click <strong>"Load to active batch"</strong> there to start tracking fermentation here. You can also restore a batch from <strong>Archive</strong>.</div>`;
+      $("currentBatchSummary").innerHTML = emptyState("No active batch", "Load a recipe from Build or restore one from Vault to start fermentation tracking.", "focus", "Ferment");
       return;
     }
     const batchFacts = [
@@ -2193,9 +2204,9 @@
             </div>
           </div>`;
         }).join("")
-      : `<div class="empty-state">No gravity readings yet. Mead without a gravity trail turns into unreliable campfire storytelling.</div>`;
+      : emptyState("No gravity trail", "Add the first reading and the fermentation record becomes usable.", "focus", "Log");
     if (logs.length > visibleLogs.length){
-      $("gravityLog").insertAdjacentHTML("beforeend", `<div class="empty-state">${logs.length - visibleLogs.length} older reading${logs.length - visibleLogs.length === 1 ? "" : "s"} hidden until you expand the full log.</div>`);
+      $("gravityLog").insertAdjacentHTML("beforeend", emptyState("Earlier readings hidden", `${logs.length - visibleLogs.length} older reading${logs.length - visibleLogs.length === 1 ? "" : "s"} are tucked away until you expand the full log.`, "calm", "History"));
     }
 
     const breakGravity = calcOneThirdBreak(data.currentBatch.targetOg || data.nutrients.og);
@@ -2210,7 +2221,7 @@
       if (rate.projection && rate.projection !== "—") sbRows.push(["Projection", escapeHTML(rate.projection)]);
       renderRows("sugarBreakSnapshot", sbRows);
     } else {
-      $("sugarBreakSnapshot").innerHTML = `<span class="muted">Record OG and gravity readings to see break status.</span>`;
+      $("sugarBreakSnapshot").innerHTML = emptyState("Sugar break waiting", "Record OG and at least one gravity reading to see the nutrient cutoff window.", "focus", "Break");
     }
 
     const step = calculateStepFeed({
@@ -2232,7 +2243,7 @@
             <div class="muted">${round(entry.honeyLb, 2)} lb honey to add ${escapeHTML(entry.points)} points</div>
           </div>
         `).join("")
-      : `<div class="empty-state">No step feeds logged for this batch.</div>`;
+      : emptyState("No step feeds logged", "Feed events will appear here once you record them against the active batch.", "calm", "Feed");
   }
 
   function renderNutrients(){
@@ -2266,7 +2277,7 @@
       if (data.nutrients.og) qRows.push(["Suggested YAN", `${suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement })} ppm before fruit offset`]);
       renderRows("nutrientSummary", qRows);
     } else {
-      $("nutrientSummary").innerHTML = `<span class="muted">Set batch size and OG to see the quick schedule.</span>`;
+      $("nutrientSummary").innerHTML = emptyState("Quick schedule waiting", "Set batch size and OG to generate the fast feed readout.", "focus", "Inputs");
     }
 
     $("nutrientSchedule").innerHTML = advanced
@@ -2283,7 +2294,7 @@
           </div>
         `;
         }).join("")
-      : `<div class="empty-state">No protocol schedule yet.</div>`;
+      : emptyState("No quick schedule yet", "Choose a nutrient protocol to generate staged additions.", "calm", "Protocol");
 
     if (advanced) {
       renderRows("advancedNutrientSummary", [
@@ -2296,7 +2307,7 @@
         ["DAP", `${round(advanced.gramsD, 1)} g`]
       ]);
     } else {
-      $("advancedNutrientSummary").innerHTML = `<span class="muted">Select a protocol to see the output.</span>`;
+      $("advancedNutrientSummary").innerHTML = emptyState("Protocol output waiting", "Select a feed protocol to see resolved YAN and nutrient totals.", "focus", "Protocol");
     }
 
     $("advancedNutrientSchedule").innerHTML = advanced
@@ -2306,7 +2317,7 @@
             <div class="muted">O ${round(step.gramsO, 1)} g · K ${round(step.gramsK, 1)} g · DAP ${round(step.gramsD, 1)} g</div>
           </div>
         `).join("")
-      : `<div class="empty-state">No protocol output yet.</div>`;
+      : emptyState("No feed schedule yet", "Once a protocol is chosen, the staged feed plan will land here.", "calm", "Schedule");
 
     const suggested = data.nutrients.og ? suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }) : null;
     const yeastContext = displayYeastName(data.currentBatch) || displayYeastName(data.recipeDraft) || "selected yeast";
@@ -2366,7 +2377,7 @@
             <div class="field source-notes"><label>Note</label><textarea data-cellar-addition-id="${row.id}" data-cellar-addition-field="notes" placeholder="Why it was added, trial result, timing, extraction goal…">${escapeHTML(row.notes || "")}</textarea></div>
           </div>
         `).join("")
-      : `<div class="empty-state">No post-fermentation additions logged yet.</div>`;
+      : emptyState("No finish additions logged", "Add honey, acid, tannin, fruit, oak, or finings only when they actually become part of the batch.", "calm", "Cellar");
 
     $("stabilizationChecklist").innerHTML = data.cellarChecklist.map((item) => `
       <label class="check-item">
@@ -2429,7 +2440,7 @@
     ].filter(Boolean).join(", ");
     $("archivePrepSummary").innerHTML = batchHasData()
       ? `Archiving right now would save <strong>${escapeHTML(data.currentBatch.name || "this batch")}</strong>, ${archiveParts}.`
-      : `No active batch loaded yet.`;
+      : emptyState("Nothing ready to archive", "A live batch has to exist before the vault prep summary means anything.", "calm", "Vault");
   }
 
   function renderArchive(){
@@ -2458,7 +2469,7 @@
             </div>
           </div>
         `).join("")
-      : `<div class="empty-state">No saved recipes yet.</div>`;
+      : emptyState("No saved builds", "Save a recipe from Build and it will start a reusable library here.", "focus", "Vault");
 
     const archiveSearch = (data.ui.archiveSearch || "").trim().toLowerCase();
     const items = clone(data.archive)
@@ -2497,7 +2508,7 @@
             </div>
           </div>`;
         }).join("")
-      : `<div class="empty-state">No archived batches yet.</div>`;
+      : emptyState("No archived batches", "Archive a finished batch from Finish and the cellar history will accumulate here.", "focus", "Vault");
   }
 
   function renderCalcs(){

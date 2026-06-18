@@ -59,7 +59,14 @@
     <section class="tab-panel" id="tab-meadmaker" role="tabpanel" aria-labelledby="tab-btn-meadmaker" aria-hidden="true">
       <div class="container">
         <div class="section-head">
+          <div class="section-kicker">Idea lane</div>
           <div><h2>Brainstorm</h2></div>
+          <p class="section-copy">Shape the concept before the recipe starts pretending it is final.</p>
+          <div class="section-rail" aria-hidden="true">
+            <span class="section-chip">Concept</span>
+            <span class="section-chip">Challenge</span>
+            <span class="section-chip">Translate</span>
+          </div>
         </div>
         <div class="grid-2 brainstorm-layout">
           <div class="stack">
@@ -164,8 +171,14 @@
     <section class="tab-panel" id="tab-recipes" role="tabpanel" aria-labelledby="tab-btn-recipes" aria-hidden="false">
       <div class="container">
         <div class="section-head">
+          <div class="section-kicker">Recipe truth</div>
           <div><h2>Build the batch</h2></div>
-          <p class="section-copy">Build the batch first. Then make the source bill, feed plan, and finish strategy tell the same story.</p>
+          <p class="section-copy">Set the design target, write the real fermentables, and make the rest of the app answer to that recipe.</p>
+          <div class="section-rail" aria-hidden="true">
+            <span class="section-chip">Design</span>
+            <span class="section-chip">Source bill</span>
+            <span class="section-chip">Sanity</span>
+          </div>
         </div>
         <div class="grid-2 build-layout">
           <div class="stack">
@@ -216,7 +229,7 @@
 
             <div class="card work-card build-source-card">
               <div class="toolbar"><h3>Source bill</h3><button class="mini-btn" id="addRecipeSourceBtn" type="button">Add source</button></div>
-              <p class="small helper-copy">The source bill is the source of truth. Pick the fermentable source and the app fills the normal PPG for you. Use Custom only when you have measured numbers that should override the defaults.</p>
+              <p class="small helper-copy">Write the fermentables that actually build the must. Use `Custom` only when you are overriding the normal PPG on purpose.</p>
               <div class="source-list" id="recipeSourceList"></div>
             </div>
 
@@ -227,7 +240,7 @@
               </summary>
               <div class="accord-body">
               <div class="toolbar"><h3>Structure additions</h3><button class="mini-btn" id="addRecipeAdjunctBtn" type="button">Add structure addition</button></div>
-              <p class="small helper-copy">Secondary botanicals, citrus, tea, oak, acid, tannin, and other non-fermentable planning live here. Keep gravity math honest and keep the concept visible.</p>
+              <p class="small helper-copy">Botanicals, oak, tannin, acid, tea, and other non-fermentable moves live here so the gravity math stays clean.</p>
               <div class="source-list" id="recipeAdjunctList"></div>
               </div>
             </details>
@@ -251,15 +264,15 @@
 
           <div class="stack summary-stack">
             <div class="card card-compact summary-panel">
-              <div class="toolbar"><h3>Design target</h3><span class="small">The recipe north star</span></div>
+              <div class="toolbar"><h3>Design target</h3><span class="small">North star</span></div>
               <div class="notes-box info-rows" id="recipeTargetSummary"></div>
             </div>
             <div class="card card-compact summary-panel">
-              <div class="toolbar"><h3>Source bill reality</h3><span class="small">What the fermentables actually build</span></div>
+              <div class="toolbar"><h3>Source bill reality</h3><span class="small">What it really builds</span></div>
               <div class="notes-box info-rows" id="recipeMustSummary"></div>
             </div>
             <div class="card card-compact warning-panel">
-              <div class="toolbar"><h3>Sanity engine</h3><span class="small">Warnings that matter</span></div>
+              <div class="toolbar"><h3>Sanity engine</h3><span class="small">What needs attention</span></div>
               <div class="notes-box" id="recipeReadiness"></div>
             </div>
             <div class="card card-compact utility-panel">
@@ -451,7 +464,14 @@
     <section class="tab-panel" id="tab-ferment" role="tabpanel" aria-labelledby="tab-btn-ferment" aria-hidden="true">
       <div class="container">
         <div class="section-head">
+          <div class="section-kicker">Batch reality</div>
           <div><h2>Fermentation</h2></div>
+          <p class="section-copy">Track what the batch is actually doing, not what the original recipe hoped would happen.</p>
+          <div class="section-rail" aria-hidden="true">
+            <span class="section-chip">Pulse</span>
+            <span class="section-chip">Log</span>
+            <span class="section-chip">Adjust</span>
+          </div>
         </div>
 
         <!-- Batch pulse (was its own Stage tab) -->
@@ -584,8 +604,14 @@
     <section class="tab-panel" id="tab-nutrients" role="tabpanel" aria-labelledby="tab-btn-nutrients" aria-hidden="true">
       <div class="container">
         <div class="section-head">
+          <div class="section-kicker">Nutrient discipline</div>
           <div><h2>Feed control</h2></div>
-          <p class="section-copy">Nitrogen requirement, dry yeast, and gravity should already make sense before you touch the feed plan.</p>
+          <p class="section-copy">Use the recipe and gravity data to set feed timing deliberately instead of dosing by habit.</p>
+          <div class="section-rail" aria-hidden="true">
+            <span class="section-chip">Inputs</span>
+            <span class="section-chip">Protocol</span>
+            <span class="section-chip">Guardrails</span>
+          </div>
         </div>
         <div class="grid-2">
           <div class="stack">
@@ -659,13 +685,19 @@
     <section class="tab-panel" id="tab-cellar" role="tabpanel" aria-labelledby="tab-btn-cellar" aria-hidden="true">
       <div class="container">
         <div class="section-head">
+          <div class="section-kicker">Cellar decisions</div>
           <div><h2>Finish</h2></div>
-          <p class="section-copy">Backsweetening, bench trials, blending, stabilization discipline, and packaging reality.</p>
+          <p class="section-copy">Clear the stability gate, tune the finish, and package only when the batch has earned it.</p>
+          <div class="section-rail" aria-hidden="true">
+            <span class="section-chip">Stability</span>
+            <span class="section-chip">Sweeten</span>
+            <span class="section-chip">Package</span>
+          </div>
         </div>
         <div class="grid-2">
           <div class="stack">
             <div class="card work-card accent-soft">
-              <div class="toolbar"><h3>Finish path + stability gate</h3></div>
+              <div class="toolbar"><h3>Stability gate</h3></div>
               <div class="form-grid-3">
                 <div class="field finish-wide"><label for="finishPath">Finish path</label><select id="finishPath"><option>Dry and still</option><option>Dry and sparkling</option><option>Backsweetened and still</option><option>Backsweetened and force-carbonated</option><option>Bottle-conditioned</option><option>Oak / spice aging</option></select></div>
                 <div class="field"><label for="stableSgA">Stable SG #1</label><input id="stableSgA" type="number" step="0.001" /></div>
@@ -690,7 +722,7 @@
               <div class="result" id="cellarSmartSummary"></div>
             </div>
             <div class="card work-card">
-              <div class="toolbar"><h3>Backsweeten</h3></div>
+              <div class="toolbar"><h3>Sweeten math</h3></div>
               <div class="form-grid-4">
                 <div class="field"><label for="backsweetenVolume">Volume (gal)</label><input id="backsweetenVolume" type="number" step="0.1" /></div>
                 <div class="field"><label for="backsweetenCurrentSg">Current SG</label><input id="backsweetenCurrentSg" type="number" step="0.001" /></div>
@@ -733,7 +765,7 @@
           </div>
           <div class="stack">
             <div class="card work-card">
-              <div class="toolbar"><h3>Post-fermentation additions</h3><button class="mini-btn" id="addCellarAdditionBtn" type="button">Add addition</button></div>
+              <div class="toolbar"><h3>Finish additions</h3><button class="mini-btn" id="addCellarAdditionBtn" type="button">Add addition</button></div>
               <div class="recipe-source-list compact-addition-list" id="cellarAdditionList"></div>
             </div>
             <details class="card accord-card utility-panel">
@@ -780,8 +812,14 @@
     <section class="tab-panel" id="tab-archive" role="tabpanel" aria-labelledby="tab-btn-archive" aria-hidden="true">
       <div class="container">
         <div class="section-head">
+          <div class="section-kicker">Brew memory</div>
           <div><h2>The vault</h2></div>
-          <p class="section-copy">The vault is where your actual meadmaking memory lives.</p>
+          <p class="section-copy">Saved builds and finished batches belong here so future you can reuse them without guesswork.</p>
+          <div class="section-rail" aria-hidden="true">
+            <span class="section-chip">Reuse</span>
+            <span class="section-chip">Compare</span>
+            <span class="section-chip">Archive</span>
+          </div>
         </div>
         <div class="grid-2">
           <div class="stack">
