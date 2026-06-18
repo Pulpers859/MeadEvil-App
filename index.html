@@ -252,25 +252,25 @@
             </div>
 
             <!-- Quick math (was its own tab) -->
-            <details class="card accord-card">
+            <details class="card accord-card quick-math-card">
               <summary class="accord-summary">
                 <span class="accord-title">Quick math</span>
-                <span class="small">Planning, checkpoints, conversions, volume</span>
+                <span class="small">7 fast tools</span>
               </summary>
               <div class="accord-body">
                 <div class="calc-stack">
-                  <section class="calc-cluster">
-                    <div class="calc-cluster-head">
-                      <div class="calc-cluster-kicker">Recipe planning</div>
-                      <h3>Build the must before you commit ingredients</h3>
-                      <p>These tools help size the honey bill and reverse-check a target recipe.</p>
-                    </div>
+                  <details class="calc-cluster">
+                    <summary class="calc-cluster-summary">
+                      <span class="calc-cluster-kicker">Planning</span>
+                      <span class="calc-cluster-title">Honey + targets</span>
+                      <span class="calc-cluster-meta">3 tools</span>
+                    </summary>
+                    <div class="calc-cluster-body">
                     <div class="calc-grid">
                       <article class="calc-cell calc-tool">
                         <div class="calc-tool-head">
                           <div class="calc-label">Target builder</div>
                           <h4 class="calc-tool-title">Honey for target OG</h4>
-                          <p class="calc-tool-copy">Work backward from gravity, batch size, and honey yield.</p>
                         </div>
                         <div class="form-grid-3">
                           <div class="field"><label for="calcTargetOg">Target OG</label><input id="calcTargetOg" type="number" step="0.001" /></div>
@@ -283,7 +283,6 @@
                         <div class="calc-tool-head">
                           <div class="calc-label">Reality check</div>
                           <h4 class="calc-tool-title">OG from honey bill</h4>
-                          <p class="calc-tool-copy">See what a known honey load should produce in the fermenter.</p>
                         </div>
                         <div class="form-grid-3">
                           <div class="field"><label for="calcHoneyLb">Honey (lb)</label><input id="calcHoneyLb" type="number" step="0.1" /></div>
@@ -296,7 +295,6 @@
                         <div class="calc-tool-head">
                           <div class="calc-label">Shortcut</div>
                           <h4 class="calc-tool-title">Target recipe shortcut</h4>
-                          <p class="calc-tool-copy">Translate a batch, finish, and ABV goal into a first-pass starting point.</p>
                         </div>
                         <div class="form-grid-4">
                           <div class="field"><label for="calcRecipeBatch">Batch (gal)</label><input id="calcRecipeBatch" type="number" step="0.1" /></div>
@@ -307,20 +305,21 @@
                         <div class="result calc-result" id="calcTargetRecipeResult"></div>
                       </article>
                     </div>
-                  </section>
-
-                  <section class="calc-cluster">
-                    <div class="calc-cluster-head">
-                      <div class="calc-cluster-kicker">Fermentation checkpoints</div>
-                      <h3>Check progress without leaving the Build page</h3>
-                      <p>Keep the most common fermentation math visible and easy to scan.</p>
                     </div>
+                  </details>
+
+                  <details class="calc-cluster">
+                    <summary class="calc-cluster-summary">
+                      <span class="calc-cluster-kicker">Checks</span>
+                      <span class="calc-cluster-title">ABV + break</span>
+                      <span class="calc-cluster-meta">2 tools</span>
+                    </summary>
+                    <div class="calc-cluster-body">
                     <div class="calc-grid">
                       <article class="calc-cell calc-tool">
                         <div class="calc-tool-head">
                           <div class="calc-label">Alcohol</div>
                           <h4 class="calc-tool-title">ABV</h4>
-                          <p class="calc-tool-copy">Estimate finished alcohol from original and final gravity.</p>
                         </div>
                         <div class="form-grid-2">
                           <div class="field"><label for="calcAbvOg">OG</label><input id="calcAbvOg" type="number" step="0.001" /></div>
@@ -332,26 +331,26 @@
                         <div class="calc-tool-head">
                           <div class="calc-label">Nutrient timing</div>
                           <h4 class="calc-tool-title">1/3 sugar break</h4>
-                          <p class="calc-tool-copy">Pin down the gravity where that first major breakpoint should land.</p>
                         </div>
                         <div class="field"><label for="calcBreakOg">OG</label><input id="calcBreakOg" type="number" step="0.001" /></div>
                         <div class="result calc-result" id="calcBreakResult"></div>
                       </article>
                     </div>
-                  </section>
-
-                  <section class="calc-cluster">
-                    <div class="calc-cluster-head">
-                      <div class="calc-cluster-kicker">Conversions</div>
-                      <h3>Swap refractometer and hydrometer numbers quickly</h3>
-                      <p>Keep both scales available without scrolling through unrelated fields.</p>
                     </div>
+                  </details>
+
+                  <details class="calc-cluster">
+                    <summary class="calc-cluster-summary">
+                      <span class="calc-cluster-kicker">Convert</span>
+                      <span class="calc-cluster-title">SG / Brix</span>
+                      <span class="calc-cluster-meta">2 tools</span>
+                    </summary>
+                    <div class="calc-cluster-body">
                     <div class="calc-grid">
                       <article class="calc-cell calc-tool">
                         <div class="calc-tool-head">
                           <div class="calc-label">Hydrometer to refractometer</div>
                           <h4 class="calc-tool-title">SG to Brix</h4>
-                          <p class="calc-tool-copy">Convert a specific gravity reading into approximate Brix.</p>
                         </div>
                         <div class="field"><label for="calcSgInput">SG</label><input id="calcSgInput" type="number" step="0.001" /></div>
                         <div class="result calc-result" id="calcBrixResult"></div>
@@ -360,34 +359,35 @@
                         <div class="calc-tool-head">
                           <div class="calc-label">Refractometer to hydrometer</div>
                           <h4 class="calc-tool-title">Brix to SG</h4>
-                          <p class="calc-tool-copy">Convert approximate Brix back into specific gravity.</p>
                         </div>
                         <div class="field"><label for="calcBrixInput">Brix</label><input id="calcBrixInput" type="number" step="0.1" /></div>
                         <div class="result calc-result" id="calcSgResult"></div>
                       </article>
                     </div>
-                  </section>
-
-                  <section class="calc-cluster calc-cluster-fermenter">
-                    <div class="calc-cluster-head">
-                      <div class="calc-cluster-kicker">Fermenter volume</div>
-                      <h3>Measure what is actually in the vessel now</h3>
-                      <p>Save named fermenters once, then work from the live fill height and cake depth.</p>
                     </div>
+                  </details>
+
+                  <details class="calc-cluster calc-cluster-fermenter">
+                    <summary class="calc-cluster-summary">
+                      <span class="calc-cluster-kicker">Vessel</span>
+                      <span class="calc-cluster-title">Fermenter volume</span>
+                      <span class="calc-cluster-meta">Save + read</span>
+                    </summary>
+                    <div class="calc-cluster-body">
                     <div class="calc-fermenter-layout">
                       <article class="calc-tool calc-fermenter-panel">
                         <div class="calc-tool-head">
                           <div class="calc-step-badge">01</div>
                           <div>
-                            <div class="calc-label">Choose or save a fermenter</div>
+                            <div class="calc-label">Vessel</div>
                             <h4 class="calc-tool-title">Profile library</h4>
-                            <p class="calc-tool-copy">Keep your actual buckets and fermenters named and ready.</p>
                           </div>
                         </div>
                         <div class="form-grid-2">
                           <div class="field">
                             <label for="calcFermenterProfileSelect">Saved fermenter</label>
                             <select id="calcFermenterProfileSelect"></select>
+                            <div class="calc-profile-badges" id="calcFermenterProfileMeta"></div>
                           </div>
                           <div class="field">
                             <label for="calcFermenterProfileName">Profile name</label>
@@ -410,23 +410,19 @@
                         <div class="calc-tool-head">
                           <div class="calc-step-badge">02</div>
                           <div>
-                            <div class="calc-label">Take the live reading</div>
+                            <div class="calc-label">Reading</div>
                             <h4 class="calc-tool-title">Current fill</h4>
-                            <p class="calc-tool-copy">Measure the liquid line and the settled cake you want excluded.</p>
                           </div>
                         </div>
                         <div class="form-grid-2">
                           <div class="field"><label for="calcFermenterLiquidHeight">Liquid height (in)</label><input id="calcFermenterLiquidHeight" type="number" step="0.01" min="0" /></div>
                           <div class="field"><label for="calcFermenterSedimentHeight">Sediment / cake height (in)</label><input id="calcFermenterSedimentHeight" type="number" step="0.1" min="0" /></div>
                         </div>
-                        <div class="calc-fermenter-band">
-                          <div class="calc-band-title">What this readout answers</div>
-                          <div class="calc-band-copy">How much is in the vessel at the fill line, and how much liquid sits above the settled layer.</div>
-                        </div>
                       </article>
                     </div>
                     <div class="result calc-result calc-fermenter-result" id="calcFermenterVolumeResult"></div>
-                  </section>
+                    </div>
+                  </details>
                 </div>
               </div>
             </details>

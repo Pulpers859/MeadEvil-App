@@ -2460,33 +2460,33 @@
   function renderCalcs(){
     const honey = estimateHoneyForTargetOG({ targetOg: data.calcs.targetOg, batchGallons: data.calcs.targetBatch, honeyPPG: data.calcs.targetPpg });
     $("calcHoneyNeededResult").innerHTML = honey
-      ? `Targeting ${escapeHTML(String(data.calcs.targetOg))} at ${escapeHTML(String(data.calcs.targetBatch))} gal needs about <strong>${round(honey.honeyLb, 2)} lb</strong> honey (${round(honey.honeyKg, 2)} kg).`
-      : `Enter values.`;
+      ? `<strong>${round(honey.honeyLb, 2)} lb</strong> honey · ${round(honey.honeyKg, 2)} kg`
+      : `Need OG, batch, and PPG.`;
 
     const og = estimateOGFromHoney({ honeyLb: data.calcs.honeyLb, batchGallons: data.calcs.honeyBatch, honeyPPG: data.calcs.honeyPpg });
     $("calcOgResult").innerHTML = og
-      ? `${escapeHTML(String(data.calcs.honeyLb))} lb honey in ${escapeHTML(String(data.calcs.honeyBatch))} gal projects an OG around <strong>${round(og.og, 3)}</strong>.`
-      : `Enter values.`;
+      ? `<strong>${round(og.og, 3)}</strong> OG`
+      : `Need honey, batch, and PPG.`;
 
     const abv = calcABV(data.calcs.abvOg, data.calcs.abvFg);
     $("calcAbvResult").innerHTML = abv
-      ? `Estimated ABV: <strong>${round(abv, 2)}%</strong>`
-      : `Enter OG and FG.`;
+      ? `<strong>${round(abv, 2)}%</strong> ABV`
+      : `Need OG + FG.`;
 
     const breakGravity = calcOneThirdBreak(data.calcs.breakOg);
     $("calcBreakResult").innerHTML = breakGravity
-      ? `1/3 sugar break lands around <strong>${round(breakGravity, 3)}</strong>.`
-      : `Enter OG.`;
+      ? `<strong>${round(breakGravity, 3)}</strong> SG`
+      : `Need OG.`;
 
     const brix = sgToBrix(data.calcs.sgInput);
     $("calcBrixResult").innerHTML = brix
-      ? `Approx. <strong>${round(brix, 1)} °Bx</strong>`
-      : `Enter SG.`;
+      ? `<strong>${round(brix, 1)} °Bx</strong>`
+      : `Need SG.`;
 
     const sg = brixToSg(data.calcs.brixInput);
     $("calcSgResult").innerHTML = sg
-      ? `Approx. <strong>${round(sg, 3)}</strong> SG`
-      : `Enter Brix.`;
+      ? `<strong>${round(sg, 3)}</strong> SG`
+      : `Need Brix.`;
 
     const targetRecipe = estimateRecipeTargets({
       batchGallons: data.calcs.recipeBatch,
@@ -2496,8 +2496,8 @@
       honeyPPG: 35
     });
     $("calcTargetRecipeResult").innerHTML = targetRecipe
-      ? `For ${escapeHTML(String(data.calcs.recipeBatch))} gal at ${escapeHTML(String(data.calcs.recipeAbv))}% ABV and a ${escapeHTML(data.calcs.recipeSweetness)} finish, start near <strong>${round(targetRecipe.targetOg, 3)}</strong> OG and expect roughly <strong>${round(targetRecipe.honeyLb, 2)} lb</strong> honey.`
-      : `Enter batch size and target ABV.`;
+      ? `<strong>${round(targetRecipe.targetOg, 3)}</strong> OG start · <strong>${round(targetRecipe.honeyLb, 2)} lb</strong> honey`
+      : `Need batch + target ABV.`;
 
     renderFermenterProfileSelect();
     const updateProfileBtn = $("updateFermenterProfileBtn");
@@ -2505,6 +2505,18 @@
     const selectedProfile = getSelectedFermenterProfile();
     if (updateProfileBtn) updateProfileBtn.disabled = !selectedProfile;
     if (deleteProfileBtn) deleteProfileBtn.disabled = !selectedProfile;
+    const selectedCapacity = selectedProfile
+      ? calculateFermenterVolumeEstimate({
+          bottomDiameter: selectedProfile.bottomDiameter,
+          topDiameter: selectedProfile.topDiameter,
+          totalHeight: selectedProfile.totalHeight,
+          liquidHeight: selectedProfile.totalHeight,
+          sedimentHeight: 0
+        })
+      : null;
+    $("calcFermenterProfileMeta").innerHTML = selectedProfile
+      ? `${selectedCapacity ? `<span class="calc-profile-badge capacity">Full ${round(selectedCapacity.totalGallons, 2)} gal</span>` : ""}<span class="calc-profile-badge">Saved profile</span>`
+      : "";
 
     const fermenter = calculateFermenterVolumeEstimate({
       bottomDiameter: data.calcs.fermenterBottomDiameter,
@@ -2517,14 +2529,31 @@
     const totalHeight = Number(data.calcs.fermenterTotalHeight);
     const sedimentHeight = Number(data.calcs.fermenterSedimentHeight || 0);
     const fermenterName = String((selectedProfile && selectedProfile.name) || data.calcs.fermenterProfileName || "Custom vessel").trim() || "Custom vessel";
+    const fillPct = fermenter && fermenter.totalHeight > 0 ? Math.max(0, Math.min(100, (fermenter.liquidHeight / fermenter.totalHeight) * 100)) : 0;
+    const cakePct = fermenter && fermenter.totalHeight > 0 ? Math.max(0, Math.min(fillPct, (fermenter.sedimentHeight / fermenter.totalHeight) * 100)) : 0;
     $("calcFermenterVolumeResult").innerHTML = fermenter
       ? `<div class="calc-fermenter-readout">
           <div class="calc-fermenter-topline">
             <div class="calc-fermenter-eyebrow">Live vessel estimate</div>
-            <div class="calc-fermenter-profile-pill">${escapeHTML(fermenterName)}</div>
+            <div class="calc-fermenter-profile-row">
+              <div class="calc-fermenter-profile-pill">${escapeHTML(fermenterName)}</div>
+              ${selectedCapacity ? `<div class="calc-profile-badge capacity">Full ${round(selectedCapacity.totalGallons, 2)} gal</div>` : ""}
+            </div>
           </div>
-          <div class="calc-fermenter-summary">
-            At a <strong>${round(fermenter.liquidHeight, 2)} in</strong> fill line, this vessel holds about <strong>${round(fermenter.totalGallons, 2)} gal</strong> total. Removing <strong>${round(fermenter.sedimentHeight, 2)} in</strong> of settled cake leaves about <strong>${round(fermenter.netLiquidGallons, 2)} gal</strong> of liquid above the layer.
+          <div class="calc-fermenter-hero">
+            <div class="calc-fermenter-viz">
+              <div class="calc-fermenter-vessel" style="--fill-pct:${fillPct.toFixed(2)}%;--cake-pct:${cakePct.toFixed(2)}%">
+                <div class="calc-fermenter-fill"></div>
+                <div class="calc-fermenter-cake"></div>
+                <div class="calc-fermenter-line"></div>
+              </div>
+              <div class="calc-fermenter-viz-caption">Fill line ${round(fermenter.liquidHeight, 2)} in</div>
+            </div>
+            <div class="calc-fermenter-hero-copy">
+              <div class="calc-fermenter-big-label">Usable volume</div>
+              <div class="calc-fermenter-big-number">${round(fermenter.netLiquidGallons, 2)} gal</div>
+              <div class="calc-fermenter-subline">${round(fermenter.totalGallons, 2)} gal at fill line · ${round(fermenter.sedimentGallons, 2)} gal in cake layer</div>
+            </div>
           </div>
           <div class="calc-fermenter-stat-grid">
             <div class="calc-fermenter-stat">
@@ -2533,22 +2562,22 @@
               <div class="calc-fermenter-stat-meta">${round(fermenter.totalLiters, 2)} L · ${round(fermenter.totalFluidOunces, 1)} fl oz</div>
             </div>
             <div class="calc-fermenter-stat">
-              <div class="calc-fermenter-stat-label">Above Cake</div>
+              <div class="calc-fermenter-stat-label">Usable</div>
               <div class="calc-fermenter-stat-value">${round(fermenter.netLiquidGallons, 2)} gal</div>
               <div class="calc-fermenter-stat-meta">${round(fermenter.netLiquidLiters, 2)} L · ${round(fermenter.netLiquidFluidOunces, 1)} fl oz</div>
             </div>
             <div class="calc-fermenter-stat">
-              <div class="calc-fermenter-stat-label">Excluded Layer</div>
+              <div class="calc-fermenter-stat-label">Cake Layer</div>
               <div class="calc-fermenter-stat-value">${round(fermenter.sedimentGallons, 2)} gal</div>
               <div class="calc-fermenter-stat-meta">${round(fermenter.sedimentHeight, 2)} in cake depth · fill diameter ${round(fermenter.fillLineDiameter, 2)} in</div>
             </div>
           </div>
         </div>`
       : liquidHeight > 0 && totalHeight > 0 && liquidHeight > totalHeight
-        ? `<div class="calc-fermenter-empty error"><strong>Liquid height is past the vessel height.</strong> Reduce the fill-line measurement or correct the fermenter dimensions.</div>`
+        ? `<div class="calc-fermenter-empty error"><strong>Liquid height is above vessel height.</strong></div>`
         : sedimentHeight > liquidHeight && liquidHeight > 0
-          ? `<div class="calc-fermenter-empty error"><strong>Sediment height is larger than the fill line.</strong> The excluded layer must stay at or below the liquid height.</div>`
-          : `<div class="calc-fermenter-empty"><strong>Start with a vessel and a fill line.</strong> Save a fermenter profile or enter its dimensions, then add the current liquid and cake heights.</div>`;
+          ? `<div class="calc-fermenter-empty error"><strong>Cake height cannot exceed fill height.</strong></div>`
+          : `<div class="calc-fermenter-empty"><strong>Enter vessel dimensions and a fill line.</strong></div>`;
   }
 
   function mentorKeywordBag(state){
