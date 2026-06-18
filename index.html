@@ -455,7 +455,7 @@
         </div>
 
         <!-- Batch pulse (was its own Stage tab) -->
-        <details class="card accord-card summary-panel pulse-card" id="batchPulseAccord" open>
+        <details class="card accord-card summary-panel pulse-card" id="batchPulseAccord">
           <summary class="accord-summary">
             <span class="accord-title">Batch pulse</span>
             <span class="small" id="pulseOneLiner"></span>
@@ -700,16 +700,21 @@
               </div>
               <div class="result" id="backsweetenResult"></div>
             </div>
-            <div class="card utility-panel accent-soft">
-              <div class="toolbar"><h3>Bench trials</h3></div>
-              <div class="form-grid-4">
-                <div class="field"><label for="benchBatchGallons">Batch (gal)</label><input id="benchBatchGallons" type="number" step="0.1" /></div>
-                <div class="field"><label for="benchSampleMl">Sample (mL)</label><input id="benchSampleMl" type="number" step="1" value="100" /></div>
-                <div class="field"><label for="benchAddition">Best trial</label><input id="benchAddition" type="number" step="0.01" /></div>
-                <div class="field"><label for="benchUnit">Unit</label><select id="benchUnit"><option>g</option><option>mL</option><option>drops</option></select></div>
+            <details class="card accord-card utility-panel accent-soft">
+              <summary class="accord-summary">
+                <span class="accord-title">Bench trials</span>
+                <span class="small">Scale a sample test</span>
+              </summary>
+              <div class="accord-body">
+                <div class="form-grid-4">
+                  <div class="field"><label for="benchBatchGallons">Batch (gal)</label><input id="benchBatchGallons" type="number" step="0.1" /></div>
+                  <div class="field"><label for="benchSampleMl">Sample (mL)</label><input id="benchSampleMl" type="number" step="1" value="100" /></div>
+                  <div class="field"><label for="benchAddition">Best trial</label><input id="benchAddition" type="number" step="0.01" /></div>
+                  <div class="field"><label for="benchUnit">Unit</label><select id="benchUnit"><option>g</option><option>mL</option><option>drops</option></select></div>
+                </div>
+                <div class="result" id="benchTrialResult"></div>
               </div>
-              <div class="result" id="benchTrialResult"></div>
-            </div>
+            </details>
             <details class="card accord-card utility-panel">
               <summary class="accord-summary">
                 <span class="accord-title">Blend bench</span>
@@ -731,27 +736,37 @@
               <div class="toolbar"><h3>Post-fermentation additions</h3><button class="mini-btn" id="addCellarAdditionBtn" type="button">Add addition</button></div>
               <div class="recipe-source-list compact-addition-list" id="cellarAdditionList"></div>
             </div>
-            <div class="card card-compact utility-panel">
-              <div class="toolbar"><h3>Bottle math</h3></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="cellarGallons">Gallons to package</label><input id="cellarGallons" type="number" step="0.1" /></div>
-                <div class="field"><label for="cellarBottleOz">Bottle size (oz)</label><input id="cellarBottleOz" type="number" step="0.1" value="12" /></div>
-                <div class="field"><label for="cellarLossPct">Loss %</label><input id="cellarLossPct" type="number" step="0.1" value="5" /></div>
+            <details class="card accord-card utility-panel">
+              <summary class="accord-summary">
+                <span class="accord-title">Bottle math</span>
+                <span class="small">Package count</span>
+              </summary>
+              <div class="accord-body">
+                <div class="form-grid-3">
+                  <div class="field"><label for="cellarGallons">Gallons to package</label><input id="cellarGallons" type="number" step="0.1" /></div>
+                  <div class="field"><label for="cellarBottleOz">Bottle size (oz)</label><input id="cellarBottleOz" type="number" step="0.1" value="12" /></div>
+                  <div class="field"><label for="cellarLossPct">Loss %</label><input id="cellarLossPct" type="number" step="0.1" value="5" /></div>
+                </div>
+                <div class="result" id="cellarBottleResult"></div>
               </div>
-              <div class="result" id="cellarBottleResult"></div>
-            </div>
-            <div class="card work-card">
-              <div class="toolbar"><h3>Tasting + stabilization record</h3></div>
-              <div class="checklist" id="stabilizationChecklist"></div>
-              <div class="field"><label for="stabilizationNotes">Stabilization notes</label><textarea id="stabilizationNotes" placeholder="Sulfite/sorbate timing, pH re-check, filtration, why you chose this route…"></textarea></div>
-              <div class="field"><label for="packagingNotes">Packaging notes</label><textarea id="packagingNotes" placeholder="Bottle, crown, cork, still, petillant, sparkling, sediment expectations…"></textarea></div>
-              <div class="field"><label for="tastingNotes">Tasting notes</label><textarea id="tastingNotes" placeholder="Honey expression, acid balance, tannin line, heat, integration, what this needs next."></textarea></div>
-              <div class="form-grid-3">
-                <div class="field"><label for="cellarRating">Rating</label><input id="cellarRating" placeholder="8.5/10" /></div>
-                <div class="field"><label for="cellarTags">Tags</label><input id="cellarTags" placeholder="holiday, cherry, still, oak" /></div>
-                <div class="field checkbox-field"><label class="switch"><input id="wouldMakeAgain" type="checkbox" /> Would make again</label></div>
+            </details>
+            <details class="card accord-card work-card">
+              <summary class="accord-summary">
+                <span class="accord-title">Tasting + stabilization record</span>
+                <span class="small">Final notes before vault</span>
+              </summary>
+              <div class="accord-body">
+                <div class="checklist" id="stabilizationChecklist"></div>
+                <div class="field"><label for="stabilizationNotes">Stabilization notes</label><textarea id="stabilizationNotes" placeholder="Sulfite/sorbate timing, pH re-check, filtration, why you chose this route…"></textarea></div>
+                <div class="field"><label for="packagingNotes">Packaging notes</label><textarea id="packagingNotes" placeholder="Bottle, crown, cork, still, petillant, sparkling, sediment expectations…"></textarea></div>
+                <div class="field"><label for="tastingNotes">Tasting notes</label><textarea id="tastingNotes" placeholder="Honey expression, acid balance, tannin line, heat, integration, what this needs next."></textarea></div>
+                <div class="form-grid-3">
+                  <div class="field"><label for="cellarRating">Rating</label><input id="cellarRating" placeholder="8.5/10" /></div>
+                  <div class="field"><label for="cellarTags">Tags</label><input id="cellarTags" placeholder="holiday, cherry, still, oak" /></div>
+                  <div class="field checkbox-field"><label class="switch"><input id="wouldMakeAgain" type="checkbox" /> Would make again</label></div>
+                </div>
               </div>
-            </div>
+            </details>
             <div class="card card-compact summary-panel">
               <div class="toolbar"><h3>Ready to vault</h3></div>
               <div class="notes-box" id="archivePrepSummary"></div>

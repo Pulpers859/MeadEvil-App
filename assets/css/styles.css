@@ -1320,7 +1320,7 @@ option{background:#140e1a;color:var(--cream)}
 }
 
 @media (max-width: 720px){
-  body{padding-bottom:110px}
+  body{padding-bottom:150px}
   .container{width:min(var(--max), calc(100% - 16px))}
   .nav-wrap{padding:var(--sp-sm) 0}
   .header-top-row{flex-wrap:wrap;gap:var(--sp-sm)}
@@ -1328,25 +1328,17 @@ option{background:#140e1a;color:var(--cream)}
   .header-right{width:100%;justify-content:flex-end}
   .brand-badge{font-size:.95rem;padding:6px 12px}
   .tabs{
-    display:flex;
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
     gap:5px;
-    width:auto;
+    width:min(100%, 520px);
     margin:0;
     padding:5px;
     border-radius:14px;
-    background:rgba(14,10,19,.97)
-  }
-  .tabs-wrap::after{
-    content:"";
-    position:absolute;
-    right:8px;top:6px;bottom:calc(8px + env(safe-area-inset-bottom));
-    width:24px;
-    background:linear-gradient(90deg, transparent, rgba(14,10,19,.97));
-    pointer-events:none;
-    border-radius:0 var(--radius-md) var(--radius-md) 0;
+    background:rgba(14,10,19,.97);
+    overflow:visible;
   }
   .tab-btn{
-    flex:1 0 auto;
     min-height:42px;
     padding:0 12px 3px;
     font-size:.82rem;
@@ -1356,7 +1348,7 @@ option{background:#140e1a;color:var(--cream)}
   .tab-btn::before{left:10px;right:10px;bottom:4px;height:2px}
   .tab-btn-label{font-size:.84rem}
   .tab-btn-meta{display:none}
-  .tab-panel{padding-bottom:110px}
+  .tab-panel{padding-bottom:150px}
   .toolbar{align-items:flex-start}
   .info-row{grid-template-columns:1fr;gap:2px}
   .card,.build-primary-card{border-radius:var(--radius-lg);padding:var(--sp-md)}
@@ -1394,7 +1386,7 @@ option{background:#140e1a;color:var(--cream)}
 }
 
 @media (max-width: 400px){
-  .tab-btn{font-size:.76rem;padding:0 10px}
+  .tab-btn{font-size:.76rem;padding:0 8px}
   .brand-badge{font-size:.88rem;padding:5px 10px}
   .pill.gold{font-size:.76rem;padding:4px 8px}
   .header-right .mini-btn{font-size:.78rem;padding:0 8px}
