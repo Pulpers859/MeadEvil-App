@@ -1034,19 +1034,41 @@
     mentorKnowledge: defaultMentorKnowledgeBase()
   };
 
+  const stateTools = window.MeadEvilState.createTools({
+    storageKey: STORAGE_KEY,
+    clone,
+    makeId,
+    todayStr,
+    defaultData,
+    defaultRecipeDraft,
+    defaultCurrentBatch,
+    defaultNutrients,
+    defaultCellar,
+    defaultCalcs,
+    defaultRaptSync,
+    defaultMentor,
+    defaultMentorKnowledgeBase,
+    defaultFermentChecklist,
+    defaultCellarChecklist,
+    defaultAdditionRow,
+    defaultCellarAddition,
+    normalizeClock
+  });
+  const {
+    normalizeMentorKnowledge,
+    normalizeRecipe,
+    normalizeLog,
+    normalizeArchiveItem,
+    normalizeData,
+    loadStoredData,
+    persistStoredData,
+    serializeExportState,
+    parseImportedState
+  } = stateTools;
+
   /* =========================================================
      Data normalization and persistence
      ========================================================= */
-
-  function normalizeRecipe(recipe){
-    const merged = { ...defaultRecipeDraft(), ...(recipe || {}) };
-    merged.id = recipe.id || makeId("recipe");
-    merged.createdAt = recipe.createdAt || new Date().toISOString();
-    merged.updatedAt = recipe.updatedAt || merged.createdAt;
-    merged.additions = Array.isArray(recipe.additions) && recipe.additions.length ? recipe.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
-    merged.structureAdditions = Array.isArray(recipe.structureAdditions) ? recipe.structureAdditions : [];
-    return merged;
-  }
 
   // Gravity drives the trend chart, ABV math, and the 1/3-break board, so it has
   // to be trustworthy. Mead specific gravity realistically sits between water-ish
@@ -1094,108 +1116,7 @@
     }
   }
 
-  function normalizeLog(log){
-    return {
-      id: log.id || makeId("grav"),
-      date: log.date || todayStr(),
-      gravity: String(log.gravity || ""),
-      temp: String(log.temp || ""),
-      pH: String(log.pH || ""),
-      note: String(log.note || ""),
-      createdAt: log.createdAt || new Date().toISOString(),
-      source: String(log.source || "manual"),
-      sourceId: String(log.sourceId || ""),
-      telemetryAt: String(log.telemetryAt || ""),
-      deviceName: String(log.deviceName || ""),
-      deviceId: String(log.deviceId || "")
-    };
-  }
-
-  function normalizeArchiveItem(item){
-    return {
-      id: item.id || makeId("arch"),
-      archivedAt: item.archivedAt || new Date().toISOString(),
-      batch: { ...defaultCurrentBatch(), ...(item.batch || {}) },
-      nutrients: { ...defaultNutrients(), ...(item.nutrients || {}) },
-      cellar: { ...defaultCellar(), ...(item.cellar || {}) },
-      fermentChecklist: Array.isArray(item.fermentChecklist) && item.fermentChecklist.length ? item.fermentChecklist : defaultFermentChecklist(),
-      cellarChecklist: Array.isArray(item.cellarChecklist) && item.cellarChecklist.length ? item.cellarChecklist : defaultCellarChecklist(),
-      fermentationLogs: Array.isArray(item.fermentationLogs) ? item.fermentationLogs.map(normalizeLog) : [],
-      summary: item.summary || ""
-    };
-  }
-
-  function loadData(){
-    try{
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-    } catch(error){
-      console.error("Could not load app data", error);
-      return null;
-    }
-  }
-
-  function normalizeMentorKnowledge(input){
-    const defaults = defaultMentorKnowledgeBase();
-    const source = input && typeof input === "object" ? input : {};
-
-    function mergeListWithDefaults(list, fallback, keyField){
-      if (!Array.isArray(list)) return clone(fallback);
-      const normalized = list
-        .filter((item) => item && typeof item === "object")
-        .map((item) => clone(item));
-      const existing = new Set(
-        normalized
-          .map((item) => String((item[keyField] || item.name || "")).toLowerCase().trim())
-          .filter(Boolean)
-      );
-      fallback.forEach((item) => {
-        const key = String((item[keyField] || item.name || "")).toLowerCase().trim();
-        if (key && !existing.has(key)){
-          normalized.push(clone(item));
-        }
-      });
-      return normalized;
-    }
-
-    return {
-      honeys: mergeListWithDefaults(source.honeys, defaults.honeys, "name"),
-      yeasts: mergeListWithDefaults(source.yeasts, defaults.yeasts, "name"),
-      adjuncts: mergeListWithDefaults(source.adjuncts, defaults.adjuncts, "key"),
-      archetypes: mergeListWithDefaults(source.archetypes, defaults.archetypes, "key")
-    };
-  }
-
-  function normalizeData(parsed){
-    const base = clone(defaultData);
-    const merged = {
-      ...base,
-      ...(parsed || {}),
-      ui: { ...base.ui, ...((parsed || {}).ui || {}) },
-      clock: normalizeClock((parsed || {}).clock),
-      recipeDraft: { ...defaultRecipeDraft(), ...((parsed || {}).recipeDraft || {}) },
-      currentBatch: { ...defaultCurrentBatch(), ...((parsed || {}).currentBatch || {}) },
-      nutrients: { ...defaultNutrients(), ...((parsed || {}).nutrients || {}) },
-      cellar: { ...defaultCellar(), ...((parsed || {}).cellar || {}) },
-      calcs: { ...defaultCalcs(), ...((parsed || {}).calcs || {}) },
-      rapt: { ...defaultRaptSync(), ...((parsed || {}).rapt || {}) },
-      mentor: { ...defaultMentor(), ...((parsed || {}).mentor || {}) },
-      mentorKnowledge: normalizeMentorKnowledge((parsed || {}).mentorKnowledge)
-    };
-    merged.recipeDraft.additions = Array.isArray(merged.recipeDraft.additions) && merged.recipeDraft.additions.length ? merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
-    merged.currentBatch.additions = Array.isArray(merged.currentBatch.additions) && merged.currentBatch.additions.length ? merged.currentBatch.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") })) : [defaultAdditionRow()];
-    merged.currentBatch.stepFeedLog = Array.isArray(merged.currentBatch.stepFeedLog) ? merged.currentBatch.stepFeedLog : [];
-    merged.cellar.additions = Array.isArray(merged.cellar.additions) && merged.cellar.additions.length ? merged.cellar.additions.map((row) => ({ ...defaultCellarAddition(), ...row, id: row.id || makeId("cellaradd") })) : [defaultCellarAddition()];
-    merged.recipes = Array.isArray((parsed || {}).recipes) ? parsed.recipes.map(normalizeRecipe) : [];
-    merged.fermentationLogs = Array.isArray((parsed || {}).fermentationLogs) ? parsed.fermentationLogs.map(normalizeLog) : [];
-    merged.fermentChecklist = Array.isArray((parsed || {}).fermentChecklist) && parsed.fermentChecklist.length ? parsed.fermentChecklist : defaultFermentChecklist();
-    merged.cellarChecklist = Array.isArray((parsed || {}).cellarChecklist) && parsed.cellarChecklist.length ? parsed.cellarChecklist : defaultCellarChecklist();
-    merged.archive = Array.isArray((parsed || {}).archive) ? parsed.archive.map(normalizeArchiveItem) : [];
-    if (!merged.ui.activeTab || merged.ui.activeTab === "dashboard") merged.ui.activeTab = "recipes";
-    if (merged.ui.activeTab === "calcs") merged.ui.activeTab = "recipes";
-    return merged;
-  }
-
-  let data = normalizeData(loadData());
+  let data = loadStoredData();
   let clockInterval = null;
   let raptRefreshInterval = null;
   let raptImportPromise = null;
@@ -1220,12 +1141,7 @@
   }
 
   function persistData(){
-    try{
-      delete data.meadevilMentor;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch(error){
-      console.error("Could not save app data", error);
-    }
+    persistStoredData(data);
   }
 
   function normalizeIsoDate(value){
@@ -4234,11 +4150,12 @@
       event.target.value = "";
     });
     $("exportDataBtn").addEventListener("click", () => {
-      const exportPayload = clone(data);
+      let enhancement = null;
       try {
         const enhRaw = localStorage.getItem(ENHANCEMENT_KEY);
-        if (enhRaw) exportPayload._enhancement = JSON.parse(enhRaw);
+        if (enhRaw) enhancement = JSON.parse(enhRaw);
       } catch(e) {}
+      const exportPayload = serializeExportState(data, enhancement);
       const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -4253,12 +4170,11 @@
       if (!file) return;
       try{
         const raw = await file.text();
-        const parsed = JSON.parse(raw);
-        if (parsed._enhancement) {
-          try { localStorage.setItem(ENHANCEMENT_KEY, JSON.stringify(parsed._enhancement)); } catch(e) {}
-          delete parsed._enhancement;
+        const imported = parseImportedState(raw);
+        if (imported.enhancement) {
+          try { localStorage.setItem(ENHANCEMENT_KEY, JSON.stringify(imported.enhancement)); } catch(e) {}
         }
-        data = normalizeData(parsed);
+        data = imported.normalizedData;
         populateRecipeForm();
         populateNutrientForm();
         populateCellarForm();
@@ -4362,7 +4278,7 @@
   });
 
   window.addEventListener("meadevil-cloud-restore", () => {
-    data = normalizeData(loadData());
+    data = loadStoredData();
     populateRecipeForm();
     populateNutrientForm();
     populateCellarForm();
