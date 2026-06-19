@@ -31,6 +31,7 @@
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const makeId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  const fieldValue = (value, fallback = "") => value == null ? fallback : value;
   let trendHoverPoints = [];
   const RAPT_AUTO_REFRESH_MS = 20 * 60 * 1000;
   const RAPT_VISIBILITY_REFRESH_STALE_MS = 45 * 60 * 1000;
@@ -1525,20 +1526,21 @@
     return { gateReady, stablePair, spacingDays, warnings, greenlights, latest };
   }
 
-  function applyYeastPresetToDraft(selected){
+  function applyYeastPresetToDraft(selected, options = {}){
+    const { hydrate = false } = options;
     const preset = YEAST_PRESETS[selected];
     const isCustom = selected === "Other / Custom";
     $("recipeYeastOtherWrap").classList.toggle("hidden-field", !isCustom);
     $("recipeYeastTolerance").readOnly = !isCustom;
     $("recipeTemp").readOnly = !isCustom;
-    if (preset){
+    if (preset && !hydrate){
       data.recipeDraft.yeastTolerance = preset.tolerance;
       data.recipeDraft.temp = preset.temp;
       data.recipeDraft.nitrogenRequirement = preset.nitrogenRequirement || "medium";
       $("recipeYeastTolerance").value = preset.tolerance;
       $("recipeTemp").value = preset.temp;
       if ($("recipeNitrogenRequirement")) $("recipeNitrogenRequirement").value = data.recipeDraft.nitrogenRequirement;
-    } else if (!isCustom && !selected){
+    } else if (!isCustom && !selected && !hydrate){
       data.recipeDraft.yeastTolerance = "";
       data.recipeDraft.temp = "";
       data.recipeDraft.nitrogenRequirement = "low";
@@ -1696,9 +1698,21 @@
      Navigation and global clock helpers
      ========================================================= */
 
+  function scrollViewportToTop(){
+    const jump = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    };
+    jump();
+    window.requestAnimationFrame(jump);
+  }
+
   function setActiveTab(tab){
+    const previousTab = data.ui.activeTab;
     data.ui.activeTab = tab;
     renderTabs();
+    if (previousTab !== tab) scrollViewportToTop();
     persistData();
   }
 
@@ -2064,9 +2078,9 @@
     renderCurrentBatchSummary();
     renderExecutionPlan();
     setFermentEmptyState(batchHasData());
-    $("batchPitchDate").value = data.currentBatch.pitchDate || "";
-    $("batchPhase").value = data.currentBatch.phase || "primary";
-    $("batchFermentNotes").value = data.currentBatch.fermentNotes || "";
+    $("batchPitchDate").value = fieldValue(data.currentBatch.pitchDate);
+    $("batchPhase").value = fieldValue(data.currentBatch.phase, "primary");
+    $("batchFermentNotes").value = fieldValue(data.currentBatch.fermentNotes);
     const checklistRemaining = data.fermentChecklist.filter((item) => !item.done).length;
     $("fermentChecklistSummary").textContent = checklistRemaining ? `${checklistRemaining} open` : "All done";
     $("fermentChecklist").innerHTML = data.fermentChecklist.map((item) => `
@@ -2163,9 +2177,9 @@
       honeyPPG: data.currentBatch.stepFeedHoneyPpg,
       feedCount: data.currentBatch.stepFeedCount
     });
-    $("stepFeedPoints").value = data.currentBatch.stepFeedPoints || "30";
-    $("stepFeedHoneyPpg").value = data.currentBatch.stepFeedHoneyPpg || "35";
-    $("stepFeedCount").value = data.currentBatch.stepFeedCount || "1";
+    $("stepFeedPoints").value = fieldValue(data.currentBatch.stepFeedPoints, "30");
+    $("stepFeedHoneyPpg").value = fieldValue(data.currentBatch.stepFeedHoneyPpg, "35");
+    $("stepFeedCount").value = fieldValue(data.currentBatch.stepFeedCount, "1");
     $("stepFeedResult").innerHTML = step
       ? `Each feed adds about <strong>${round(step.honeyLbPerFeed, 2)} lb</strong> honey (${round(step.honeyOzPerFeed, 1)} oz / ${round(step.honeyKgPerFeed, 2)} kg) to raise the batch by ${escapeHTML(String(data.currentBatch.stepFeedPoints))} gravity points. Planned total: ${round(step.totalHoneyLb, 2)} lb across ${escapeHTML(String(data.currentBatch.stepFeedCount))} feed(s).`
       : `Load a batch with a volume first.`;
@@ -2820,105 +2834,105 @@
 
   function populateRecipeForm(){
     const r = data.recipeDraft;
-    $("recipeName").value = r.name || "";
-    $("recipeStyle").value = r.style || "Traditional";
-    $("recipeBatchGallons").value = r.batchGallons || "";
-    $("recipeTargetAbv").value = r.targetAbv || "";
-    $("recipeSweetness").value = r.sweetness || "Dry";
-    $("recipeCarbonation").value = r.carbonation || "Still";
-    $("recipeYeast").value = r.yeast || "";
-    $("recipeDryYeast").value = r.dryYeast || "";
-    $("recipeYeastTolerance").value = r.yeastTolerance || "";
-    $("recipeTemp").value = r.temp || "";
-    if ($("recipeNitrogenRequirement")) $("recipeNitrogenRequirement").value = r.nitrogenRequirement || "low";
-    if ($("recipeYeastOther")) $("recipeYeastOther").value = r.yeastOther || "";
-    applyYeastPresetToDraft(r.yeast || "");
-    $("recipeTags").value = r.tags || "";
-    $("recipeQuickNote").value = r.quickNote || "";
-    $("recipeNotes").value = r.notes || "";
+    $("recipeName").value = fieldValue(r.name);
+    $("recipeStyle").value = fieldValue(r.style, "Traditional");
+    $("recipeBatchGallons").value = fieldValue(r.batchGallons);
+    $("recipeTargetAbv").value = fieldValue(r.targetAbv);
+    $("recipeSweetness").value = fieldValue(r.sweetness, "Dry");
+    $("recipeCarbonation").value = fieldValue(r.carbonation, "Still");
+    $("recipeYeast").value = fieldValue(r.yeast);
+    $("recipeDryYeast").value = fieldValue(r.dryYeast);
+    $("recipeYeastTolerance").value = fieldValue(r.yeastTolerance);
+    $("recipeTemp").value = fieldValue(r.temp);
+    if ($("recipeNitrogenRequirement")) $("recipeNitrogenRequirement").value = fieldValue(r.nitrogenRequirement, "low");
+    if ($("recipeYeastOther")) $("recipeYeastOther").value = fieldValue(r.yeastOther);
+    applyYeastPresetToDraft(fieldValue(r.yeast), { hydrate: true });
+    $("recipeTags").value = fieldValue(r.tags);
+    $("recipeQuickNote").value = fieldValue(r.quickNote);
+    $("recipeNotes").value = fieldValue(r.notes);
   }
 
   function populateNutrientForm(){
     const n = data.nutrients;
-    $("nutrientBatchGallons").value = n.batchGallons || "";
-    $("nutrientOg").value = n.og || "";
-    $("nutrientBrix").value = n.brix || "";
-    $("nutrientYeastRequirementDisplay").value = n.yeastRequirement || "low";
-    $("nutrientDryYeastDisplay").value = n.dryYeast || "";
+    $("nutrientBatchGallons").value = fieldValue(n.batchGallons);
+    $("nutrientOg").value = fieldValue(n.og);
+    $("nutrientBrix").value = fieldValue(n.brix);
+    $("nutrientYeastRequirementDisplay").value = fieldValue(n.yeastRequirement, "low");
+    $("nutrientDryYeastDisplay").value = fieldValue(n.dryYeast);
     document.querySelectorAll("[data-nutrient-protocol]").forEach((button) => {
-      button.classList.toggle("active", button.dataset.nutrientProtocol === (n.protocol || "tosna"));
+      button.classList.toggle("active", button.dataset.nutrientProtocol === fieldValue(n.protocol, "tosna"));
     });
-    $("nutrientFruitOffset").value = n.fruitOffsetPpm || "0";
-    $("nutrientTargetYan").value = n.targetYanPpm || "160";
+    $("nutrientFruitOffset").value = fieldValue(n.fruitOffsetPpm, "0");
+    $("nutrientTargetYan").value = fieldValue(n.targetYanPpm, "160");
     $("nutrientEnforceLimits").checked = Boolean(n.enforceLimits);
-    $("nutrientLimitO").value = n.limitO || "1.2";
-    $("nutrientLimitK").value = n.limitK || "0.5";
-    $("nutrientLimitD").value = n.limitD || "0.96";
-    $("nutrientRatioO").value = n.ratioO || "60";
-    $("nutrientRatioK").value = n.ratioK || "25";
-    $("nutrientRatioD").value = n.ratioD || "15";
-    $("nutrientNotes").value = n.notes || "";
+    $("nutrientLimitO").value = fieldValue(n.limitO, "1.2");
+    $("nutrientLimitK").value = fieldValue(n.limitK, "0.5");
+    $("nutrientLimitD").value = fieldValue(n.limitD, "0.96");
+    $("nutrientRatioO").value = fieldValue(n.ratioO, "60");
+    $("nutrientRatioK").value = fieldValue(n.ratioK, "25");
+    $("nutrientRatioD").value = fieldValue(n.ratioD, "15");
+    $("nutrientNotes").value = fieldValue(n.notes);
   }
 
   function populateCellarForm(){
     const c = data.cellar;
-    $("finishPath").value = c.finishPath || "Backsweetened and still";
-    $("stableSgA").value = c.stableSgA || "";
-    $("stableDateA").value = c.stableDateA || "";
-    $("stableSgB").value = c.stableSgB || "";
-    $("stableDateB").value = c.stableDateB || "";
-    $("cellarCurrentPh").value = c.currentPh || "";
-    $("cellarCurrentTemp").value = c.currentTemp || "";
-    $("kmetaAmount").value = c.kmetaAmount || "";
-    $("sorbateAmount").value = c.sorbateAmount || "";
-    $("backsweetenVolume").value = c.backsweetenVolume || "";
-    $("backsweetenCurrentSg").value = c.backsweetenCurrentSg || "";
-    $("backsweetenTargetSg").value = c.backsweetenTargetSg || "";
-    $("backsweetenSourceType").value = c.backsweetenSourceType || "Honey";
-    $("backsweetenPpg").value = c.backsweetenPpg || "35";
-    $("backsweetenPpg").disabled = sourceLocked(c.backsweetenSourceType || "Honey");
-    $("benchBatchGallons").value = c.benchBatchGallons || "";
-    $("benchSampleMl").value = c.benchSampleMl || "100";
-    $("benchAddition").value = c.benchAddition || "";
-    $("benchUnit").value = c.benchUnit || "g";
-    $("blendVol1").value = c.blendVol1 || "";
-    $("blendSg1").value = c.blendSg1 || "";
-    $("blendVol2").value = c.blendVol2 || "";
-    $("blendSg2").value = c.blendSg2 || "";
-    $("cellarGallons").value = c.cellarGallons || "";
-    $("cellarBottleOz").value = c.cellarBottleOz || "12";
-    $("cellarLossPct").value = c.cellarLossPct || "5";
-    $("stabilizationNotes").value = c.stabilizationNotes || "";
-    $("packagingNotes").value = c.packagingNotes || "";
-    $("tastingNotes").value = c.tastingNotes || "";
-    $("cellarRating").value = c.rating || "";
-    $("cellarTags").value = c.tags || "";
+    $("finishPath").value = fieldValue(c.finishPath, "Backsweetened and still");
+    $("stableSgA").value = fieldValue(c.stableSgA);
+    $("stableDateA").value = fieldValue(c.stableDateA);
+    $("stableSgB").value = fieldValue(c.stableSgB);
+    $("stableDateB").value = fieldValue(c.stableDateB);
+    $("cellarCurrentPh").value = fieldValue(c.currentPh);
+    $("cellarCurrentTemp").value = fieldValue(c.currentTemp);
+    $("kmetaAmount").value = fieldValue(c.kmetaAmount);
+    $("sorbateAmount").value = fieldValue(c.sorbateAmount);
+    $("backsweetenVolume").value = fieldValue(c.backsweetenVolume);
+    $("backsweetenCurrentSg").value = fieldValue(c.backsweetenCurrentSg);
+    $("backsweetenTargetSg").value = fieldValue(c.backsweetenTargetSg);
+    $("backsweetenSourceType").value = fieldValue(c.backsweetenSourceType, "Honey");
+    $("backsweetenPpg").value = fieldValue(c.backsweetenPpg, "35");
+    $("backsweetenPpg").disabled = sourceLocked(fieldValue(c.backsweetenSourceType, "Honey"));
+    $("benchBatchGallons").value = fieldValue(c.benchBatchGallons);
+    $("benchSampleMl").value = fieldValue(c.benchSampleMl, "100");
+    $("benchAddition").value = fieldValue(c.benchAddition);
+    $("benchUnit").value = fieldValue(c.benchUnit, "g");
+    $("blendVol1").value = fieldValue(c.blendVol1);
+    $("blendSg1").value = fieldValue(c.blendSg1);
+    $("blendVol2").value = fieldValue(c.blendVol2);
+    $("blendSg2").value = fieldValue(c.blendSg2);
+    $("cellarGallons").value = fieldValue(c.cellarGallons);
+    $("cellarBottleOz").value = fieldValue(c.cellarBottleOz, "12");
+    $("cellarLossPct").value = fieldValue(c.cellarLossPct, "5");
+    $("stabilizationNotes").value = fieldValue(c.stabilizationNotes);
+    $("packagingNotes").value = fieldValue(c.packagingNotes);
+    $("tastingNotes").value = fieldValue(c.tastingNotes);
+    $("cellarRating").value = fieldValue(c.rating);
+    $("cellarTags").value = fieldValue(c.tags);
     $("wouldMakeAgain").checked = Boolean(c.wouldMakeAgain);
   }
 
   function populateCalcForm(){
     const c = data.calcs;
-    $("calcTargetOg").value = c.targetOg || "";
-    $("calcTargetBatch").value = c.targetBatch || "";
-    $("calcTargetPpg").value = c.targetPpg || "35";
-    $("calcHoneyLb").value = c.honeyLb || "";
-    $("calcHoneyBatch").value = c.honeyBatch || "";
-    $("calcHoneyPpg").value = c.honeyPpg || "35";
-    $("calcAbvOg").value = c.abvOg || "";
-    $("calcAbvFg").value = c.abvFg || "";
-    $("calcBreakOg").value = c.breakOg || "";
-    $("calcSgInput").value = c.sgInput || "";
-    $("calcBrixInput").value = c.brixInput || "";
-    $("calcRecipeBatch").value = c.recipeBatch || "";
-    $("calcRecipeAbv").value = c.recipeAbv || "";
-    $("calcRecipeSweetness").value = c.recipeSweetness || "Dry";
-    $("calcRecipeTolerance").value = c.recipeTolerance || "";
-    $("calcFermenterProfileName").value = c.fermenterProfileName || "";
-    $("calcFermenterBottomDiameter").value = c.fermenterBottomDiameter || "";
-    $("calcFermenterTopDiameter").value = c.fermenterTopDiameter || "";
-    $("calcFermenterTotalHeight").value = c.fermenterTotalHeight || "";
-    $("calcFermenterLiquidHeight").value = c.fermenterLiquidHeight || "";
-    $("calcFermenterSedimentHeight").value = c.fermenterSedimentHeight || "";
+    $("calcTargetOg").value = fieldValue(c.targetOg);
+    $("calcTargetBatch").value = fieldValue(c.targetBatch);
+    $("calcTargetPpg").value = fieldValue(c.targetPpg, "35");
+    $("calcHoneyLb").value = fieldValue(c.honeyLb);
+    $("calcHoneyBatch").value = fieldValue(c.honeyBatch);
+    $("calcHoneyPpg").value = fieldValue(c.honeyPpg, "35");
+    $("calcAbvOg").value = fieldValue(c.abvOg);
+    $("calcAbvFg").value = fieldValue(c.abvFg);
+    $("calcBreakOg").value = fieldValue(c.breakOg);
+    $("calcSgInput").value = fieldValue(c.sgInput);
+    $("calcBrixInput").value = fieldValue(c.brixInput);
+    $("calcRecipeBatch").value = fieldValue(c.recipeBatch);
+    $("calcRecipeAbv").value = fieldValue(c.recipeAbv);
+    $("calcRecipeSweetness").value = fieldValue(c.recipeSweetness, "Dry");
+    $("calcRecipeTolerance").value = fieldValue(c.recipeTolerance);
+    $("calcFermenterProfileName").value = fieldValue(c.fermenterProfileName);
+    $("calcFermenterBottomDiameter").value = fieldValue(c.fermenterBottomDiameter);
+    $("calcFermenterTopDiameter").value = fieldValue(c.fermenterTopDiameter);
+    $("calcFermenterTotalHeight").value = fieldValue(c.fermenterTotalHeight);
+    $("calcFermenterLiquidHeight").value = fieldValue(c.fermenterLiquidHeight);
+    $("calcFermenterSedimentHeight").value = fieldValue(c.fermenterSedimentHeight);
     renderFermenterProfileSelect();
   }
 

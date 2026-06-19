@@ -53,7 +53,11 @@ async function runDesktopFlow(downloadDir) {
     return list && list.textContent && list.textContent.includes(name);
   }, recipeName);
 
+  await openTab(page, "tab-btn-nutrients", "tab-nutrients");
+  await page.fill("#nutrientFruitOffset", "");
   await page.reload({ waitUntil: "networkidle" });
+  await openTab(page, "tab-btn-nutrients", "tab-nutrients");
+  await page.waitForFunction(() => document.getElementById("nutrientFruitOffset").value === "");
   await openTab(page, "tab-btn-recipes", "tab-recipes");
   await page.waitForFunction((name) => document.getElementById("recipeName").value === name, recipeName);
 
@@ -116,6 +120,13 @@ async function runMobileFlow() {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     assert(!overflow, `Mobile overflow detected on ${panelId}.`);
   }
+
+  await openTab(page, "tab-btn-recipes", "tab-recipes");
+  await page.evaluate(() => window.scrollTo(0, 700));
+  await page.waitForTimeout(100);
+  await openTab(page, "tab-btn-ferment", "tab-ferment");
+  const tabSwitchScrollY = await page.evaluate(() => window.scrollY);
+  assert(tabSwitchScrollY <= 8, `Tab navigation did not reset scroll position (scrollY=${tabSwitchScrollY}).`);
 
   assert(errors.length === 0, `Mobile flow produced browser errors:\n${errors.join("\n")}`);
   await context.close();
