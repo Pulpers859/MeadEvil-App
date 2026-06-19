@@ -37,7 +37,7 @@
         </div>
         <div class="header-right">
           <button class="mini-btn" id="batchClockBtn" type="button">Start Clock</button>
-          <button class="mini-btn" id="batchClockResetBtn" type="button">Reset</button>
+          <button class="mini-btn" id="batchClockResetBtn" type="button">Clear clock</button>
           <div id="batchClockDisplay" class="pill gold">00:00:00</div>
         </div>
       </div>
@@ -74,10 +74,10 @@
               <div class="toolbar">
                 <h3>Concept spark</h3>
                 <div class="tag-row">
-                  <button class="mini-btn" id="mentorDemoCocoBtn" type="button">Load demo</button>
-                  <button class="mini-btn" id="mentorClearThreadBtn" type="button">Fresh read</button>
-                  <button class="mini-btn" id="clearMentorBtn" type="button">New brew</button>
-                  <button class="btn btn-primary" id="mentorToRecipeBtn" type="button">Send to Build</button>
+                  <button class="mini-btn" id="mentorDemoCocoBtn" type="button">Open demo</button>
+                  <button class="mini-btn" id="mentorClearThreadBtn" type="button">Clear thread</button>
+                  <button class="mini-btn utility-danger" id="clearMentorBtn" type="button">Reset concept</button>
+                  <button class="btn btn-primary" id="mentorToRecipeBtn" type="button">Build draft</button>
                 </div>
               </div>
               <div class="notes-box mentor-concept-preview" id="mentorConceptPreview"></div>
@@ -185,8 +185,8 @@
               <div class="toolbar">
                 <h3>Recipe</h3>
                 <div class="tag-row">
-                  <button class="mini-btn" id="loadDraftToBatchBtn" type="button">Load to batch</button>
-                  <button class="mini-btn" id="clearRecipeBtn" type="button">Clear</button>
+                  <button class="mini-btn" id="loadDraftToBatchBtn" type="button">Start batch</button>
+                  <button class="mini-btn" id="clearRecipeBtn" type="button">New draft</button>
                   <button class="btn btn-primary" id="saveRecipeBtn" type="button">Save recipe</button>
                 </div>
               </div>
@@ -287,7 +287,7 @@
               <div class="notes-box" id="recipeReadiness"></div>
             </div>
             <div class="card card-compact utility-panel">
-              <div class="toolbar"><h3>Loaded draft</h3><button class="mini-btn" data-open-tab="archive" type="button">Open vault</button></div>
+              <div class="toolbar"><h3>Selected recipe</h3><button class="mini-btn" data-open-tab="archive" type="button">Browse vault</button></div>
               <div class="notes-box" id="currentRecipeLaunch"></div>
             </div>
 
@@ -442,7 +442,7 @@
                         <div class="tag-row calc-action-row">
                           <button class="mini-btn" id="saveFermenterProfileBtn" type="button">Save as new</button>
                           <button class="mini-btn" id="updateFermenterProfileBtn" type="button">Update selected</button>
-                          <button class="mini-btn utility-danger" id="deleteFermenterProfileBtn" type="button">Delete selected</button>
+                          <button class="mini-btn utility-danger" id="deleteFermenterProfileBtn" type="button">Delete profile</button>
                         </div>
                       </article>
 
@@ -512,8 +512,8 @@
               <div class="toolbar">
                 <h3>Active batch</h3>
                 <div class="tag-row" id="batchActions">
-                  <button class="mini-btn" id="clearActiveBatchBtn" type="button">Clear</button>
-                  <button class="btn btn-primary" id="archiveBatchBtn" type="button">Archive batch</button>
+                  <button class="mini-btn utility-danger" id="clearActiveBatchBtn" type="button">Reset batch</button>
+                  <button class="btn btn-primary" id="archiveBatchBtn" type="button">Archive to Vault</button>
                 </div>
               </div>
               <div class="batch-summary-card" id="currentBatchSummary"></div>
@@ -578,7 +578,7 @@
                 <div class="field"><label for="logNote">Note</label><input id="logNote" placeholder="Fruit cap down, aroma cleaner, slight sulfur fading…" /></div>
                 <div class="tag-row">
                   <button class="btn btn-primary" id="addLogBtn" type="button">Add reading</button>
-                  <button class="mini-btn" id="clearLogsBtn" type="button">Clear log</button>
+                  <button class="mini-btn utility-danger" id="clearLogsBtn" type="button">Clear readings</button>
                   <button class="mini-btn" id="toggleGravityLogBtn" type="button">Show all logs</button>
                   <button class="mini-btn" id="importGravityCsvBtn" type="button">Import CSV</button>
                   <input type="file" id="gravityCsvFileInput" accept=".csv,text/csv" hidden />
@@ -844,7 +844,7 @@
         <div class="utility-bar">
           <button class="mini-btn" id="exportDataBtn" type="button">Export JSON</button>
           <button class="mini-btn" id="importDataBtn" type="button">Import JSON</button>
-          <button class="mini-btn utility-danger" id="resetAppBtn" type="button">Reset app</button>
+          <button class="mini-btn utility-danger" id="resetAppBtn" type="button">Factory reset</button>
           <input type="file" id="importFileInput" accept=".json,application/json" hidden />
           <input type="file" id="recipeCsvFileInput" accept=".csv,text/csv" hidden />
         </div>

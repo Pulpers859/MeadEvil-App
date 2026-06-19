@@ -2379,7 +2379,7 @@
     $("mentorToRecipeBtn")?.addEventListener("click", applyMentorToBuild);
 
     $("mentorClearThreadBtn")?.addEventListener("click", () => {
-      if (!confirm("Clear the mentor conversation thread? Your concept fields will stay, but all conversation history will be lost.")) return;
+      if (!confirm("Clear the brainstorm thread? The concept fields stay, but the mentor conversation resets.")) return;
       saveMergedMain((enh) => {
         enh.mentor = blankMentorThreadState(enh.mentor);
       });
@@ -2391,7 +2391,7 @@
     });
 
     $("clearMentorBtn")?.addEventListener("click", () => {
-      if (!confirm("Start a completely new brew? All concept fields and conversation history will be reset.")) return;
+      if (!confirm("Reset the brainstorm concept? This clears the concept fields and the mentor thread.")) return;
       saveMergedMain((enh) => { enh.mentor = defaultMentorState(); });
       saveMentorMirrorToMain((main) => {
         blankMentorLegacyBridge(main);
@@ -2402,7 +2402,7 @@
     });
 
     $("mentorDemoCocoBtn")?.addEventListener("click", () => {
-      if (!confirm("Load the El Coco Loco demo concept? This replaces the current concept fields and starts a fresh brainstorm thread.")) return;
+      if (!confirm("Open the El Coco Loco demo? This replaces the current concept and clears the brainstorm thread.")) return;
       const demo = cocoLocoDemo();
       saveMergedMain((enh) => {
         enh.mentor = blankMentorThreadState(enh.mentor);

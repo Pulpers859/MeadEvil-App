@@ -1944,7 +1944,7 @@
     const selected = currentRecipe();
     $("currentRecipeLaunch").innerHTML = selected
       ? `<strong>${escapeHTML(selected.name)}</strong><br>${escapeHTML(selected.style)} · ${escapeHTML(selected.batchGallons || "—")} gal · target ${escapeHTML(selected.targetAbv || selected.estimatedAbv || "—")}% ABV<br><span class="muted">${escapeHTML(selected.quickNote || recipeSourceSummary(selected).honey || "No quick note")}</span>`
-      : emptyState("Open Vault to load a build", "Saved drafts will show up here when you want to compare or reload prior work.", "calm", "Vault");
+      : emptyState("Browse Vault to load a recipe", "Saved drafts will show up here when you want to compare or reuse prior work.", "calm", "Vault");
   }
 
   function renderRecipes(){
@@ -2388,9 +2388,9 @@
             <div class="muted">${escapeHTML(recipe.style || "Mead")} · ${escapeHTML(recipe.batchGallons || "—")} gal · ${escapeHTML(recipe.targetAbv || recipe.estimatedAbv || "—")}% ABV</div>
             <div class="muted">${escapeHTML(recipe.quickNote || recipeSourceSummary(recipe).honey || "No quick note")}</div>
             <div class="item-actions">
-              <button class="mini-btn" data-recipe-edit="${recipe.id}" type="button">Edit</button>
-              <button class="mini-btn" data-recipe-load="${recipe.id}" type="button">Load to batch</button>
-              <button class="mini-btn" data-recipe-copy="${recipe.id}" type="button">Copy note</button>
+              <button class="mini-btn" data-recipe-edit="${recipe.id}" type="button">Open in Build</button>
+              <button class="mini-btn" data-recipe-load="${recipe.id}" type="button">Start batch</button>
+              <button class="mini-btn" data-recipe-copy="${recipe.id}" type="button">Copy notes</button>
               <button class="mini-btn" data-recipe-delete="${recipe.id}" type="button">Delete</button>
             </div>
           </div>
@@ -2428,8 +2428,8 @@
             <div class="muted">Finish: ${escapeHTML(item.cellar.finishPath || "—")} · Rating: ${escapeHTML(item.cellar.rating || "—")} · Tags: ${escapeHTML(item.cellar.tags || "—")} · Rebrew: ${item.cellar.wouldMakeAgain ? "Yes" : "No"}</div>
             <div class="muted">${escapeHTML(item.cellar.tastingNotes || "")}</div>
             <div class="item-actions">
-              <button class="mini-btn" data-archive-load="${item.id}" type="button">Load to batch</button>
-              <button class="mini-btn" data-archive-clone="${item.id}" type="button">Clone to recipe</button>
+              <button class="mini-btn" data-archive-load="${item.id}" type="button">Resume batch</button>
+              <button class="mini-btn" data-archive-clone="${item.id}" type="button">Open as recipe</button>
               <button class="mini-btn" data-archive-delete="${item.id}" type="button">Delete</button>
             </div>
           </div>`;
@@ -3185,7 +3185,7 @@
     });
 
     $("clearRecipeBtn").addEventListener("click", () => {
-      if (!confirm("Clear the entire recipe draft? This cannot be undone.")) return;
+      if (!confirm("Start a new Build draft? This clears the current Build form only. Saved recipes in Vault stay untouched.")) return;
       data.recipeDraft = defaultRecipeDraft();
       data.ui.selectedRecipeId = null;
       syncNutrientsFromRecipe(data.recipeDraft, { force: true });
@@ -3216,7 +3216,7 @@
     });
 
     $("loadDraftToBatchBtn").addEventListener("click", () => {
-      if (batchHasData() && !confirm("Loading a new batch will replace the current active batch and erase all gravity logs, checklists, and cellar data. Continue?")) return;
+      if (batchHasData() && !confirm("Start a new active batch from this Build draft? The current Ferment, Feed, Finish, and gravity records will be replaced.")) return;
       const recipe = recipeFromDraft();
       applyRecipeToBatch(recipe);
     });
@@ -3363,7 +3363,7 @@
       if (el) el.addEventListener("input", () => setLogEntryError(""));
     });
     $("clearLogsBtn").addEventListener("click", () => {
-      if (!confirm("Clear all gravity log entries? This cannot be undone.")) return;
+      if (!confirm("Clear all gravity readings for the active batch? The batch, nutrient, and finish records will stay.")) return;
       data.fermentationLogs = [];
       persistData();
       renderDashboard();
@@ -3429,7 +3429,7 @@
     });
 
     $("clearActiveBatchBtn").addEventListener("click", () => {
-      if (!confirm("Clear the active batch? All gravity logs, nutrient plan, fermentation data, and cellar notes will be lost. This cannot be undone.")) return;
+      if (!confirm("Reset the active batch? This clears Ferment, Feed, Finish, and gravity history for the current batch. Saved recipes and Vault entries stay untouched.")) return;
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
@@ -3631,7 +3631,7 @@
       if (recipeLoad){
         const recipe = data.recipes.find((item) => item.id === recipeLoad);
         if (!recipe) return;
-        if (batchHasData() && !confirm("Loading this recipe will replace the current active batch and erase all gravity logs, checklists, and cellar data. Continue?")) return;
+        if (batchHasData() && !confirm("Start a new active batch from this saved recipe? The current Ferment, Feed, Finish, and gravity records will be replaced.")) return;
         data.ui.selectedRecipeId = recipe.id;
         applyRecipeToBatch(recipe);
       }
@@ -3655,7 +3655,7 @@
       if (archiveLoad){
         const item = data.archive.find((entry) => entry.id === archiveLoad);
         if (!item) return;
-        if (batchHasData() && !confirm("Loading this archived batch will replace the current active batch. Continue?")) return;
+        if (batchHasData() && !confirm("Resume this archived batch as the active batch? The current live batch will be replaced.")) return;
         data.currentBatch = clone(item.batch);
         data.fermentationLogs = clone(item.fermentationLogs);
         data.fermentChecklist = clone(item.fermentChecklist);
@@ -4188,7 +4188,7 @@
       event.target.value = "";
     });
     $("resetAppBtn").addEventListener("click", () => {
-      if (!confirm("Reset the entire app to factory defaults? All recipes, batches, archive, mentor history, and settings will be permanently lost.")) return;
+      if (!confirm("Factory reset MeadEvil? This deletes saved recipes, active batch data, archive history, mentor history, and settings.")) return;
       try { localStorage.removeItem(ENHANCEMENT_KEY); } catch(e) {}
       data = normalizeData(null);
       populateRecipeForm();
