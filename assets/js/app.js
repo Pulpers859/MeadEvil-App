@@ -1978,6 +1978,23 @@
       $("recipeMustSummary").innerHTML = emptyState("Source bill waiting", "Add fermentable rows to see the gravity this recipe really builds.", "focus", "Source");
     }
 
+    const deltaState = (() => {
+      if (plan && bill && ogDeltaPoints != null) {
+        if (ogDeltaPoints === 0) {
+          return `<strong>On target.</strong> The current bill is landing on the planned OG.`;
+        }
+        return `<strong>${ogDeltaPoints > 0 ? "Reality is high" : "Reality is low"} by ${Math.abs(ogDeltaPoints)} points.</strong> ${ogDeltaPoints > 0 ? "Trim the bill or own the stronger build." : "Add gravity or lower the target."}`;
+      }
+      if (!plan && !bill) {
+        return `Set the target and write the bill to compare the plan against the actual build.`;
+      }
+      if (!plan) {
+        return `Set batch size and target ABV so the bill has an ideal to measure against.`;
+      }
+      return `Add fermentable rows so the actual build can answer the design target.`;
+    })();
+    $("recipeTargetRealityDelta").innerHTML = deltaState;
+
     const warnings = [];
     const greenlights = [];
     if (!recipe.name) warnings.push("Name the batch so the recipe stops living as anonymous sludge in the vault.");
@@ -2011,7 +2028,7 @@
     const selected = currentRecipe();
     $("currentRecipeLaunch").innerHTML = selected
       ? `<strong>${escapeHTML(selected.name)}</strong><br>${escapeHTML(selected.style)} · ${escapeHTML(selected.batchGallons || "—")} gal · target ${escapeHTML(selected.targetAbv || selected.estimatedAbv || "—")}% ABV<br><span class="muted">${escapeHTML(selected.quickNote || recipeSourceSummary(selected).honey || "No quick note")}</span>`
-      : emptyState("No loaded draft", "Pick a saved build from Vault when you want to compare or reload prior work.", "calm", "Vault");
+      : emptyState("Open Vault to load a build", "Saved drafts will show up here when you want to compare or reload prior work.", "calm", "Vault");
   }
 
   function renderRecipes(){
@@ -2379,13 +2396,6 @@
         `).join("")
       : emptyState("No finish additions logged", "Add honey, acid, tannin, fruit, oak, or finings only when they actually become part of the batch.", "calm", "Cellar");
 
-    $("stabilizationChecklist").innerHTML = data.cellarChecklist.map((item) => `
-      <label class="check-item">
-        <input type="checkbox" data-cellar-task-toggle="${item.id}" ${item.done ? "checked" : ""} />
-        <span>${escapeHTML(item.text)}</span>
-      </label>
-    `).join("");
-
     const analysis = cellarAnalysis();
     const statusLabel = analysis.gateReady ? "Gate clear" : "Gate waiting";
     const statusClass = analysis.gateReady ? "good" : "warn";
@@ -2440,7 +2450,7 @@
     ].filter(Boolean).join(", ");
     $("archivePrepSummary").innerHTML = batchHasData()
       ? `Archiving right now would save <strong>${escapeHTML(data.currentBatch.name || "this batch")}</strong>, ${archiveParts}.`
-      : emptyState("Nothing ready to archive", "A live batch has to exist before the vault prep summary means anything.", "calm", "Vault");
+      : emptyState("Finish a live batch before archiving", "Vault prep will summarize the batch once there is an active finish record.", "calm", "Vault");
   }
 
   function renderArchive(){
@@ -2469,7 +2479,7 @@
             </div>
           </div>
         `).join("")
-      : emptyState("No saved builds", "Save a recipe from Build and it will start a reusable library here.", "focus", "Vault");
+      : emptyState("Save a recipe from Build", "That will start the reusable build library here.", "focus", "Vault");
 
     const archiveSearch = (data.ui.archiveSearch || "").trim().toLowerCase();
     const items = clone(data.archive)
@@ -2508,7 +2518,7 @@
             </div>
           </div>`;
         }).join("")
-      : emptyState("No archived batches", "Archive a finished batch from Finish and the cellar history will accumulate here.", "focus", "Vault");
+      : emptyState("Archive a finished batch from Finish", "That will start the cellar history here.", "focus", "Vault");
   }
 
   function renderCalcs(){
@@ -3643,12 +3653,6 @@
       data.cellar.wouldMakeAgain = $("wouldMakeAgain").checked;
       persistData();
       renderCellar();
-    });
-    $("stabilizationChecklist").addEventListener("change", (event) => {
-      const item = data.cellarChecklist.find((task) => task.id === event.target.dataset.cellarTaskToggle);
-      if (!item) return;
-      item.done = event.target.checked;
-      persistData();
     });
     $("addCellarAdditionBtn").addEventListener("click", () => {
       data.cellar.additions.push(defaultCellarAddition());

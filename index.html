@@ -262,12 +262,24 @@
 
           <div class="stack summary-stack">
             <div class="card card-compact summary-panel">
-              <div class="toolbar"><h3>Design target</h3><span class="small">North star</span></div>
-              <div class="notes-box info-rows" id="recipeTargetSummary"></div>
-            </div>
-            <div class="card card-compact summary-panel">
-              <div class="toolbar"><h3>Source bill reality</h3><span class="small">What it really builds</span></div>
-              <div class="notes-box info-rows" id="recipeMustSummary"></div>
+              <div class="toolbar"><h3>Target vs reality</h3><span class="small">Ideal against the actual build</span></div>
+              <div class="result comparison-delta" id="recipeTargetRealityDelta"></div>
+              <div class="comparison-grid">
+                <section class="comparison-column">
+                  <div class="comparison-column-head">
+                    <span class="comparison-column-kicker">Ideal</span>
+                    <span class="small">North star</span>
+                  </div>
+                  <div class="notes-box info-rows" id="recipeTargetSummary"></div>
+                </section>
+                <section class="comparison-column">
+                  <div class="comparison-column-head">
+                    <span class="comparison-column-kicker">Reality</span>
+                    <span class="small">What the bill builds</span>
+                  </div>
+                  <div class="notes-box info-rows" id="recipeMustSummary"></div>
+                </section>
+              </div>
             </div>
             <div class="card card-compact warning-panel">
               <div class="toolbar"><h3>Sanity engine</h3><span class="small">What needs attention</span></div>
@@ -783,7 +795,6 @@
                 <span class="small">Final notes before vault</span>
               </summary>
               <div class="accord-body">
-                <div class="checklist" id="stabilizationChecklist"></div>
                 <div class="field"><label for="stabilizationNotes">Stabilization notes</label><textarea id="stabilizationNotes" placeholder="Sulfite/sorbate timing, pH re-check, filtration, why you chose this route…"></textarea></div>
                 <div class="field"><label for="packagingNotes">Packaging notes</label><textarea id="packagingNotes" placeholder="Bottle, crown, cork, still, petillant, sparkling, sediment expectations…"></textarea></div>
                 <div class="field"><label for="tastingNotes">Tasting notes</label><textarea id="tastingNotes" placeholder="Honey expression, acid balance, tannin line, heat, integration, what this needs next."></textarea></div>
