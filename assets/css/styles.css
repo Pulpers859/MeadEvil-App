@@ -15,8 +15,10 @@
   --toxic:#8dbd49;
   --line:rgba(244,230,208,.10);
   --line-strong:rgba(244,230,208,.18);
+  --line-soft:rgba(244,230,208,.055);
   --shadow:0 16px 32px rgba(0,0,0,.36);
   --shadow-soft:0 8px 20px rgba(0,0,0,.24);
+  --shadow-subtle:0 8px 18px rgba(0,0,0,.14);
   --radius-xl:20px;
   --radius-lg:16px;
   --radius-md:12px;
@@ -43,6 +45,7 @@ body{
   background:
     radial-gradient(circle at 18% 0%, rgba(107,59,164,.18), transparent 30%),
     radial-gradient(circle at 100% 18%, rgba(163,38,73,.18), transparent 28%),
+    radial-gradient(ellipse at 50% 8%, rgba(244,230,208,.055), transparent 34%),
     linear-gradient(180deg, #0a0710 0%, #0d0a12 34%, #09070d 100%);
   position:relative;
 }
@@ -281,8 +284,21 @@ option{background:#140e1a;color:var(--cream)}
   border-color:rgba(244,230,208,.12);
   background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
 }
-.tab-panel{display:none;padding:var(--sp-lg) 0 120px}
+.tab-panel{display:none;padding:var(--sp-lg) 0 120px;position:relative}
 .tab-panel.active{display:block}
+.tab-panel .container::before{
+  content:"";
+  position:absolute;
+  inset:30px -18px auto;
+  height:260px;
+  border-radius:32px;
+  background:
+    linear-gradient(135deg, var(--section-accent-soft, rgba(244,230,208,.08)), transparent 64%),
+    radial-gradient(circle at 16% 20%, rgba(244,230,208,.05), transparent 34%);
+  opacity:.52;
+  pointer-events:none;
+  z-index:-1;
+}
 #tab-meadmaker{--section-accent:#b98cff;--section-accent-soft:rgba(185,140,255,.18)}
 #tab-recipes{--section-accent:#ffbf86;--section-accent-soft:rgba(255,191,134,.16)}
 #tab-ferment{--section-accent:#9ed86a;--section-accent-soft:rgba(158,216,106,.16)}
@@ -296,7 +312,7 @@ option{background:#140e1a;color:var(--cream)}
   gap:8px;
   margin-bottom:var(--sp-lg);
   padding:14px 0 10px;
-  border-bottom:1px solid rgba(244,230,208,.07);
+  border-bottom:1px solid rgba(244,230,208,.045);
 }
 .section-kicker{
   width:max-content;
@@ -337,8 +353,8 @@ option{background:#140e1a;color:var(--cream)}
   padding:0 10px;
   border-radius:999px;
   color:var(--cream-2);
-  background:rgba(255,255,255,.025);
-  border:1px solid rgba(244,230,208,.08);
+  background:rgba(255,255,255,.02);
+  border:1px solid rgba(244,230,208,.055);
   font-size:.76rem;
   font-weight:800;
   letter-spacing:.04em;
@@ -360,8 +376,8 @@ option{background:#140e1a;color:var(--cream)}
   position:relative;
   overflow:hidden;
   background:linear-gradient(180deg, rgba(23,15,31,.94), rgba(13,9,18,.98));
-  border:1px solid rgba(244,230,208,.075);
-  box-shadow:0 12px 24px rgba(0,0,0,.24);
+  border:1px solid var(--line-soft);
+  box-shadow:var(--shadow-subtle);
 }
 .card{
   border-radius:var(--radius-lg);
@@ -381,8 +397,8 @@ option{background:#140e1a;color:var(--cream)}
   background:
     radial-gradient(circle at 0% 0%, rgba(107,59,164,.12), transparent 34%),
     linear-gradient(180deg, rgba(29,18,38,.98), rgba(13,9,18,.99));
-  border-color:rgba(244,230,208,.105);
-  box-shadow:0 18px 34px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.025);
+  border-color:rgba(244,230,208,.095);
+  box-shadow:0 14px 26px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.025);
 }
 .work-card::after,
 .summary-panel::after,
@@ -399,23 +415,25 @@ option{background:#140e1a;color:var(--cream)}
 }
 .work-card::after{background:linear-gradient(180deg, var(--section-accent, rgba(255,194,140,.4)), transparent 70%)}
 .summary-panel{
-  background:linear-gradient(180deg, rgba(22,15,29,.88), rgba(12,9,17,.94));
-  border-color:rgba(244,230,208,.08);
-  box-shadow:0 10px 20px rgba(0,0,0,.18);
-}
-.summary-panel::after{background:linear-gradient(180deg, rgba(244,230,208,.16), transparent 72%)}
-.utility-panel{
-  background:linear-gradient(180deg, rgba(17,12,24,.76), rgba(10,8,15,.88));
+  background:
+    linear-gradient(180deg, rgba(244,230,208,.026), transparent 44%),
+    linear-gradient(180deg, rgba(18,13,25,.72), rgba(11,8,16,.82));
   border-color:rgba(244,230,208,.055);
-  box-shadow:0 8px 18px rgba(0,0,0,.14);
+  box-shadow:none;
 }
-.utility-panel::after{background:linear-gradient(180deg, rgba(180,163,145,.22), transparent 68%)}
+.summary-panel::after{background:linear-gradient(180deg, rgba(244,230,208,.12), transparent 72%)}
+.utility-panel{
+  background:linear-gradient(180deg, rgba(17,12,24,.50), rgba(10,8,15,.60));
+  border-color:rgba(244,230,208,.04);
+  box-shadow:none;
+}
+.utility-panel::after{background:linear-gradient(180deg, rgba(180,163,145,.14), transparent 68%)}
 .warning-panel{
   background:
     radial-gradient(circle at top left, rgba(255,194,140,.10), transparent 38%),
     linear-gradient(180deg, rgba(31,18,31,.94), rgba(13,9,18,.98));
   border-color:rgba(255,194,140,.15);
-  box-shadow:0 12px 24px rgba(0,0,0,.22), inset 2px 0 0 rgba(255,194,140,.34);
+  box-shadow:0 10px 20px rgba(0,0,0,.16), inset 2px 0 0 rgba(255,194,140,.28);
 }
 .warning-panel::after{background:linear-gradient(180deg, rgba(255,194,140,.58), transparent 72%)}
 .accent-card{
@@ -451,8 +469,8 @@ option{background:#140e1a;color:var(--cream)}
 #tab-cellar .finish-wide{grid-column:span 2}
 #tab-cellar .work-card.accent-soft > .form-grid-3{grid-template-columns:repeat(4,minmax(0,1fr))}
 
-.notes-box{padding:var(--sp-md);border-radius:var(--radius-md);color:var(--cream-2);background:linear-gradient(180deg, rgba(10,8,15,.54), rgba(10,8,15,.25));border:1px solid rgba(244,230,208,.055)}
-.result{padding:var(--sp-md);border-radius:var(--radius-lg);color:var(--cream);font-weight:700;background:linear-gradient(180deg, rgba(107,59,164,.10), rgba(163,38,73,.08))}
+.notes-box{padding:var(--sp-md);border-radius:var(--radius-md);color:var(--cream-2);background:linear-gradient(180deg, rgba(244,230,208,.026), rgba(10,8,15,.20));border:1px solid rgba(244,230,208,.045);box-shadow:none}
+.result{padding:var(--sp-md);border-radius:var(--radius-lg);color:var(--cream);font-weight:700;background:linear-gradient(180deg, rgba(107,59,164,.08), rgba(163,38,73,.055));box-shadow:none}
 .cellar-status{display:grid;gap:10px}
 .cellar-status-head,.cellar-status-check{display:flex;justify-content:space-between;gap:var(--sp-md);align-items:flex-start}
 .cellar-status-head span{color:var(--cream);font-size:1.03rem}
@@ -486,8 +504,11 @@ option{background:#140e1a;color:var(--cream)}
   gap:6px;
   padding:14px;
   color:var(--cream-2);
-  background:linear-gradient(180deg, rgba(15,10,21,.92), rgba(10,8,15,.96));
-  border:1px solid rgba(244,230,208,.07);
+  background:
+    linear-gradient(180deg, rgba(244,230,208,.035), transparent 38%),
+    linear-gradient(180deg, rgba(15,10,21,.68), rgba(10,8,15,.76));
+  border:1px solid rgba(244,230,208,.05);
+  box-shadow:none;
 }
 .empty-state-kicker{
   width:max-content;
@@ -511,13 +532,13 @@ option{background:#140e1a;color:var(--cream)}
   line-height:1.42;
 }
 .empty-state.focus{
-  border-color:rgba(255,194,140,.16);
-  background:linear-gradient(180deg, rgba(30,18,29,.92), rgba(11,8,15,.97));
+  border-color:rgba(255,194,140,.12);
+  background:linear-gradient(180deg, rgba(255,194,140,.055), rgba(11,8,15,.76));
 }
 .empty-state.focus .empty-state-kicker{color:#ffc796;border-color:rgba(255,194,140,.2)}
 .empty-state.good{
-  border-color:rgba(141,189,73,.18);
-  background:linear-gradient(180deg, rgba(20,24,17,.90), rgba(10,8,15,.96));
+  border-color:rgba(141,189,73,.14);
+  background:linear-gradient(180deg, rgba(141,189,73,.045), rgba(10,8,15,.76));
 }
 .empty-state.good .empty-state-kicker{color:#cfe7a2;border-color:rgba(141,189,73,.24)}
 .compact-search{max-width:220px;padding:8px 10px;font-size:.88rem}
@@ -541,6 +562,32 @@ option{background:#140e1a;color:var(--cream)}
   top:var(--sp-lg);
   gap:12px;
 }
+.summary-stack > .summary-panel,
+.summary-stack > .warning-panel,
+.summary-stack > .utility-panel{
+  border-radius:18px;
+}
+.summary-stack > .summary-panel,
+.summary-stack > .utility-panel{
+  padding:14px 16px;
+}
+.summary-stack > .summary-panel{
+  background:
+    linear-gradient(180deg, rgba(244,230,208,.035), rgba(244,230,208,.012) 42%, transparent),
+    linear-gradient(180deg, rgba(16,12,22,.62), rgba(10,8,15,.72));
+}
+.summary-stack > .utility-panel{
+  background:
+    linear-gradient(180deg, rgba(244,230,208,.018), transparent 38%),
+    rgba(10,8,15,.46);
+}
+.summary-stack > .quick-math-card{
+  background:
+    radial-gradient(circle at 0% 0%, var(--section-accent-soft, rgba(107,59,164,.10)), transparent 34%),
+    linear-gradient(180deg, rgba(25,17,34,.96), rgba(12,8,17,.98));
+  border-color:rgba(244,230,208,.085);
+  box-shadow:0 12px 24px rgba(0,0,0,.18);
+}
 .summary-panel .toolbar,
 .warning-panel .toolbar,
 .utility-panel .toolbar{
@@ -555,6 +602,9 @@ option{background:#140e1a;color:var(--cream)}
 .warning-panel .notes-box,
 .utility-panel .notes-box{
   border-radius:12px;
+}
+.summary-panel .info-row{
+  border-bottom-color:rgba(244,230,208,.045);
 }
 .summary-panel .info-row{
   grid-template-columns:minmax(130px,160px) 1fr;
@@ -830,10 +880,10 @@ option{background:#140e1a;color:var(--cream)}
   overflow:hidden;
   border-radius:calc(var(--radius-xl) - 4px);
   background:
-    radial-gradient(circle at top right, rgba(186,59,102,.08), transparent 34%),
-    linear-gradient(180deg, rgba(20,14,28,.95), rgba(11,8,17,.98));
-  border:1px solid rgba(244,230,208,.08);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 14px 26px rgba(0,0,0,.14);
+    radial-gradient(circle at top right, rgba(186,59,102,.055), transparent 34%),
+    linear-gradient(180deg, rgba(18,13,25,.76), rgba(10,8,16,.86));
+  border:1px solid rgba(244,230,208,.055);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
 }
 .calc-cluster[open]{padding-bottom:12px}
 .calc-cluster-summary{
@@ -875,8 +925,8 @@ option{background:#140e1a;color:var(--cream)}
   border-radius:999px;
   font-size:.72rem;
   color:var(--cream-2);
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(244,230,208,.08);
+  background:rgba(255,255,255,.026);
+  border:1px solid rgba(244,230,208,.055);
   letter-spacing:.05em;
   text-transform:uppercase;
   white-space:nowrap;
@@ -893,8 +943,8 @@ option{background:#140e1a;color:var(--cream)}
 .calc-tool{
   padding:14px;
   border-radius:var(--radius-lg);
-  background:linear-gradient(180deg, rgba(18,13,25,.88), rgba(11,8,17,.88));
-  border:1px solid rgba(244,230,208,.05);
+  background:linear-gradient(180deg, rgba(244,230,208,.022), rgba(11,8,17,.66));
+  border:1px solid rgba(244,230,208,.04);
   box-shadow:none;
 }
 .calc-tool-head{
@@ -1008,7 +1058,7 @@ option{background:#140e1a;color:var(--cream)}
     radial-gradient(circle at top right, rgba(255,179,120,.12), transparent 32%),
     linear-gradient(180deg, rgba(33,22,42,.98), rgba(17,11,23,.98));
   border:1px solid rgba(255,191,145,.12);
-  box-shadow:0 18px 30px rgba(0,0,0,.18);
+  box-shadow:0 12px 24px rgba(0,0,0,.14);
 }
 .calc-fermenter-topline{
   display:flex;
@@ -1487,10 +1537,15 @@ option{background:#140e1a;color:var(--cream)}
 @media (max-width: 720px){
   body{padding-bottom:128px}
   .container{width:min(var(--max), calc(100% - 16px))}
+  .tab-panel .container::before{
+    inset:18px -8px auto;
+    height:180px;
+    opacity:.42;
+  }
   .nav-wrap{padding:var(--sp-sm) 0}
-  .header-top-row{flex-wrap:wrap;gap:var(--sp-sm)}
-  .header-left{width:100%}
-  .header-right{width:100%;justify-content:flex-end}
+  .header-top-row{flex-wrap:nowrap;gap:var(--sp-sm)}
+  .header-left{width:auto}
+  .header-right{width:auto;justify-content:flex-end}
   .brand-badge{font-size:.95rem;padding:6px 12px}
   .tabs{
     display:grid;
@@ -1525,6 +1580,22 @@ option{background:#140e1a;color:var(--cream)}
   .toolbar{align-items:flex-start}
   .info-row{grid-template-columns:1fr;gap:2px}
   .card,.build-primary-card{border-radius:var(--radius-lg);padding:var(--sp-md)}
+  .summary-panel,
+  .utility-panel,
+  .empty-state,
+  .notes-box,
+  .result{
+    box-shadow:none;
+  }
+  .summary-stack > .summary-panel,
+  .summary-stack > .warning-panel,
+  .summary-stack > .utility-panel{
+    border-radius:var(--radius-lg);
+  }
+  .summary-stack > .summary-panel,
+  .summary-stack > .utility-panel{
+    padding:12px;
+  }
   .build-primary-card > .form-grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .build-primary-card > .form-grid-2 .core-wide{grid-column:1 / -1}
   #tab-nutrients .work-card > .form-grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}
