@@ -334,13 +334,6 @@ option{background:#140e1a;color:var(--cream)}
   letter-spacing:.07em;
   color:var(--cream);
 }
-.section-copy{
-  margin:0;
-  color:#c7b399;
-  max-width:760px;
-  font-size:1rem;
-  line-height:1.42;
-}
 .section-rail{
   display:flex;
   flex-wrap:wrap;
@@ -1575,7 +1568,6 @@ option{background:#140e1a;color:var(--cream)}
     padding:10px 0 8px;
   }
   .section-kicker{padding:3px 8px;font-size:.66rem}
-  .section-copy{font-size:.92rem;line-height:1.36}
   .section-rail{display:none}
   .toolbar{align-items:flex-start}
   .info-row{grid-template-columns:1fr;gap:2px}
