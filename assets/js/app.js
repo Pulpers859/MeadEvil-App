@@ -36,11 +36,16 @@
   const RAPT_AUTO_REFRESH_MS = 20 * 60 * 1000;
   const RAPT_VISIBILITY_REFRESH_STALE_MS = 45 * 60 * 1000;
   // Telemetry sources (RAPT Pill, Tilt, iSpindel) report far more often than
-  // fermentation needs to be tracked. We keep at most one auto-imported reading
-  // per 6-hour window so a multi-week batch can't balloon localStorage and the
-  // synced cloud document. Manual readings are never thinned. The CSV importer
-  // already buckets to this same window before it ever reaches the log.
-  const GRAVITY_LOG_BUCKET_MS = 6 * 60 * 60 * 1000;
+  // fermentation needs to be tracked, so we keep at most one auto-imported
+  // reading per time window. The window is variable: fermentation is most active
+  // in the first few days, so we keep fine detail early and coarsen afterward.
+  // Anchored to the batch's pitch (or its first reading) so the tiers track the
+  // fermentation, not the wall clock. Manual readings are never thinned.
+  const HOUR_MS = 60 * 60 * 1000;
+  const GRAVITY_LOG_BUCKET_TIERS = [
+    { untilMs: 72 * HOUR_MS, bucketMs: HOUR_MS },     // first 3 days: ~1 reading/hour
+    { untilMs: Infinity,     bucketMs: 6 * HOUR_MS }  // afterward: ~1 reading/6 hours
+  ];
 
   const YEAST_PRESETS = {
     "71B": { tolerance: "14", temp: "59–86°F", nitrogenRequirement: "low" },
@@ -1230,13 +1235,14 @@
         .map((entry) => String(entry.sourceId || ""))
         .filter(Boolean)
     );
-    // Buckets already represented by an auto-imported reading. Once a 6-hour
-    // window holds a telemetry point we skip any further auto readings that land
-    // in it, so polling every 20 minutes can't pile up ~70 readings a day.
+    const anchor = fermentationAnchor(logs);
+    // Buckets already represented by an auto-imported reading. Once a window
+    // holds a telemetry point we skip any further auto readings that land in it,
+    // so frequent polling can't pile up dozens of readings a day.
     const occupiedBuckets = new Set(
       data.fermentationLogs
         .filter(isThinnableLog)
-        .map(gravityBucketKey)
+        .map((log) => gravityBucketKey(log, anchor))
         .filter((key) => key != null)
     );
 
@@ -1245,7 +1251,7 @@
       if (!log) return;
       const sourceId = String(log.sourceId || "");
       if (sourceId && existingSourceIds.has(sourceId)) return;
-      const bucket = gravityBucketKey(log);
+      const bucket = gravityBucketKey(log, anchor);
       if (bucket != null && occupiedBuckets.has(bucket)) return;
       data.fermentationLogs.push(normalizeLog(log));
       if (sourceId) existingSourceIds.add(sourceId);
@@ -1262,23 +1268,55 @@
     return source === "rapt" || source === "csv";
   }
 
-  function gravityBucketKey(log){
+  // The fermentation start the variable-resolution tiers are measured from:
+  // the pitch date if set, otherwise the earliest reading we have (including any
+  // about to be imported). Stable across imports because the earliest reading is
+  // always kept, which keeps the bucketing idempotent.
+  function fermentationAnchor(extraLogs){
+    const pitch = new Date(data.currentBatch.pitchDate || "").getTime();
+    let earliest = null;
+    const consider = (log) => {
+      const time = logTimelineTime(log);
+      if (time != null && (earliest == null || time < earliest)) earliest = time;
+    };
+    data.fermentationLogs.forEach(consider);
+    if (Array.isArray(extraLogs)) extraLogs.forEach(consider);
+    if (Number.isFinite(pitch) && earliest != null) return Math.min(pitch, earliest);
+    if (Number.isFinite(pitch)) return pitch;
+    return earliest;
+  }
+
+  function gravityBucketKeyForTime(timeMs, anchorMs, deviceId){
+    if (timeMs == null) return null;
+    const elapsed = (anchorMs != null && Number.isFinite(anchorMs)) ? timeMs - anchorMs : null;
+    let tierIndex = elapsed == null
+      ? GRAVITY_LOG_BUCKET_TIERS.length - 1
+      : GRAVITY_LOG_BUCKET_TIERS.findIndex((tier) => elapsed < tier.untilMs);
+    if (tierIndex < 0) tierIndex = GRAVITY_LOG_BUCKET_TIERS.length - 1;
+    const tier = GRAVITY_LOG_BUCKET_TIERS[tierIndex];
+    // The tier index is part of the key so windows of different sizes can never
+    // collide across the boundary (e.g. an hourly slot vs a 6-hour slot).
+    return `${deviceId || ""}|${tierIndex}|${Math.floor(timeMs / tier.bucketMs)}`;
+  }
+
+  function gravityBucketKey(log, anchor){
     const time = logTimelineTime(log);
     if (time == null) return null;
     // Key per device so two Pills on two fermenters don't thin each other away.
-    const deviceId = String((log && log.deviceId) || "");
-    return `${deviceId}|${Math.floor(time / GRAVITY_LOG_BUCKET_MS)}`;
+    return gravityBucketKeyForTime(time, anchor, String((log && log.deviceId) || ""));
   }
 
-  // Reduce already-stored telemetry readings to one per 6-hour window, keeping
-  // the most recent in each. Used to clean up batches logged before thinning
-  // existed (and the rare cross-device race that lands two points in a window).
-  // Removed readings are tombstoned so the cloud union doesn't resurrect them.
+  // Reduce already-stored telemetry readings to one per window (hourly for the
+  // first 3 days, every 6h after), keeping the most recent in each. Used to
+  // clean up batches logged before thinning existed (and the rare cross-device
+  // race that lands two points in a window). Removed readings are tombstoned so
+  // the cloud union doesn't resurrect them.
   function compactFermentationLogs(){
+    const anchor = fermentationAnchor();
     const buckets = new Map();
     const manualOrUnkeyed = [];
     data.fermentationLogs.forEach((log) => {
-      const bucket = isThinnableLog(log) ? gravityBucketKey(log) : null;
+      const bucket = isThinnableLog(log) ? gravityBucketKey(log, anchor) : null;
       if (bucket == null) {
         manualOrUnkeyed.push(log);
         return;
@@ -1303,8 +1341,9 @@
 
   // Generic hydrometer CSV import (Tilt, iSpindel, Brewfather, RAPT exports).
   // Finds date + gravity columns by header keywords, normalizes point-style
-  // gravity (1050 -> 1.050) and Celsius temps, then downsamples to one
-  // reading per 6 hours so a 15-minute Tilt log can't bloat localStorage.
+  // gravity (1050 -> 1.050) and Celsius temps, then downsamples with the same
+  // variable-resolution windows as live telemetry (hourly for the first 3 days,
+  // every 6h after) so a 15-minute Tilt log can't bloat localStorage.
   function parseGravityCsv(text){
     const rows = parseCsv(text);
     if (rows.length < 2) return null;
@@ -1334,8 +1373,9 @@
     const tempsAreCelsius = tempHeaderCelsius || (temps.length > 0 && Math.max(...temps) < 45);
 
     candidates.sort((a, b) => a.stamp - b.stamp);
+    const csvAnchor = candidates[0].stamp.getTime();
     const buckets = new Map();
-    candidates.forEach((c) => buckets.set(Math.floor(c.stamp.getTime() / (6 * 3600 * 1000)), c));
+    candidates.forEach((c) => buckets.set(gravityBucketKeyForTime(c.stamp.getTime(), csvAnchor, ""), c));
 
     const readings = [...buckets.values()].map((c) => {
       const iso = c.stamp.toISOString();
@@ -3377,7 +3417,7 @@
         if (result.error){
           alert(result.error);
         } else if (result.added){
-          alert(`Imported ${result.added} new reading${result.added === 1 ? "" : "s"} from ${file.name} (downsampled to one per 6 hours).`);
+          alert(`Imported ${result.added} new reading${result.added === 1 ? "" : "s"} from ${file.name} (thinned to hourly for the first 3 days, then every 6 hours).`);
         } else {
           alert("No new readings found — everything in that file is already in the log.");
         }
