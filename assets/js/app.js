@@ -35,6 +35,12 @@
   let trendHoverPoints = [];
   const RAPT_AUTO_REFRESH_MS = 20 * 60 * 1000;
   const RAPT_VISIBILITY_REFRESH_STALE_MS = 45 * 60 * 1000;
+  // Telemetry sources (RAPT Pill, Tilt, iSpindel) report far more often than
+  // fermentation needs to be tracked. We keep at most one auto-imported reading
+  // per 6-hour window so a multi-week batch can't balloon localStorage and the
+  // synced cloud document. Manual readings are never thinned. The CSV importer
+  // already buckets to this same window before it ever reaches the log.
+  const GRAVITY_LOG_BUCKET_MS = 6 * 60 * 60 * 1000;
 
   const YEAST_PRESETS = {
     "71B": { tolerance: "14", temp: "59–86°F", nitrogenRequirement: "low" },
@@ -1151,11 +1157,19 @@
     persistStoredData(data);
   }
 
+  // Tombstones only need to outlive cross-device convergence; once every device
+  // has dropped a record, its tombstone is dead weight. Cap the list so a big
+  // one-time log cleanup (or years of deletions) can't itself become the bloat.
+  const TOMBSTONE_LIMIT = 5000;
+
   function recordTombstones(collection, ids){
     const stamp = new Date().toISOString();
     (Array.isArray(ids) ? ids : [ids]).filter(Boolean).forEach((id) => {
       data.tombstones.push({ collection, id: String(id), deletedAt: stamp });
     });
+    if (data.tombstones.length > TOMBSTONE_LIMIT){
+      data.tombstones = data.tombstones.slice(-TOMBSTONE_LIMIT);
+    }
   }
 
   function normalizeIsoDate(value){
@@ -1216,17 +1230,75 @@
         .map((entry) => String(entry.sourceId || ""))
         .filter(Boolean)
     );
+    // Buckets already represented by an auto-imported reading. Once a 6-hour
+    // window holds a telemetry point we skip any further auto readings that land
+    // in it, so polling every 20 minutes can't pile up ~70 readings a day.
+    const occupiedBuckets = new Set(
+      data.fermentationLogs
+        .filter(isThinnableLog)
+        .map(gravityBucketKey)
+        .filter((key) => key != null)
+    );
 
     let added = 0;
     logs.forEach((log) => {
       if (!log) return;
       const sourceId = String(log.sourceId || "");
       if (sourceId && existingSourceIds.has(sourceId)) return;
+      const bucket = gravityBucketKey(log);
+      if (bucket != null && occupiedBuckets.has(bucket)) return;
       data.fermentationLogs.push(normalizeLog(log));
       if (sourceId) existingSourceIds.add(sourceId);
+      if (bucket != null) occupiedBuckets.add(bucket);
       added += 1;
     });
     return added;
+  }
+
+  // Telemetry readings (RAPT/Tilt/iSpindel/CSV) are the ones we thin to one per
+  // window; a hand-entered reading is a deliberate data point and stays put.
+  function isThinnableLog(log){
+    const source = String((log && log.source) || "").toLowerCase();
+    return source === "rapt" || source === "csv";
+  }
+
+  function gravityBucketKey(log){
+    const time = logTimelineTime(log);
+    if (time == null) return null;
+    // Key per device so two Pills on two fermenters don't thin each other away.
+    const deviceId = String((log && log.deviceId) || "");
+    return `${deviceId}|${Math.floor(time / GRAVITY_LOG_BUCKET_MS)}`;
+  }
+
+  // Reduce already-stored telemetry readings to one per 6-hour window, keeping
+  // the most recent in each. Used to clean up batches logged before thinning
+  // existed (and the rare cross-device race that lands two points in a window).
+  // Removed readings are tombstoned so the cloud union doesn't resurrect them.
+  function compactFermentationLogs(){
+    const buckets = new Map();
+    const manualOrUnkeyed = [];
+    data.fermentationLogs.forEach((log) => {
+      const bucket = isThinnableLog(log) ? gravityBucketKey(log) : null;
+      if (bucket == null) {
+        manualOrUnkeyed.push(log);
+        return;
+      }
+      const existing = buckets.get(bucket);
+      if (!existing || (logTimelineTime(log) || 0) >= (logTimelineTime(existing) || 0)) {
+        buckets.set(bucket, log);
+      }
+    });
+
+    const kept = new Set([...manualOrUnkeyed, ...buckets.values()]);
+    if (kept.size === data.fermentationLogs.length) return 0;
+
+    const removedIds = data.fermentationLogs
+      .filter((log) => !kept.has(log))
+      .map((log) => log.id)
+      .filter(Boolean);
+    recordTombstones("fermentationLogs", removedIds);
+    data.fermentationLogs = data.fermentationLogs.filter((log) => kept.has(log));
+    return removedIds.length;
   }
 
   // Generic hydrometer CSV import (Tilt, iSpindel, Brewfather, RAPT exports).
@@ -1288,7 +1360,8 @@
     const parsed = parseGravityCsv(text);
     if (!parsed) return { added: 0, error: "Could not find date and gravity columns in that CSV. Expected headers like Date/Timepoint and SG/Gravity." };
     const added = mergeRaptLogs(parsed.readings);
-    if (added){
+    const removed = compactFermentationLogs();
+    if (added || removed){
       persistData();
       renderAll();
     }
@@ -1440,6 +1513,7 @@
         incoming.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
         const added = mergeRaptLogs(incoming);
+        compactFermentationLogs();
         const latest = incoming[incoming.length - 1] || null;
 
         data.rapt.lastFetchedAt = new Date().toISOString();
@@ -4305,6 +4379,9 @@
     bindUtilities();
     startClockTicker();
     startRaptAutoRefresh();
+    // One-time cleanup for batches logged before per-window thinning existed.
+    // No-op once a batch is already thin, so it won't churn on every load.
+    if (compactFermentationLogs() > 0) persistData();
     renderAll();
     importRaptReadings({ silent: true }).catch((error) => {
       console.warn("Initial RAPT refresh failed", error);
