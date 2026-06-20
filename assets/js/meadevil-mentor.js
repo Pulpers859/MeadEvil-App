@@ -595,6 +595,17 @@
     return parseJSON(raw || "null", {}) || {};
   }
 
+  // Envelope-aware READ of the inner app state. app.js persists inside a
+  // { _schema, data } envelope, so the real recipe/batch/ui state lives under
+  // .data; reading top-level fields off getMainState() silently yields undefined
+  // (which is how the seeded source bill, and several "did the load happen?"
+  // guards below, quietly failed). Use this for any read of recipe/batch/ui
+  // state. Write paths still go through getMainState() because they re-serialize
+  // the whole wrapped object back to storage.
+  function getMainData(){
+    return readMainDataLayer().data || {};
+  }
+
   // app.js keeps its own in-memory copy of the main state and persists it on
   // every edit. If structure additions change here without telling app.js, its
   // next persist harvests the stale (often empty) list back over ours and the
@@ -1626,8 +1637,9 @@
       }
       row[field] = event.target.value;
       enhancement.recipeDraft.structureAdditions = rows.map(normalizeAdjunctRow);
-      if ((getMainState().ui || {}).selectedRecipeId){
-        enhancement.recipes[(getMainState().ui || {}).selectedRecipeId] = { structureAdditions: clone(enhancement.recipeDraft.structureAdditions) };
+      const selectedRecipeId = (getMainData().ui || {}).selectedRecipeId;
+      if (selectedRecipeId){
+        enhancement.recipes[selectedRecipeId] = { structureAdditions: clone(enhancement.recipeDraft.structureAdditions) };
       }
     });
   }
@@ -2158,10 +2170,32 @@
     }));
   }
 
+  // app.js persists the main state inside a { _schema, data } envelope, with the
+  // real recipe/batch state under .data. getMainState() returns that raw object,
+  // so writing recipe fields onto its top level lands them in a phantom sibling
+  // of .data that app.js (and loadStoredData) never read. These helpers target
+  // the inner data object — wrapped or legacy-flat — so seeded values actually
+  // reach the Build tab.
+  function readMainDataLayer(){
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = parseJSON(raw || "null", null);
+    if (parsed && typeof parsed === "object" && parsed.data && parsed._schema){
+      return { envelope: parsed, data: (parsed.data && typeof parsed.data === "object") ? parsed.data : {} };
+    }
+    return { envelope: null, data: (parsed && typeof parsed === "object") ? parsed : {} };
+  }
+
+  function writeMainData(updateDataFn){
+    const layer = readMainDataLayer();
+    if (typeof updateDataFn === "function") updateDataFn(layer.data);
+    const toStore = layer.envelope ? { ...layer.envelope, data: layer.data } : layer.data;
+    originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(toStore));
+  }
+
   function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance){
     if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
-    const currentMain = getMainState();
-    const currentRows = (((currentMain || {}).recipeDraft || {}).additions) || [];
+    const innerData = readMainDataLayer().data;
+    const currentRows = (((innerData || {}).recipeDraft || {}).additions) || [];
     const trulyBlank = !currentRows.length || currentRows.every((row) => {
       const desc = String((row && row.description) || "").trim();
       const amt = String((row && row.amount) || "").trim();
@@ -2189,10 +2223,15 @@
         ppg: sourcePresetPpg(type)
       };
     });
+    const finalRows = rows.length ? rows : [{ id: makeId("src"), sourceType: "Honey", description: "", amount: "", unit: "lb", ppg: "35" }];
 
-    saveMentorMirrorToMain((main) => {
-      main.recipeDraft = main.recipeDraft || {};
-      main.recipeDraft.additions = rows.length ? rows : [{ id: makeId("src"), sourceType: "Honey", description: "", amount: "", unit: "lb", ppg: "35" }];
+    // Write straight to the inner data so the meadevil-cloud-restore reload at
+    // the end of applyMentorToBuild picks the rows up. (The old saveMentorMirror
+    // path wrote them to the phantom top-level recipeDraft, so the honey amount
+    // and description silently never reached the Build tab.)
+    writeMainData((data) => {
+      data.recipeDraft = data.recipeDraft || {};
+      data.recipeDraft.additions = finalRows;
     });
   }
 
@@ -2421,8 +2460,7 @@
 
     $("clearRecipeBtn")?.addEventListener("click", () => {
       setTimeout(() => {
-        const main = getMainState();
-        const draft = (main && main.recipeDraft) || {};
+        const draft = getMainData().recipeDraft || {};
         const cleared = !draft.name && !draft.targetAbv && !draft.batchGallons;
         if (!cleared) return;
         saveMergedMain((enh) => { enh.recipeDraft.structureAdditions = [defaultAdjunctRow()]; });
@@ -2434,10 +2472,10 @@
       // The main app handler can be cancelled at its confirm() prompt. Only
       // mirror draft structure additions onto the batch if the load actually
       // happened, otherwise a cancelled load corrupts the active batch plan.
-      const beforeLoadedAt = (((getMainState() || {}).currentBatch || {}).loadedAt) || null;
+      const beforeLoadedAt = ((getMainData().currentBatch || {}).loadedAt) || null;
       pendingContext.fromDraftToBatch = true;
       setTimeout(() => {
-        const afterLoadedAt = (((getMainState() || {}).currentBatch || {}).loadedAt) || null;
+        const afterLoadedAt = ((getMainData().currentBatch || {}).loadedAt) || null;
         if (afterLoadedAt && afterLoadedAt !== beforeLoadedAt){
           saveMergedMain((enh) => { enh.currentBatch.structureAdditions = clone(enh.recipeDraft.structureAdditions); });
         }
@@ -2451,12 +2489,12 @@
       // Only record structure additions for a recipe that was actually
       // touched by this click, or a no-op save overwrites the previously
       // selected recipe's structure record.
-      const mainBefore = getMainState() || {};
+      const mainBefore = getMainData() || {};
       const updatedBefore = {};
       (mainBefore.recipes || []).forEach((recipe) => { updatedBefore[recipe.id] = recipe.updatedAt || ""; });
       setTimeout(() => {
         saveMergedMain((enh) => {
-          const main = getMainState();
+          const main = getMainData();
           const recipeId = (((main || {}).ui || {}).selectedRecipeId) || "";
           if (!recipeId) return;
           const saved = ((main || {}).recipes || []).find((recipe) => recipe.id === recipeId);

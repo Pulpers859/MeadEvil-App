@@ -4439,6 +4439,21 @@
 
   window.addEventListener("meadevil-cloud-restore", () => {
     data = loadStoredData();
+    // The mentor keeps brainstorm structure additions (adjuncts) in its own
+    // enhancement key and only syncs them into the main state through events.
+    // A full reload from storage would otherwise drop adjuncts the mentor just
+    // seeded on "Send to Build" (they never get written into the main state's
+    // recipeDraft before this restore fires). Re-overlay them, but only when the
+    // enhancement actually has them so a genuine cloud restore with an empty
+    // enhancement can't wipe adjuncts that were restored from storage.
+    const draftAdjuncts = readEnhancementStructureAdditions("recipeDraft");
+    if (Array.isArray(draftAdjuncts) && draftAdjuncts.length) {
+      data.recipeDraft.structureAdditions = clone(draftAdjuncts);
+    }
+    const batchAdjuncts = readEnhancementStructureAdditions("currentBatch");
+    if (Array.isArray(batchAdjuncts) && batchAdjuncts.length) {
+      data.currentBatch.structureAdditions = clone(batchAdjuncts);
+    }
     populateRecipeForm();
     populateNutrientForm();
     populateCellarForm();
