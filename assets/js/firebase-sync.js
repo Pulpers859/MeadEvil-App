@@ -103,16 +103,42 @@
 
   function stampAppData(payload, updatedAt){
     const stamped = clone(payload) || {};
+    const when = updatedAt || new Date().toISOString();
+    // Preserve the real save time the app stamped into the envelope so cross-device
+    // reconciliation can tell which copy is newer; only fall back to "now" if the
+    // payload never carried a schema stamp (legacy or empty state).
+    if (stamped._schema && typeof stamped._schema === "object"){
+      stamped._schema = { ...stamped._schema, savedAt: stamped._schema.savedAt || when };
+    }
     stamped.meta = {
       ...((stamped || {}).meta || {}),
-      updatedAt: updatedAt || new Date().toISOString(),
+      updatedAt: when,
       syncDocId: SHARED_DOC_ID
     };
     return stamped;
   }
 
+  // The app persists state as an envelope: { _schema: { savedAt }, data: {...} }.
+  // The real working state lives under .data, so the sync layer has to unwrap it
+  // before merging — otherwise recipes/logs/archive look empty and the whole blob
+  // gets clobbered by whichever side is "newer".
+  function unwrapEnvelope(payload){
+    if (payload && typeof payload === "object" && payload.data && payload._schema){
+      return { schema: clone(payload._schema), data: clone(payload.data) || {} };
+    }
+    return { schema: null, data: clone(payload) || {} };
+  }
+
   function appDataStamp(payload, fallback){
-    return toTimestamp(payload?.meta?.updatedAt || payload?.updatedAt || fallback || 0);
+    if (!payload || typeof payload !== "object") return 0;
+    const schema = payload._schema && typeof payload._schema === "object" ? payload._schema : null;
+    return toTimestamp(
+      (schema && (schema.savedAt || schema.exportedAt)) ||
+      payload?.meta?.updatedAt ||
+      payload?.updatedAt ||
+      fallback ||
+      0
+    );
   }
 
   function mergeByKey(localItems, cloudItems, keyFn, stampFn){
@@ -183,15 +209,22 @@
     }));
   }
 
-  function buildMergedAppData(localData, cloudData, cloudUpdatedAt){
-    if (!localData && !cloudData) return stampAppData({}, cloudUpdatedAt);
-    if (!localData) return stampAppData(cloudData, cloudUpdatedAt);
-    if (!cloudData) return stampAppData(localData, new Date().toISOString());
+  function buildMergedAppData(localPayload, cloudPayload, cloudUpdatedAt){
+    if (!localPayload && !cloudPayload) return stampAppData({}, cloudUpdatedAt);
+    if (!localPayload) return stampAppData(cloudPayload, cloudUpdatedAt);
+    if (!cloudPayload) return stampAppData(localPayload, new Date().toISOString());
 
-    const local = clone(localData) || {};
-    const cloud = clone(cloudData) || {};
-    const localStamp = appDataStamp(local);
-    const cloudStamp = appDataStamp(cloud, cloudUpdatedAt);
+    const localEnv = unwrapEnvelope(localPayload);
+    const cloudEnv = unwrapEnvelope(cloudPayload);
+    const local = localEnv.data || {};
+    const cloud = cloudEnv.data || {};
+
+    // Compare the stamps the app wrote into each envelope so the most recently
+    // saved copy wins for single-value working fields (recipe draft, current
+    // batch, nutrients, cellar). This is what lets "clear the page for a new
+    // brew" actually stick instead of being overwritten by the stale cloud copy.
+    const localStamp = appDataStamp(localPayload);
+    const cloudStamp = appDataStamp(cloudPayload, cloudUpdatedAt);
     const localLogCount = list(local.fermentationLogs).length;
     const cloudLogCount = list(cloud.fermentationLogs).length;
     const localArchiveCount = list(local.archive).length;
@@ -199,27 +232,28 @@
     const preferCloud = cloudStamp > localStamp && cloudLogCount >= localLogCount && cloudArchiveCount >= localArchiveCount;
     const primary = preferCloud ? cloud : local;
     const secondary = preferCloud ? local : cloud;
-    const merged = { ...clone(secondary), ...clone(primary) };
-    merged.calcs = {
+    const mergedData = { ...clone(secondary), ...clone(primary) };
+    mergedData.calcs = {
       ...clone((secondary || {}).calcs || {}),
       ...clone((primary || {}).calcs || {})
     };
 
-    merged.fermentationLogs = mergeFermentationLogs(local, cloud);
-    merged.recipes = mergeByKey(
+    // History collections stay additive across devices so an archived batch or a
+    // logged reading is never lost just because one device hasn't seen it yet.
+    mergedData.fermentationLogs = mergeFermentationLogs(local, cloud);
+    mergedData.recipes = mergeByKey(
       local.recipes,
       cloud.recipes,
       (entry) => entry?.id,
       (entry) => toTimestamp(entry?.updatedAt || entry?.createdAt)
     );
-    merged.archive = mergeArchive(local, cloud);
-    merged.meta = {
-      ...((secondary || {}).meta || {}),
-      ...((primary || {}).meta || {}),
-      updatedAt: new Date(Math.max(localStamp, cloudStamp, Date.now())).toISOString(),
-      syncDocId: SHARED_DOC_ID
+    mergedData.archive = mergeArchive(local, cloud);
+
+    const mergedSchema = {
+      ...(primary === local ? localEnv.schema : cloudEnv.schema) || localEnv.schema || cloudEnv.schema || {},
+      savedAt: new Date(Math.max(localStamp, cloudStamp, Date.now())).toISOString()
     };
-    return merged;
+    return stampAppData({ _schema: mergedSchema, data: mergedData });
   }
 
   function cloudDocRef(){
