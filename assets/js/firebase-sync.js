@@ -209,6 +209,40 @@
     }));
   }
 
+  // fermentationLogs/recipes/archive are unioned by id above so an offline device
+  // never silently loses another device's entries — but that union has no idea
+  // what a "delete" is. The app records a tombstone for every removal (see
+  // recordTombstones in app.js); merge those here and strip the dead ids back out
+  // of the union, or every deletion would quietly resurrect on the next sync.
+  function tombstoneKey(entry){
+    return `${entry?.collection || ""}::${entry?.id || ""}`;
+  }
+
+  function mergeTombstones(localTombstones, cloudTombstones){
+    const merged = new Map();
+    list(localTombstones).concat(list(cloudTombstones)).forEach((entry) => {
+      if (!entry || !entry.collection || !entry.id) return;
+      const key = tombstoneKey(entry);
+      const existing = merged.get(key);
+      if (!existing || toTimestamp(entry.deletedAt) > toTimestamp(existing.deletedAt)){
+        merged.set(key, clone(entry));
+      }
+    });
+    return Array.from(merged.values());
+  }
+
+  function tombstonedIdSet(tombstones, collection){
+    const ids = new Set();
+    list(tombstones).forEach((entry) => {
+      if (entry && entry.collection === collection && entry.id) ids.add(String(entry.id));
+    });
+    return ids;
+  }
+
+  function stripTombstoned(items, tombstoneSet){
+    return list(items).filter((item) => !tombstoneSet.has(String(item?.id || "")));
+  }
+
   function buildMergedAppData(localPayload, cloudPayload, cloudUpdatedAt){
     if (!localPayload && !cloudPayload) return stampAppData({}, cloudUpdatedAt);
     if (!localPayload) return stampAppData(cloudPayload, cloudUpdatedAt);
@@ -239,15 +273,28 @@
     };
 
     // History collections stay additive across devices so an archived batch or a
-    // logged reading is never lost just because one device hasn't seen it yet.
-    mergedData.fermentationLogs = mergeFermentationLogs(local, cloud);
-    mergedData.recipes = mergeByKey(
-      local.recipes,
-      cloud.recipes,
-      (entry) => entry?.id,
-      (entry) => toTimestamp(entry?.updatedAt || entry?.createdAt)
+    // logged reading is never lost just because one device hasn't seen it yet —
+    // but a deliberate deletion (tombstone) always overrides the union.
+    const mergedTombstones = mergeTombstones(local.tombstones, cloud.tombstones);
+    mergedData.tombstones = mergedTombstones;
+
+    mergedData.fermentationLogs = stripTombstoned(
+      mergeFermentationLogs(local, cloud),
+      tombstonedIdSet(mergedTombstones, "fermentationLogs")
     );
-    mergedData.archive = mergeArchive(local, cloud);
+    mergedData.recipes = stripTombstoned(
+      mergeByKey(
+        local.recipes,
+        cloud.recipes,
+        (entry) => entry?.id,
+        (entry) => toTimestamp(entry?.updatedAt || entry?.createdAt)
+      ),
+      tombstonedIdSet(mergedTombstones, "recipes")
+    );
+    mergedData.archive = stripTombstoned(
+      mergeArchive(local, cloud),
+      tombstonedIdSet(mergedTombstones, "archive")
+    );
 
     const mergedSchema = {
       ...(primary === local ? localEnv.schema : cloudEnv.schema) || localEnv.schema || cloudEnv.schema || {},

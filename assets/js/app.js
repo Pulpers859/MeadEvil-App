@@ -1032,7 +1032,13 @@
     calcs: defaultCalcs(),
     rapt: defaultRaptSync(),
     mentor: defaultMentor(),
-    mentorKnowledge: defaultMentorKnowledgeBase()
+    mentorKnowledge: defaultMentorKnowledgeBase(),
+    // Cross-device cloud sync unions fermentationLogs/recipes/archive by id so a
+    // device that's offline never silently loses another device's entries. That
+    // union has no concept of deletion on its own, so every removal from one of
+    // those collections is recorded here and the sync layer (firebase-sync.js)
+    // strips tombstoned ids back out of the merged result.
+    tombstones: []
   };
 
   const stateTools = window.MeadEvilState.createTools({
@@ -1143,6 +1149,13 @@
 
   function persistData(){
     persistStoredData(data);
+  }
+
+  function recordTombstones(collection, ids){
+    const stamp = new Date().toISOString();
+    (Array.isArray(ids) ? ids : [ids]).filter(Boolean).forEach((id) => {
+      data.tombstones.push({ collection, id: String(id), deletedAt: stamp });
+    });
   }
 
   function normalizeIsoDate(value){
@@ -3052,6 +3065,7 @@
       stepFeedLog: [],
       loadedAt: new Date().toISOString()
     };
+    recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
     data.fermentationLogs = [];
     data.fermentChecklist = buildRecipeAwareChecklist(recipe);
     let structureAdds = Array.isArray(recipe.structureAdditions) && recipe.structureAdditions.length
@@ -3378,6 +3392,7 @@
     });
     $("clearLogsBtn").addEventListener("click", () => {
       if (!confirm("Clear all gravity readings for the active batch? The batch, nutrient, and finish records will stay.")) return;
+      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
       data.fermentationLogs = [];
       persistData();
       renderDashboard();
@@ -3386,6 +3401,7 @@
     $("gravityLog").addEventListener("click", (event) => {
       const deleteId = event.target.dataset.logDelete;
       if (deleteId) {
+        recordTombstones("fermentationLogs", deleteId);
         data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== deleteId);
         persistData();
         renderDashboard();
@@ -3444,6 +3460,7 @@
 
     $("clearActiveBatchBtn").addEventListener("click", () => {
       if (!confirm("Reset the active batch? This clears Ferment, Feed, Finish, and gravity history for the current batch. Saved recipes and Vault entries stay untouched.")) return;
+      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
@@ -3468,6 +3485,7 @@
         fermentationLogs: clone(data.fermentationLogs),
         summary: data.cellar.tastingNotes || data.currentBatch.quickNote || data.currentBatch.notes || ""
       }));
+      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
@@ -3651,6 +3669,7 @@
       }
       if (recipeDelete){
         if (!confirm("Delete this saved recipe? This cannot be undone.")) return;
+        recordTombstones("recipes", recipeDelete);
         data.recipes = data.recipes.filter((item) => item.id !== recipeDelete);
         if (data.ui.selectedRecipeId === recipeDelete) data.ui.selectedRecipeId = null;
         persistData();
@@ -3706,6 +3725,7 @@
       }
       if (archiveDelete){
         if (!confirm("Delete this archived batch? This cannot be undone.")) return;
+        recordTombstones("archive", archiveDelete);
         data.archive = data.archive.filter((entry) => entry.id !== archiveDelete);
         persistData();
         renderArchive();
@@ -4203,8 +4223,17 @@
     });
     $("resetAppBtn").addEventListener("click", () => {
       if (!confirm("Factory reset MeadEvil? This deletes saved recipes, active batch data, archive history, mentor history, and settings.")) return;
+      const removedIds = {
+        fermentationLogs: data.fermentationLogs.map((entry) => entry.id),
+        recipes: data.recipes.map((entry) => entry.id),
+        archive: data.archive.map((entry) => entry.id)
+      };
       try { localStorage.removeItem(ENHANCEMENT_KEY); } catch(e) {}
       data = normalizeData(null);
+      // normalizeData(null) starts tombstones empty too, so the deletions just
+      // collected above have to be re-recorded on the fresh state — otherwise a
+      // factory reset looks "done" locally but cloud sync brings everything back.
+      Object.keys(removedIds).forEach((collection) => recordTombstones(collection, removedIds[collection]));
       populateRecipeForm();
       populateNutrientForm();
       populateCellarForm();

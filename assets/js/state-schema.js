@@ -150,6 +150,9 @@
       merged.fermentChecklist = Array.isArray(input.fermentChecklist) && input.fermentChecklist.length ? input.fermentChecklist : defaultFermentChecklist();
       merged.cellarChecklist = Array.isArray(input.cellarChecklist) && input.cellarChecklist.length ? input.cellarChecklist : defaultCellarChecklist();
       merged.archive = Array.isArray(input.archive) ? input.archive.map(normalizeArchiveItem) : [];
+      merged.tombstones = Array.isArray(input.tombstones)
+        ? input.tombstones.filter((entry) => entry && entry.collection && entry.id)
+        : [];
       if (!merged.ui.activeTab || merged.ui.activeTab === "dashboard" || merged.ui.activeTab === "calcs") {
         merged.ui.activeTab = "recipes";
       }
