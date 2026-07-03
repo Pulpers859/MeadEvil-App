@@ -14,6 +14,7 @@
 - Work from this repo, not stale copies.
 - If the repo is clean, run `git fetch --prune` and `git pull --ff-only` before normal edits.
 - Do all normal repo work on `main`; do not create or use side branches, worktrees, or pull requests unless the user explicitly asks.
+- Patrick has explicitly approved detached sandbox worktrees for risky AI-agent experiments. Use `tools/New-AgentSandbox.ps1` and `docs/agent-sandbox-workflow.md`; do not create side branches or commit/push from the sandbox.
 - Every completed code or instruction change is required to be committed and pushed to the GitHub repo so the remote stays current across machines and agents.
 - Do not leave completed local code changes uncommitted or unpushed, even if the edits were made by another agent with repo access.
 - Treat `.env.local`, Firebase local config files, and API secrets as local-only.
