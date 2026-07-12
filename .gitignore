@@ -42,3 +42,6 @@ desktop.ini
 .claude/*
 !.claude/skills/
 !.claude/skills/**
+
+# Heavy local design sources (exported icons live in assets/icons/)
+assets/brand/*.afdesign
