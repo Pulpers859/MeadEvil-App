@@ -2780,22 +2780,62 @@
       : `Need batch + target ABV.`;
 
     renderFermenterProfileSelect();
+    const saveProfileBtn = $("saveFermenterProfileBtn");
     const updateProfileBtn = $("updateFermenterProfileBtn");
+    const revertProfileBtn = $("revertFermenterProfileBtn");
     const deleteProfileBtn = $("deleteFermenterProfileBtn");
-    const selectedProfile = getSelectedFermenterProfile();
-    if (updateProfileBtn) updateProfileBtn.disabled = !selectedProfile;
+    const { selected: selectedProfile, dirty: profileDirty } = selectedFermenterProfileState();
+    const draftValid = !validateFermenterProfileDraft(currentFermenterProfileDraft());
+    const draftHasName = !!currentFermenterProfileDraft().name;
+
+    // Full-vessel capacity is always computed from the LIVE fields, so the badge
+    // never disagrees with the readout below when a loaded profile is edited.
+    const liveCapacity = calculateFermenterVolumeEstimate({
+      bottomDiameter: data.calcs.fermenterBottomDiameter,
+      topDiameter: data.calcs.fermenterTopDiameter,
+      totalHeight: data.calcs.fermenterTotalHeight,
+      liquidHeight: data.calcs.fermenterTotalHeight,
+      sedimentHeight: 0
+    });
+
+    if (updateProfileBtn){
+      updateProfileBtn.disabled = !(selectedProfile && profileDirty && draftValid);
+      updateProfileBtn.classList.toggle("is-primary", !!(selectedProfile && profileDirty && draftValid));
+      updateProfileBtn.textContent = selectedProfile && profileDirty ? "Save changes" : "Saved";
+      updateProfileBtn.title = !selectedProfile
+        ? "Select a saved fermenter to update it"
+        : profileDirty ? "Overwrite the saved profile with these dimensions" : "No unsaved changes";
+    }
+    if (revertProfileBtn){
+      revertProfileBtn.hidden = !(selectedProfile && profileDirty);
+      revertProfileBtn.disabled = !(selectedProfile && profileDirty);
+    }
+    if (saveProfileBtn){
+      saveProfileBtn.disabled = !(draftValid && draftHasName);
+      saveProfileBtn.classList.toggle("is-primary", !selectedProfile && draftValid && draftHasName);
+    }
     if (deleteProfileBtn) deleteProfileBtn.disabled = !selectedProfile;
-    const selectedCapacity = selectedProfile
-      ? calculateFermenterVolumeEstimate({
-          bottomDiameter: selectedProfile.bottomDiameter,
-          topDiameter: selectedProfile.topDiameter,
-          totalHeight: selectedProfile.totalHeight,
-          liquidHeight: selectedProfile.totalHeight,
-          sedimentHeight: 0
-        })
-      : null;
-    $("calcFermenterProfileMeta").innerHTML = selectedProfile
-      ? `${selectedCapacity ? `<span class="calc-profile-badge capacity">Full ${round(selectedCapacity.totalGallons, 2)} gal</span>` : ""}<span class="calc-profile-badge">Saved profile</span>`
+
+    const statusEl = $("calcFermenterProfileStatus");
+    if (statusEl){
+      if (selectedProfile && profileDirty){
+        statusEl.className = "calc-profile-status dirty";
+        statusEl.textContent = "Unsaved changes — Save changes to update this fermenter, or Save as new to keep both.";
+      } else if (selectedProfile){
+        statusEl.className = "calc-profile-status saved";
+        statusEl.textContent = "Saved fermenter — dimensions match the library.";
+      } else if (draftHasName || liveCapacity){
+        statusEl.className = "calc-profile-status";
+        statusEl.textContent = "Custom vessel — Save as new to add it to your library.";
+      } else {
+        statusEl.className = "calc-profile-status";
+        statusEl.textContent = "";
+      }
+    }
+
+    const selectedCapacity = liveCapacity;
+    $("calcFermenterProfileMeta").innerHTML = liveCapacity
+      ? `<span class="calc-profile-badge capacity">Holds ${round(liveCapacity.totalGallons, 2)} gal full</span>${selectedProfile ? (profileDirty ? `<span class="calc-profile-badge modified">Unsaved edits</span>` : `<span class="calc-profile-badge">Saved profile</span>`) : ""}`
       : "";
 
     const fermenter = calculateFermenterVolumeEstimate({
@@ -3296,6 +3336,37 @@
     data.calcs.fermenterBottomDiameter = profile.bottomDiameter;
     data.calcs.fermenterTopDiameter = profile.topDiameter;
     data.calcs.fermenterTotalHeight = profile.totalHeight;
+  }
+
+  function clearFermenterVesselFields(){
+    data.calcs.fermenterProfileId = "";
+    data.calcs.fermenterProfileName = "";
+    data.calcs.fermenterBottomDiameter = "";
+    data.calcs.fermenterTopDiameter = "";
+    data.calcs.fermenterTotalHeight = "";
+  }
+
+  // A dimension matches whether it's stored as "6.5" or "6.50"; fall back to a
+  // trimmed string compare when either side isn't a finite number.
+  function fermenterDimEqual(a, b){
+    const na = Number(a);
+    const nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return Math.abs(na - nb) < 1e-9;
+    return String(a == null ? "" : a).trim() === String(b == null ? "" : b).trim();
+  }
+
+  // Compares the live vessel fields against the currently selected saved profile
+  // so the UI can honestly show "Saved" vs "Unsaved changes" instead of letting a
+  // selected profile silently drift out of sync with the inputs.
+  function selectedFermenterProfileState(){
+    const selected = getSelectedFermenterProfile();
+    if (!selected) return { selected: null, dirty: false };
+    const draft = currentFermenterProfileDraft();
+    const nameSame = selected.name.trim().toLowerCase() === draft.name.trim().toLowerCase();
+    const dimsSame = fermenterDimEqual(selected.bottomDiameter, draft.bottomDiameter)
+      && fermenterDimEqual(selected.topDiameter, draft.topDiameter)
+      && fermenterDimEqual(selected.totalHeight, draft.totalHeight);
+    return { selected, dirty: !(nameSame && dimsSame) };
   }
 
   function populateMentorForm(){
@@ -4151,10 +4222,13 @@
 
     $("calcFermenterProfileSelect").addEventListener("change", (event) => {
       const selectedId = String(event.target.value || "");
-      data.calcs.fermenterProfileId = selectedId;
       if (selectedId){
         const profile = getFermenterProfiles().find((item) => item.id === selectedId);
         if (profile) applyFermenterProfile(profile);
+      } else {
+        // "Custom / unsaved" is a clean slate for a brand-new vessel, so the
+        // Save-as-new path can't dead-end on a leftover name/dimension clash.
+        clearFermenterVesselFields();
       }
       populateCalcForm();
       persistData();
@@ -4170,7 +4244,7 @@
       }
       const existingName = getFermenterProfiles().find((profile) => profile.name.toLowerCase() === draft.name.toLowerCase());
       if (existingName){
-        showToast(`A fermenter profile named "${draft.name}" already exists. Use Update selected instead or choose a different name.`, "error");
+        showToast(`A fermenter named "${draft.name}" already exists — use Save changes, or give this one a different name.`, "error");
         return;
       }
       const nextProfile = { id: makeId("fermenter"), ...draft };
@@ -4179,6 +4253,7 @@
       populateCalcForm();
       persistData();
       renderCalcs();
+      showToast(`Saved "${draft.name}" to your fermenter library.`, "good");
     });
 
     $("updateFermenterProfileBtn").addEventListener("click", () => {
@@ -4196,7 +4271,7 @@
       const profiles = getFermenterProfiles();
       const conflicting = profiles.find((profile) => profile.id !== selected.id && profile.name.toLowerCase() === draft.name.toLowerCase());
       if (conflicting){
-        showToast(`A fermenter profile named "${draft.name}" already exists. Choose a different name before updating.`, "error");
+        showToast(`A fermenter named "${draft.name}" already exists. Choose a different name before saving.`, "error");
         return;
       }
       const updated = { id: selected.id, ...draft };
@@ -4205,6 +4280,17 @@
       populateCalcForm();
       persistData();
       renderCalcs();
+      showToast(`Updated "${draft.name}".`, "good");
+    });
+
+    $("revertFermenterProfileBtn").addEventListener("click", () => {
+      const selected = getSelectedFermenterProfile();
+      if (!selected) return;
+      applyFermenterProfile(selected);
+      populateCalcForm();
+      persistData();
+      renderCalcs();
+      showToast(`Reverted to the saved "${selected.name}".`, "info");
     });
 
     $("deleteFermenterProfileBtn").addEventListener("click", async () => {
@@ -4220,10 +4306,11 @@
         tone: "danger"
       }))) return;
       data.calcs.fermenterProfiles = getFermenterProfiles().filter((profile) => profile.id !== selected.id);
-      data.calcs.fermenterProfileId = "";
+      clearFermenterVesselFields();
       populateCalcForm();
       persistData();
       renderCalcs();
+      showToast(`Deleted "${selected.name}".`, "info");
     });
   }
 

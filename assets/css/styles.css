@@ -1186,6 +1186,38 @@ option{background:#140e1a;color:var(--cream)}
   color:#ffd0a8;
   border-color:rgba(255,191,145,.18);
 }
+.calc-profile-badge.modified{
+  color:#ffd27a;
+  border-color:rgba(255,205,120,.34);
+  background:rgba(255,196,110,.1);
+}
+.calc-profile-status{
+  margin-top:8px;
+  min-height:1.1em;
+  font-size:.78rem;
+  line-height:1.4;
+  font-weight:600;
+  color:var(--cream-dim);
+}
+.calc-profile-status.saved{color:#a7e0b0}
+.calc-profile-status.dirty{color:#ffcf8a}
+/* Emphasise the button that resolves the current state (Save changes when
+   dirty, Save as new for a fresh custom vessel) without a full .btn-primary. */
+.mini-btn.is-primary{
+  color:#fff;
+  background:linear-gradient(180deg, rgba(186,59,102,.9), rgba(109,35,89,.9));
+  border-color:rgba(255,150,185,.35);
+  box-shadow:0 8px 18px rgba(163,38,73,.24);
+}
+.mini-btn.is-primary:hover{color:#fff;border-color:rgba(255,170,200,.5)}
+.mini-btn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+  transform:none;
+  filter:none;
+  box-shadow:none;
+}
+.mini-btn:disabled:hover{transform:none;filter:none;color:var(--cream-dim)}
 .calc-fermenter-result{
   padding:0;
   background:transparent;
