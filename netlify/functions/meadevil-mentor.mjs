@@ -2,6 +2,38 @@ import { buildKnowledgePromptBlock, buildKnowledgeIssues, buildEvidenceDrivenRep
 
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 
+// Only these models may be requested from the browser. Anything else is coerced
+// to the cheap default so a caller cannot select an expensive model on the
+// account owner's dime.
+const ALLOWED_MODELS = new Set(["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]);
+const DEFAULT_MODEL = "gpt-4o-mini";
+// Hard caps to keep a single request from running up unbounded token spend.
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_HISTORY_TURNS = 40;
+const MAX_TURN_CHARS = 6000;
+
+function pinModel(requested) {
+  return ALLOWED_MODELS.has(requested) ? requested : DEFAULT_MODEL;
+}
+
+// Best-effort origin gate. A static site cannot hold a real secret in browser
+// JS, so this stops casual cross-origin abuse from other web pages; it does not
+// stop a determined curl. Set MENTOR_ALLOWED_ORIGINS (comma-separated) in the
+// Netlify environment to lock it down; unset means allow all (dev default).
+function originAllowed(event) {
+  const allowList = (process.env.MENTOR_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!allowList.length) return true;
+  const origin = event.headers?.origin || event.headers?.Origin || "";
+  return allowList.includes(origin);
+}
+
+function clampTurnText(value) {
+  return String(value || "").slice(0, MAX_TURN_CHARS);
+}
+
 const COLLABORATOR_SYSTEM_PROMPT = `You are MeadEvil Mentor. You help people design honey-based meads like a sharp, collaborative meadmaker sitting next to them.
 
 Persona rules:
@@ -897,28 +929,47 @@ export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return respond(405, { error: "POST only" });
   }
+  if (!originAllowed(event)) {
+    return respond(403, { error: "Origin not allowed" });
+  }
+
+  const rawBody = event.body || "{}";
+  const bodyBytes = event.isBase64Encoded
+    ? Math.floor((rawBody.length * 3) / 4)
+    : Buffer.byteLength(rawBody, "utf8");
+  if (bodyBytes > MAX_BODY_BYTES) {
+    return respond(413, { error: "Request too large" });
+  }
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return respond(500, { error: "OPENAI_API_KEY not set in Netlify environment variables." });
+    return respond(500, { error: "Mentor backend is not configured." });
   }
 
   let payload;
   try {
-    payload = JSON.parse(event.body || "{}");
+    payload = JSON.parse(event.isBase64Encoded ? Buffer.from(rawBody, "base64").toString("utf8") : rawBody);
   } catch {
     return respond(400, { error: "Invalid JSON body" });
   }
 
-  const model = payload.model || "gpt-4o-mini";
+  const model = pinModel(payload.model);
+  const history = Array.isArray(payload.conversation_history)
+    ? payload.conversation_history.slice(-MAX_HISTORY_TURNS).map((turn) => {
+        if (turn && typeof turn === "object") {
+          return { ...turn, text: clampTurnText(turn.text ?? turn.content ?? "") };
+        }
+        return { role: "user", text: clampTurnText(turn) };
+      })
+    : [];
   const userMessage = {
     mode: payload.mode || "scout",
     blunt: payload.blunt ?? true,
     inputs: payload.beginner_inputs || {},
     concept_snapshot: payload.concept_snapshot || {},
     fallback_packet: payload.fallback_packet || payload.local_packet || {},
-    conversation_history: Array.isArray(payload.conversation_history) ? payload.conversation_history : [],
-    current_user_turn: payload.current_user_turn || ""
+    conversation_history: history,
+    current_user_turn: clampTurnText(payload.current_user_turn)
   };
   const guidanceNote = buildGuidanceNote(userMessage);
   const knowledgeContext = buildKnowledgePromptBlock(userMessage);
@@ -950,7 +1001,8 @@ export async function handler(event) {
     const extracted = extractStructuredFromProse(collaboratorReply, userMessage);
     return respond(200, buildFallbackResponse(userMessage, collaboratorReply, extracted));
   } catch (err) {
-    return respond(502, { error: `Mentor function error: ${err.message || err}` });
+    console.error("Mentor function error:", err);
+    return respond(502, { error: "Mentor backend error. Try again." });
   }
 }
 

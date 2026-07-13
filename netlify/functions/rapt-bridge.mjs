@@ -88,13 +88,29 @@ async function handleIngest(event) {
 
 function validateWebhookSecret(event, body) {
   const expected = process.env.RAPT_WEBHOOK_SECRET;
-  if (!expected) return;
+  if (!expected) {
+    // Fail closed by default: an unauthenticated ingest path lets anyone write
+    // to the owner's Firestore via the service account. Only allow the legacy
+    // open behavior when the owner explicitly opts in.
+    if (String(process.env.RAPT_ALLOW_UNAUTHENTICATED || "").toLowerCase() === "true") return;
+    throw Object.assign(
+      new Error("Ingest is not authenticated. Set RAPT_WEBHOOK_SECRET (recommended) or RAPT_ALLOW_UNAUTHENTICATED=true."),
+      { statusCode: 503 }
+    );
+  }
 
   const headers = normalizeHeaders(event.headers || {});
   const provided = headers["x-meadevil-secret"] || event.queryStringParameters?.secret || body.secret || "";
-  if (provided !== expected) {
+  if (!timingSafeEqualStr(provided, expected)) {
     throw Object.assign(new Error("Invalid webhook secret"), { statusCode: 401 });
   }
+}
+
+function timingSafeEqualStr(a, b) {
+  const bufA = Buffer.from(String(a), "utf8");
+  const bufB = Buffer.from(String(b), "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 function hasFirestoreBridgeConfig() {

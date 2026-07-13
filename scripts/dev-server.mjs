@@ -121,6 +121,13 @@ async function handleStatic(req, res, requestUrl) {
     return;
   }
 
+  // Never serve dotfiles/dotdirs (e.g. .env.local, .git, local firebase config).
+  const relFromRoot = path.relative(rootDir, finalPath);
+  if (relFromRoot.split(/[/\\]/).some((seg) => seg.startsWith("."))) {
+    sendText(res, 403, "Forbidden");
+    return;
+  }
+
   const data = await readFile(finalPath);
   const ext = path.extname(finalPath).toLowerCase();
   const contentType = CONTENT_TYPES[ext] || "application/octet-stream";
