@@ -2007,7 +2007,7 @@
     const oneLiner = $("pulseOneLiner");
     if (oneLiner) {
       oneLiner.textContent = batchHasData()
-        ? `${escapeHTML(batch.name || "Batch")} · ${escapeHTML(phase)}${pitchDaysAgo !== null ? ` · day ${pitchDaysAgo}` : ""}`
+        ? `${batch.name || "Batch"} · ${phase}${pitchDaysAgo !== null ? ` · day ${pitchDaysAgo}` : ""}`
         : "No active batch";
     }
   }
