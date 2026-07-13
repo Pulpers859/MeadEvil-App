@@ -1689,9 +1689,16 @@
       }
       return "";
     };
-    const objectList = (value, fallback) => Array.isArray(value)
-      ? value.filter(isPlainObject).map((item) => ({ ...item }))
-      : clone(fallback);
+    // An empty array from the backend must not clobber a non-empty local packet
+    // (the backend's prose extractor returns [] when its term whitelist misses).
+    // Treat empty like missing and fall back — same as the string fields.
+    const objectList = (value, fallback) => {
+      if (Array.isArray(value)){
+        const mapped = value.filter(isPlainObject).map((item) => ({ ...item }));
+        if (mapped.length) return mapped;
+      }
+      return clone(fallback);
+    };
     const safeLocalPacket = normalizeMentorPacket(localPacket.packet);
     const pushback = normalizeStringList(reply.pushback, safeLocalPacket.pushback || []);
     const strongestDirection = normalizeDirectionCard(reply.strongest_direction || reply.strongestDirection || {});
@@ -2192,7 +2199,7 @@
     originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(toStore));
   }
 
-  function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance){
+  function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance, skipConfirm){
     if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
     const innerData = readMainDataLayer().data;
     const currentRows = (((innerData || {}).recipeDraft || {}).additions) || [];
@@ -2201,7 +2208,7 @@
       const amt = String((row && row.amount) || "").trim();
       return !desc && !amt;
     });
-    if (!trulyBlank && !confirm("The source bill already has entries. Replace them with the Mentor's recommendations?")) return;
+    if (!skipConfirm && !trulyBlank && !confirm("The source bill already has entries. Replace them with the Mentor's recommendations?")) return;
 
     const MeadLogic = window.MeadLogic || {};
     let honeyLb = null;
@@ -2240,6 +2247,21 @@
     const output = enhancement.mentor.outputs;
     if (!output || !output.packet){
       if ($("mentorCoachStatus")) $("mentorCoachStatus").innerHTML = `<span class="mentor-status-warn">Run the mentor first. There is no output to apply yet.</span>`;
+      return;
+    }
+
+    // Send to Build overwrites recipe name, style, batch/ABV, notes, yeast, the
+    // source bill AND the structure-addition rows. Confirm once up front when the
+    // draft already holds real user work, rather than only guarding the source
+    // bill (which let notes and adjunct rows be replaced silently).
+    const draft = (readMainDataLayer().data || {}).recipeDraft || {};
+    const draftHasWork = Boolean(
+      String(draft.name || "").trim() ||
+      String(draft.notes || "").trim() ||
+      (Array.isArray(draft.additions) && draft.additions.some((row) => String((row && (row.description || row.amount)) || "").trim())) ||
+      (Array.isArray(draft.structureAdditions) && draft.structureAdditions.some((row) => String((row && (row.ingredient || row.amount)) || "").trim()))
+    );
+    if (draftHasWork && !confirm("Send to Build will replace the current recipe draft (name, notes, source bill, and structure additions) with the Mentor's plan. Continue?")) {
       return;
     }
     missingBridgeIds.length = 0;
@@ -2303,7 +2325,7 @@
         });
     }
 
-    seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance);
+    seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance, true);
 
     const mergedAdjuncts = mergeAdjunctCandidates(output.packet.adjunctCandidates || [], conversationAdjuncts);
     const enrichedAdjuncts = mergedAdjuncts.map((item) => {

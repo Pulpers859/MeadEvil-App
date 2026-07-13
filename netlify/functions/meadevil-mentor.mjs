@@ -755,10 +755,12 @@ const KNOWN_ADJUNCT_TERMS = [
 function extractAmountNear(text, term) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const weightPatterns = [
-    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b[^.]{0,80}${escaped}`, "i"),
-    new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)`, "i"),
+    // NOTE: deliberately exclude gallon/gallons — those are batch/volume figures,
+    // not fermentable weights. Including them mislabeled "3 gallon batch" as 3 lb.
+    new RegExp(`(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,80}${escaped}`, "i"),
+    new RegExp(`${escaped}[^.]{0,80}?(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[\\s\\S]{0,120}${escaped}`, "i"),
-    new RegExp(`${escaped}[\\s\\S]{0,120}?(?:around|total|about|approximately|roughly|use)?\\s*(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g|gallon|gallons)\\b(?!\\s*per\\b)`, "i"),
+    new RegExp(`${escaped}[\\s\\S]{0,120}?(?:around|total|about|approximately|roughly|use)?\\s*(\\d+\\.?\\d*)\\s*(?:to\\s*\\d+\\.?\\d*\\s*)?(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b(?!\\s*per\\b)`, "i"),
     new RegExp(`(\\d+\\.?\\d*)\\s*(lb|lbs|pound|pounds|oz|ounces|kg|g)\\b[^.]{0,20}honey`, "i")
   ];
   for (const pattern of weightPatterns) {
