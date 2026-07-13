@@ -35,6 +35,10 @@ async function runDesktopFlow(downloadDir) {
   const page = await context.newPage();
   const errors = [];
   wirePageErrors(page, errors);
+  // Data-replacing actions (import, factory reset) confirm first; accept so the
+  // automated flow proceeds. Without this Playwright auto-dismisses the dialog
+  // and the import is silently cancelled.
+  page.on("dialog", (dialog) => dialog.accept());
 
   const recipeName = `Smoke Recipe ${Date.now()}`;
 
