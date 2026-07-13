@@ -399,9 +399,43 @@
       .replaceAll("'", "&#39;");
   }
 
+  let toastTimer = null;
+  function showToast(message, tone = "info"){
+    if (!message) return;
+    let host = document.getElementById("meadevilToastHost");
+    if (!host){
+      host = document.createElement("div");
+      host.id = "meadevilToastHost";
+      host.className = "toast-host";
+      host.setAttribute("role", "status");
+      host.setAttribute("aria-live", "polite");
+      document.body.appendChild(host);
+    }
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${tone}`;
+    toast.textContent = message;
+    host.appendChild(toast);
+    // force reflow so the enter transition runs
+    void toast.offsetWidth;
+    toast.classList.add("show");
+    const remove = () => {
+      toast.classList.remove("show");
+      setTimeout(() => toast.remove(), 220);
+    };
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(remove, tone === "error" ? 5200 : 2600);
+    toast.addEventListener("click", remove);
+  }
+
   function copyText(text){
     if (!text) return;
-    navigator.clipboard.writeText(text).catch(() => {});
+    if (!navigator.clipboard || !navigator.clipboard.writeText){
+      showToast("Clipboard unavailable in this browser context.", "error");
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => showToast("Copied to clipboard.", "good"))
+      .catch(() => showToast("Could not copy — copy manually instead.", "error"));
   }
 
   function formatDateTime(value){
@@ -2342,7 +2376,9 @@
     $("nutrientYeastRequirementDisplay").value = String(data.nutrients.yeastRequirement || "low").replace(/^./, (m) => m.toUpperCase());
     $("nutrientDryYeastDisplay").value = data.nutrients.dryYeast || "";
     document.querySelectorAll("[data-nutrient-protocol]").forEach((button) => {
-      button.classList.toggle("active", button.dataset.nutrientProtocol === protocol);
+      const on = button.dataset.nutrientProtocol === protocol;
+      button.classList.toggle("active", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
     });
     const showLimits = protocol === "custom";
     const showRatios = protocol === "custom";
@@ -3008,7 +3044,9 @@
     $("nutrientYeastRequirementDisplay").value = fieldValue(n.yeastRequirement, "low");
     $("nutrientDryYeastDisplay").value = fieldValue(n.dryYeast);
     document.querySelectorAll("[data-nutrient-protocol]").forEach((button) => {
-      button.classList.toggle("active", button.dataset.nutrientProtocol === fieldValue(n.protocol, "tosna"));
+      const on = button.dataset.nutrientProtocol === fieldValue(n.protocol, "tosna");
+      button.classList.toggle("active", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
     });
     $("nutrientFruitOffset").value = fieldValue(n.fruitOffsetPpm, "0");
     $("nutrientTargetYan").value = fieldValue(n.targetYanPpm, "160");
@@ -3228,8 +3266,30 @@
      ========================================================= */
 
   function bindTabs(){
-    document.querySelectorAll("[data-tab].tab-btn").forEach((button) => {
+    const tabButtons = Array.from(document.querySelectorAll("[data-tab].tab-btn"));
+    tabButtons.forEach((button) => {
       button.addEventListener("click", () => setActiveTab(button.dataset.tab));
+    });
+    // Arrow/Home/End navigation for the tablist (ARIA tabs pattern). Without a
+    // keydown handler the roving tabindex leaves keyboard users unable to move
+    // between tabs at all.
+    const tablist = (tabButtons[0] && tabButtons[0].closest('[role="tablist"]')) || document;
+    tablist.addEventListener("keydown", (event) => {
+      const target = event.target;
+      if (!target || !target.matches || !target.matches("[data-tab].tab-btn")) return;
+      const navKeys = ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End"];
+      if (!navKeys.includes(event.key)) return;
+      event.preventDefault();
+      const buttons = Array.from(document.querySelectorAll("[data-tab].tab-btn"));
+      const currentIndex = buttons.indexOf(target);
+      if (currentIndex === -1) return;
+      let nextIndex = currentIndex;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % buttons.length;
+      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = buttons.length - 1;
+      const next = buttons[nextIndex];
+      if (next){ setActiveTab(next.dataset.tab); next.focus(); }
     });
     document.querySelectorAll("[data-open-tab]").forEach((button) => {
       button.addEventListener("click", () => setActiveTab(button.dataset.openTab));
@@ -3359,7 +3419,12 @@
 
     $("saveRecipeBtn").addEventListener("click", () => {
       syncRecipeDerived();
-      if (!data.recipeDraft.name.trim()) return;
+      if (!data.recipeDraft.name.trim()){
+        showToast("Add a recipe name before saving.", "error");
+        const nameField = $("recipeName");
+        if (nameField){ nameField.focus(); nameField.classList.add("field-error"); setTimeout(() => nameField.classList.remove("field-error"), 1800); }
+        return;
+      }
       const existingId = data.ui.selectedRecipeId;
       const record = recipeFromDraft();
       if (existingId){
@@ -3376,6 +3441,7 @@
       data.ui.selectedRecipeId = record.id;
       persistData();
       renderAll();
+      showToast(existingId ? "Recipe updated." : "Recipe saved to Vault.", "good");
     });
 
     $("loadDraftToBatchBtn").addEventListener("click", () => {
@@ -4341,7 +4407,16 @@
     $("importDataBtn").addEventListener("click", () => $("importFileInput").click());
     $("importFileInput").addEventListener("change", async (event) => {
       const file = event.target.files && event.target.files[0];
-      if (!file) return;
+      if (!file){ return; }
+      if (!confirm("Import will replace ALL current data — recipes, active batch, archive, and settings — with the contents of this backup file. Continue?")){
+        event.target.value = "";
+        return;
+      }
+      const priorIds = {
+        fermentationLogs: data.fermentationLogs.map((entry) => entry.id),
+        recipes: data.recipes.map((entry) => entry.id),
+        archive: data.archive.map((entry) => entry.id)
+      };
       try{
         const raw = await file.text();
         const imported = parseImportedState(raw);
@@ -4349,6 +4424,12 @@
           try { localStorage.setItem(ENHANCEMENT_KEY, JSON.stringify(imported.enhancement)); } catch(e) {}
         }
         data = imported.normalizedData;
+        // Tombstone records that existed locally but are absent from the backup,
+        // so a cloud-sync union doesn't resurrect them after the restore.
+        Object.keys(priorIds).forEach((collection) => {
+          const importedIds = new Set((data[collection] || []).map((entry) => entry.id));
+          recordTombstones(collection, priorIds[collection].filter((id) => !importedIds.has(id)));
+        });
         populateRecipeForm();
         populateNutrientForm();
         populateCellarForm();
@@ -4356,8 +4437,11 @@
         populateMentorForm();
         persistData();
         renderAll();
+        const recipeCount = Array.isArray(data.recipes) ? data.recipes.length : 0;
+        showToast(`Backup imported — ${recipeCount} recipe${recipeCount === 1 ? "" : "s"} restored.`, "good");
       } catch(error){
         console.error("Import failed", error);
+        showToast("Import failed — that file is not a valid MeadEvil backup.", "error");
       }
       event.target.value = "";
     });
@@ -4453,6 +4537,13 @@
       console.warn("Initial RAPT refresh failed", error);
     });
   }
+
+  // Surface persistence failures (full quota, private-mode storage disabled) so
+  // the user knows their changes are not being saved instead of losing work
+  // silently. Throttled inside showToast so a burst of saves shows one warning.
+  window.addEventListener("meadevil-storage-error", () => {
+    showToast("Changes are not being saved — device storage is full or blocked.", "error");
+  });
 
   // The Brainstorm layer owns the structure-additions editor and stores rows in
   // its enhancement key before merging them into the main state. Refresh our

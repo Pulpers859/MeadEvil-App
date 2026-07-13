@@ -17,6 +17,8 @@ const CONTENT_TYPES = {
   ".mjs": "application/javascript; charset=utf-8",
   ".png": "image/png",
   ".svg": "image/svg+xml; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".ico": "image/x-icon",
   ".toml": "text/plain; charset=utf-8",
   ".txt": "text/plain; charset=utf-8"
 };
