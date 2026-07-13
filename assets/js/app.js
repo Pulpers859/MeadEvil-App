@@ -427,6 +427,109 @@
     toast.addEventListener("click", remove);
   }
 
+  // Async replacement for the native confirm() so destructive prompts render in
+  // the app's own visual language. Returns a Promise<boolean>; callers await it.
+  // Escape, the Cancel button, and a backdrop click all resolve false; the
+  // confirm button resolves true. Focus starts on Cancel (the safe choice) and
+  // returns to the triggering element on close.
+  let activeConfirm = null;
+  function confirmDialog(options = {}){
+    const {
+      title = "Are you sure?",
+      message = "",
+      confirmLabel = "Confirm",
+      cancelLabel = "Cancel",
+      tone = "default"
+    } = options;
+
+    // Only one modal at a time — if one is somehow open, dismiss it as cancelled.
+    if (activeConfirm){ activeConfirm(false); }
+
+    return new Promise((resolve) => {
+      const previouslyFocused = document.activeElement;
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      const titleId = "meadevilModalTitle";
+      const messageId = "meadevilModalMessage";
+      const card = document.createElement("div");
+      card.className = "modal-card";
+      card.setAttribute("role", "dialog");
+      card.setAttribute("aria-modal", "true");
+      card.setAttribute("aria-labelledby", titleId);
+      if (message) card.setAttribute("aria-describedby", messageId);
+
+      const heading = document.createElement("h2");
+      heading.className = "modal-title";
+      heading.id = titleId;
+      heading.textContent = title;
+      card.appendChild(heading);
+
+      if (message){
+        const body = document.createElement("p");
+        body.className = "modal-message";
+        body.id = messageId;
+        body.textContent = message;
+        card.appendChild(body);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "modal-actions";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "btn btn-ghost";
+      cancelBtn.textContent = cancelLabel;
+      const confirmBtn = document.createElement("button");
+      confirmBtn.type = "button";
+      confirmBtn.className = `btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`;
+      confirmBtn.textContent = confirmLabel;
+      actions.appendChild(cancelBtn);
+      actions.appendChild(confirmBtn);
+      card.appendChild(actions);
+      backdrop.appendChild(card);
+      document.body.appendChild(backdrop);
+      void backdrop.offsetWidth;
+      backdrop.classList.add("show");
+
+      let settled = false;
+      function close(result){
+        if (settled) return;
+        settled = true;
+        activeConfirm = null;
+        document.removeEventListener("keydown", onKey, true);
+        backdrop.classList.remove("show");
+        setTimeout(() => backdrop.remove(), 200);
+        if (previouslyFocused && typeof previouslyFocused.focus === "function"){
+          previouslyFocused.focus();
+        }
+        resolve(Boolean(result));
+      }
+      activeConfirm = close;
+
+      function onKey(event){
+        if (event.key === "Escape"){ event.preventDefault(); close(false); }
+        else if (event.key === "Tab"){
+          // Trap focus between the two buttons.
+          event.preventDefault();
+          const next = document.activeElement === confirmBtn ? cancelBtn : confirmBtn;
+          next.focus();
+        }
+      }
+
+      cancelBtn.addEventListener("click", () => close(false));
+      confirmBtn.addEventListener("click", () => close(true));
+      backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) close(false); });
+      document.addEventListener("keydown", onKey, true);
+      cancelBtn.focus();
+    });
+  }
+
+  // Expose the feedback helpers so sibling scripts (e.g. meadevil-mentor.js)
+  // share one toast/confirm surface instead of falling back to native dialogs.
+  window.MeadEvilUI = Object.assign(window.MeadEvilUI || {}, {
+    toast: showToast,
+    confirm: confirmDialog
+  });
+
   function copyText(text){
     if (!text) return;
     if (!navigator.clipboard || !navigator.clipboard.writeText){
@@ -3411,14 +3514,21 @@
       renderRecipes();
     });
 
-    $("clearRecipeBtn").addEventListener("click", () => {
-      if (!confirm("Start a new Build draft? This clears the current Build form only. Saved recipes in Vault stay untouched.")) return;
+    $("clearRecipeBtn").addEventListener("click", async () => {
+      if (!(await confirmDialog({
+        title: "Start a new Build draft?",
+        message: "This clears the current Build form only. Saved recipes in Vault stay untouched.",
+        confirmLabel: "Start new draft"
+      }))) return;
       data.recipeDraft = defaultRecipeDraft();
       data.ui.selectedRecipeId = null;
       syncNutrientsFromRecipe(data.recipeDraft, { force: true });
       populateRecipeForm();
       persistData();
       renderAll();
+      // Signal completion so meadevil-mentor.js can reset its structure-addition
+      // layer without racing the (now async) confirm on a fixed timeout.
+      window.dispatchEvent(new Event("meadevil-recipe-draft-cleared"));
     });
 
     $("saveRecipeBtn").addEventListener("click", () => {
@@ -3448,10 +3558,22 @@
       showToast(existingId ? "Recipe updated." : "Recipe saved to Vault.", "good");
     });
 
-    $("loadDraftToBatchBtn").addEventListener("click", () => {
-      if (batchHasData() && !confirm("Start a new active batch from this Build draft? The current Ferment, Feed, Finish, and gravity records will be replaced.")) return;
-      const recipe = recipeFromDraft();
-      applyRecipeToBatch(recipe);
+    $("loadDraftToBatchBtn").addEventListener("click", async () => {
+      let loaded = false;
+      if (!batchHasData() || (await confirmDialog({
+        title: "Start a new active batch?",
+        message: "This starts a new active batch from the Build draft. The current Ferment, Feed, Finish, and gravity records will be replaced.",
+        confirmLabel: "Replace batch",
+        tone: "danger"
+      }))){
+        const recipe = recipeFromDraft();
+        applyRecipeToBatch(recipe);
+        loaded = true;
+      }
+      // Always signal the outcome so meadevil-mentor.js mirrors the draft's
+      // structure additions on success and clears its pending flag on cancel —
+      // this event replaces the fragile fixed-timeout observation it used to do.
+      window.dispatchEvent(new CustomEvent("meadevil-draft-loaded-to-batch", { detail: { loaded } }));
     });
   }
 
@@ -3468,7 +3590,7 @@
       if (newPhase !== oldPhase) {
         const latest = latestGravityLog();
         if (!latest || daysSinceLastReading(data.fermentationLogs) > 3) {
-          alert(`Phase changed to ${newPhase}. Take a gravity reading to mark this transition.`);
+          showToast(`Phase changed to ${newPhase}. Take a gravity reading to mark this transition.`, "info");
         }
         const structureAdds = (Array.isArray(data.currentBatch.structureAdditions) && data.currentBatch.structureAdditions.length)
           ? data.currentBatch.structureAdditions
@@ -3476,7 +3598,7 @@
         const phaseAdds = structureAdds.filter((row) => row.ingredient && row.phase && row.phase.toLowerCase() === newPhase.toLowerCase());
         if (phaseAdds.length) {
           const names = phaseAdds.map((row) => row.ingredient).join(", ");
-          alert(`Reminder: ${names} scheduled for ${newPhase}. Check your structure additions.`);
+          showToast(`Reminder: ${names} scheduled for ${newPhase}. Check your structure additions.`, "info");
         }
       }
       persistData();
@@ -3506,15 +3628,15 @@
       try{
         const result = importGravityCsv(await file.text());
         if (result.error){
-          alert(result.error);
+          showToast(result.error, "error");
         } else if (result.added){
-          alert(`Imported ${result.added} new reading${result.added === 1 ? "" : "s"} from ${file.name} (thinned to hourly for the first 3 days, then every 6 hours).`);
+          showToast(`Imported ${result.added} new reading${result.added === 1 ? "" : "s"} from ${file.name} (thinned to hourly for the first 3 days, then every 6 hours).`, "good");
         } else {
-          alert("No new readings found — everything in that file is already in the log.");
+          showToast("No new readings found — everything in that file is already in the log.", "info");
         }
       } catch(error){
         console.error("Gravity CSV import failed", error);
-        alert("That file could not be read as a CSV.");
+        showToast("That file could not be read as a CSV.", "error");
       }
       event.target.value = "";
     });
@@ -3595,18 +3717,28 @@
       const el = $(id);
       if (el) el.addEventListener("input", () => setLogEntryError(""));
     });
-    $("clearLogsBtn").addEventListener("click", () => {
-      if (!confirm("Clear all gravity readings for the active batch? The batch, nutrient, and finish records will stay.")) return;
+    $("clearLogsBtn").addEventListener("click", async () => {
+      if (!(await confirmDialog({
+        title: "Clear all gravity readings?",
+        message: "This clears every gravity reading for the active batch. The batch, nutrient, and finish records will stay.",
+        confirmLabel: "Clear readings",
+        tone: "danger"
+      }))) return;
       recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
       data.fermentationLogs = [];
       persistData();
       renderDashboard();
       renderFerment();
     });
-    $("gravityLog").addEventListener("click", (event) => {
+    $("gravityLog").addEventListener("click", async (event) => {
       const deleteId = event.target.dataset.logDelete;
       if (deleteId) {
-        if (!confirm("Delete this gravity reading? A recorded measurement cannot be reconstructed.")) return;
+        if (!(await confirmDialog({
+          title: "Delete this gravity reading?",
+          message: "A recorded measurement cannot be reconstructed.",
+          confirmLabel: "Delete reading",
+          tone: "danger"
+        }))) return;
         recordTombstones("fermentationLogs", deleteId);
         data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== deleteId);
         persistData();
@@ -3635,7 +3767,7 @@
           fields.forEach((field) => { pending[field.dataset.logEditField] = field.value; });
           const check = validateLogInputs({ gravity: pending.gravity, temp: pending.temp, pH: pending.pH });
           if (!check.ok) {
-            alert(check.reason);
+            showToast(check.reason, "error");
             return;
           }
           Object.keys(pending).forEach((key) => { entry[key] = pending[key]; });
@@ -3671,8 +3803,13 @@
       renderFerment();
     });
 
-    $("clearActiveBatchBtn").addEventListener("click", () => {
-      if (!confirm("Reset the active batch? This clears Ferment, Feed, Finish, and gravity history for the current batch. Saved recipes and Vault entries stay untouched.")) return;
+    $("clearActiveBatchBtn").addEventListener("click", async () => {
+      if (!(await confirmDialog({
+        title: "Reset the active batch?",
+        message: "This clears Ferment, Feed, Finish, and gravity history for the current batch. Saved recipes and Vault entries stay untouched.",
+        confirmLabel: "Reset batch",
+        tone: "danger"
+      }))) return;
       recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
@@ -3839,10 +3976,15 @@
       persistData();
       renderCellar();
     });
-    $("cellarAdditionList").addEventListener("click", (event) => {
+    $("cellarAdditionList").addEventListener("click", async (event) => {
       const id = event.target.dataset.cellarAdditionDelete;
       if (!id) return;
-      if (!confirm("Remove this cellar addition from the log?")) return;
+      if (!(await confirmDialog({
+        title: "Remove this cellar addition?",
+        message: "This removes the addition from the log.",
+        confirmLabel: "Remove",
+        tone: "danger"
+      }))) return;
       data.cellar.additions = data.cellar.additions.filter((row) => row.id !== id);
       if (!data.cellar.additions.length) data.cellar.additions = [defaultCellarAddition()];
       persistData();
@@ -3862,7 +4004,7 @@
       renderArchive();
     });
 
-    $("recipeList").addEventListener("click", (event) => {
+    $("recipeList").addEventListener("click", async (event) => {
       const { recipeEdit, recipeLoad, recipeDelete, recipeCopy } = event.target.dataset;
       if (recipeEdit){
         const recipe = data.recipes.find((item) => item.id === recipeEdit);
@@ -3877,12 +4019,22 @@
       if (recipeLoad){
         const recipe = data.recipes.find((item) => item.id === recipeLoad);
         if (!recipe) return;
-        if (batchHasData() && !confirm("Start a new active batch from this saved recipe? The current Ferment, Feed, Finish, and gravity records will be replaced.")) return;
+        if (batchHasData() && !(await confirmDialog({
+          title: "Start a new active batch?",
+          message: "This starts a new active batch from the saved recipe. The current Ferment, Feed, Finish, and gravity records will be replaced.",
+          confirmLabel: "Replace batch",
+          tone: "danger"
+        }))) return;
         data.ui.selectedRecipeId = recipe.id;
         applyRecipeToBatch(recipe);
       }
       if (recipeDelete){
-        if (!confirm("Delete this saved recipe? This cannot be undone.")) return;
+        if (!(await confirmDialog({
+          title: "Delete this saved recipe?",
+          message: "This cannot be undone.",
+          confirmLabel: "Delete recipe",
+          tone: "danger"
+        }))) return;
         recordTombstones("recipes", recipeDelete);
         data.recipes = data.recipes.filter((item) => item.id !== recipeDelete);
         if (data.ui.selectedRecipeId === recipeDelete) data.ui.selectedRecipeId = null;
@@ -3897,12 +4049,17 @@
       }
     });
 
-    $("archiveList").addEventListener("click", (event) => {
+    $("archiveList").addEventListener("click", async (event) => {
       const { archiveLoad, archiveClone, archiveDelete } = event.target.dataset;
       if (archiveLoad){
         const item = data.archive.find((entry) => entry.id === archiveLoad);
         if (!item) return;
-        if (batchHasData() && !confirm("Resume this archived batch as the active batch? The current live batch will be replaced.")) return;
+        if (batchHasData() && !(await confirmDialog({
+          title: "Resume this archived batch?",
+          message: "This resumes the archived batch as the active batch. The current live batch will be replaced.",
+          confirmLabel: "Resume batch",
+          tone: "danger"
+        }))) return;
         // Tombstone the outgoing live logs so sync doesn't union them into the
         // resumed batch, then revive the restored batch's own log ids so sync
         // doesn't strip the gravity trail we just brought back (see H2/H3).
@@ -3943,7 +4100,12 @@
         setActiveTab("recipes");
       }
       if (archiveDelete){
-        if (!confirm("Delete this archived batch? This cannot be undone.")) return;
+        if (!(await confirmDialog({
+          title: "Delete this archived batch?",
+          message: "This cannot be undone.",
+          confirmLabel: "Delete batch",
+          tone: "danger"
+        }))) return;
         recordTombstones("archive", archiveDelete);
         data.archive = data.archive.filter((entry) => entry.id !== archiveDelete);
         persistData();
@@ -4003,12 +4165,12 @@
       const draft = currentFermenterProfileDraft();
       const error = validateFermenterProfileDraft(draft);
       if (error){
-        alert(error);
+        showToast(error, "error");
         return;
       }
       const existingName = getFermenterProfiles().find((profile) => profile.name.toLowerCase() === draft.name.toLowerCase());
       if (existingName){
-        alert(`A fermenter profile named "${draft.name}" already exists. Use Update selected instead or choose a different name.`);
+        showToast(`A fermenter profile named "${draft.name}" already exists. Use Update selected instead or choose a different name.`, "error");
         return;
       }
       const nextProfile = { id: makeId("fermenter"), ...draft };
@@ -4022,19 +4184,19 @@
     $("updateFermenterProfileBtn").addEventListener("click", () => {
       const selected = getSelectedFermenterProfile();
       if (!selected){
-        alert("Select a saved fermenter profile to update.");
+        showToast("Select a saved fermenter profile to update.", "error");
         return;
       }
       const draft = currentFermenterProfileDraft();
       const error = validateFermenterProfileDraft(draft);
       if (error){
-        alert(error);
+        showToast(error, "error");
         return;
       }
       const profiles = getFermenterProfiles();
       const conflicting = profiles.find((profile) => profile.id !== selected.id && profile.name.toLowerCase() === draft.name.toLowerCase());
       if (conflicting){
-        alert(`A fermenter profile named "${draft.name}" already exists. Choose a different name before updating.`);
+        showToast(`A fermenter profile named "${draft.name}" already exists. Choose a different name before updating.`, "error");
         return;
       }
       const updated = { id: selected.id, ...draft };
@@ -4045,13 +4207,18 @@
       renderCalcs();
     });
 
-    $("deleteFermenterProfileBtn").addEventListener("click", () => {
+    $("deleteFermenterProfileBtn").addEventListener("click", async () => {
       const selected = getSelectedFermenterProfile();
       if (!selected){
-        alert("Select a saved fermenter profile to delete.");
+        showToast("Select a saved fermenter profile to delete.", "error");
         return;
       }
-      if (!confirm(`Delete fermenter profile "${selected.name}"? This cannot be undone.`)) return;
+      if (!(await confirmDialog({
+        title: "Delete fermenter profile?",
+        message: `"${selected.name}" will be removed. This cannot be undone.`,
+        confirmLabel: "Delete profile",
+        tone: "danger"
+      }))) return;
       data.calcs.fermenterProfiles = getFermenterProfiles().filter((profile) => profile.id !== selected.id);
       data.calcs.fermenterProfileId = "";
       populateCalcForm();
@@ -4421,7 +4588,12 @@
     $("importFileInput").addEventListener("change", async (event) => {
       const file = event.target.files && event.target.files[0];
       if (!file){ return; }
-      if (!confirm("Import will replace ALL current data — recipes, active batch, archive, and settings — with the contents of this backup file. Continue?")){
+      if (!(await confirmDialog({
+        title: "Replace all data with this backup?",
+        message: "Import will replace ALL current data — recipes, active batch, archive, and settings — with the contents of this backup file.",
+        confirmLabel: "Import & replace",
+        tone: "danger"
+      }))){
         event.target.value = "";
         return;
       }
@@ -4458,8 +4630,13 @@
       }
       event.target.value = "";
     });
-    $("resetAppBtn").addEventListener("click", () => {
-      if (!confirm("Factory reset MeadEvil? This deletes saved recipes, active batch data, archive history, mentor history, and settings.")) return;
+    $("resetAppBtn").addEventListener("click", async () => {
+      if (!(await confirmDialog({
+        title: "Factory reset MeadEvil?",
+        message: "This deletes saved recipes, active batch data, archive history, mentor history, and settings.",
+        confirmLabel: "Factory reset",
+        tone: "danger"
+      }))) return;
       const removedIds = {
         fermentationLogs: data.fermentationLogs.map((entry) => entry.id),
         recipes: data.recipes.map((entry) => entry.id),

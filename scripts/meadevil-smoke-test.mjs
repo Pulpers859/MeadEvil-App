@@ -35,9 +35,10 @@ async function runDesktopFlow(downloadDir) {
   const page = await context.newPage();
   const errors = [];
   wirePageErrors(page, errors);
-  // Data-replacing actions (import, factory reset) confirm first; accept so the
-  // automated flow proceeds. Without this Playwright auto-dismisses the dialog
-  // and the import is silently cancelled.
+  // Data-replacing actions (import, factory reset) confirm first through the
+  // app's own modal (window.MeadEvilUI.confirm), not a native browser dialog.
+  // The import flow below clicks that modal's confirm button explicitly. A
+  // native-dialog handler is kept only as a safety net for any stray dialog.
   page.on("dialog", (dialog) => dialog.accept());
 
   const recipeName = `Smoke Recipe ${Date.now()}`;
@@ -87,6 +88,11 @@ async function runDesktopFlow(downloadDir) {
   await page.waitForFunction(() => document.getElementById("recipeName").value === "");
 
   await page.setInputFiles("#importFileInput", exportPath);
+  // The import replace-all confirm is now an in-app modal — confirm it so the
+  // restore proceeds (a cancelled modal would leave the recipe name blank).
+  const importConfirm = page.locator(".modal-backdrop .btn-danger");
+  await importConfirm.waitFor({ state: "visible" });
+  await importConfirm.click();
   await page.waitForFunction((name) => document.getElementById("recipeName").value === name, recipeName);
   await openTab(page, "tab-btn-archive", "tab-archive");
   await page.waitForFunction((name) => {

@@ -23,6 +23,16 @@
   const clone = (x) => JSON.parse(JSON.stringify(x));
   const makeId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
 
+  // Prefer the shared modal exposed by app.js so the mentor's destructive
+  // prompts match the rest of the app; fall back to native confirm only if the
+  // helper somehow isn't loaded yet.
+  function uiConfirm(options = {}){
+    const ui = window.MeadEvilUI;
+    if (ui && typeof ui.confirm === "function") return ui.confirm(options);
+    const parts = [options.title, options.message].filter(Boolean).join("\n\n");
+    return Promise.resolve(window.confirm(parts || "Are you sure?"));
+  }
+
   const originalSetItem = Storage.prototype.setItem;
   const ADJUNCT_FIELDS = new Set(["phase","category","ingredient","amount","unit","purpose","contactTime","notes"]);
   let pendingContext = { fromDraftToBatch: false };
@@ -2213,7 +2223,7 @@
     originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(toStore));
   }
 
-  function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance, skipConfirm){
+  async function seedRecipeSourceBill(packet, batchGallons, targetAbv, sweetness, yeastTolerance, skipConfirm){
     if (!packet.sourceBillCandidates || !packet.sourceBillCandidates.length) return;
     const innerData = readMainDataLayer().data;
     const currentRows = (((innerData || {}).recipeDraft || {}).additions) || [];
@@ -2222,7 +2232,12 @@
       const amt = String((row && row.amount) || "").trim();
       return !desc && !amt;
     });
-    if (!skipConfirm && !trulyBlank && !confirm("The source bill already has entries. Replace them with the Mentor's recommendations?")) return;
+    if (!skipConfirm && !trulyBlank && !(await uiConfirm({
+      title: "Replace the source bill?",
+      message: "The source bill already has entries. Replace them with the Mentor's recommendations?",
+      confirmLabel: "Replace bill",
+      tone: "danger"
+    }))) return;
 
     const MeadLogic = window.MeadLogic || {};
     let honeyLb = null;
@@ -2263,7 +2278,7 @@
     });
   }
 
-  function applyMentorToBuild(){
+  async function applyMentorToBuild(){
     const enhancement = loadEnhancement();
     const output = enhancement.mentor.outputs;
     if (!output || !output.packet){
@@ -2282,7 +2297,12 @@
       (Array.isArray(draft.additions) && draft.additions.some((row) => String((row && (row.description || row.amount)) || "").trim())) ||
       (Array.isArray(draft.structureAdditions) && draft.structureAdditions.some((row) => String((row && (row.ingredient || row.amount)) || "").trim()))
     );
-    if (draftHasWork && !confirm("Send to Build will replace the current recipe draft (name, notes, source bill, and structure additions) with the Mentor's plan. Continue?")) {
+    if (draftHasWork && !(await uiConfirm({
+      title: "Replace the current recipe draft?",
+      message: "Send to Build will replace the current recipe draft (name, notes, source bill, and structure additions) with the Mentor's plan.",
+      confirmLabel: "Send to Build",
+      tone: "danger"
+    }))) {
       return;
     }
     missingBridgeIds.length = 0;
@@ -2346,7 +2366,7 @@
         });
     }
 
-    seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance, true);
+    await seedRecipeSourceBill(cleanedPacket, batchGallons, targetAbv, sweetness, yeastTolerance, true);
 
     const mergedAdjuncts = mergeAdjunctCandidates(output.packet.adjunctCandidates || [], conversationAdjuncts);
     const enrichedAdjuncts = mergedAdjuncts.map((item) => {
@@ -2460,8 +2480,13 @@
     $("mentorRunBtn")?.addEventListener("click", runMentor);
     $("mentorToRecipeBtn")?.addEventListener("click", applyMentorToBuild);
 
-    $("mentorClearThreadBtn")?.addEventListener("click", () => {
-      if (!confirm("Clear the brainstorm thread? The concept fields stay, but the mentor conversation resets.")) return;
+    $("mentorClearThreadBtn")?.addEventListener("click", async () => {
+      if (!(await uiConfirm({
+        title: "Clear the brainstorm thread?",
+        message: "The concept fields stay, but the mentor conversation resets.",
+        confirmLabel: "Clear thread",
+        tone: "danger"
+      }))) return;
       saveMergedMain((enh) => {
         enh.mentor = blankMentorThreadState(enh.mentor);
       });
@@ -2472,8 +2497,13 @@
       setTimeout(renderAll, 60);
     });
 
-    $("clearMentorBtn")?.addEventListener("click", () => {
-      if (!confirm("Reset the brainstorm concept? This clears the concept fields and the mentor thread.")) return;
+    $("clearMentorBtn")?.addEventListener("click", async () => {
+      if (!(await uiConfirm({
+        title: "Reset the brainstorm concept?",
+        message: "This clears the concept fields and the mentor thread.",
+        confirmLabel: "Reset concept",
+        tone: "danger"
+      }))) return;
       saveMergedMain((enh) => { enh.mentor = defaultMentorState(); });
       // Clear the concept fields in the authoritative .data.mentor layer, not the
       // phantom top-level bridge that no longer feeds the form.
@@ -2483,8 +2513,13 @@
       setTimeout(renderAll, 60);
     });
 
-    $("mentorDemoCocoBtn")?.addEventListener("click", () => {
-      if (!confirm("Open the El Coco Loco demo? This replaces the current concept and clears the brainstorm thread.")) return;
+    $("mentorDemoCocoBtn")?.addEventListener("click", async () => {
+      if (!(await uiConfirm({
+        title: "Open the El Coco Loco demo?",
+        message: "This replaces the current concept and clears the brainstorm thread.",
+        confirmLabel: "Open demo",
+        tone: "danger"
+      }))) return;
       const demo = cocoLocoDemo();
       saveMergedMain((enh) => {
         enh.mentor = blankMentorThreadState(enh.mentor);
@@ -2502,30 +2537,29 @@
       setTimeout(renderAll, 60);
     });
 
-    $("clearRecipeBtn")?.addEventListener("click", () => {
-      setTimeout(() => {
-        const draft = getMainData().recipeDraft || {};
-        const cleared = !draft.name && !draft.targetAbv && !draft.batchGallons;
-        if (!cleared) return;
-        saveMergedMain((enh) => { enh.recipeDraft.structureAdditions = [defaultAdjunctRow()]; });
-        renderAll();
-      }, 20);
+    // app.js clears the Build draft behind an async modal now, so we can't poll
+    // for the result on a fixed timeout — it dispatches this event only after a
+    // confirmed clear actually lands, and we reset our structure layer to match.
+    window.addEventListener("meadevil-recipe-draft-cleared", () => {
+      saveMergedMain((enh) => { enh.recipeDraft.structureAdditions = [defaultAdjunctRow()]; });
+      renderAll();
     });
 
+    // Mark the draft->batch load as pending on click so any re-render that fires
+    // while app.js is applying the recipe treats the draft's structure additions
+    // as the batch's (see the pendingContext read in the merge step).
     $("loadDraftToBatchBtn")?.addEventListener("click", () => {
-      // The main app handler can be cancelled at its confirm() prompt. Only
-      // mirror draft structure additions onto the batch if the load actually
-      // happened, otherwise a cancelled load corrupts the active batch plan.
-      const beforeLoadedAt = ((getMainData().currentBatch || {}).loadedAt) || null;
       pendingContext.fromDraftToBatch = true;
-      setTimeout(() => {
-        const afterLoadedAt = ((getMainData().currentBatch || {}).loadedAt) || null;
-        if (afterLoadedAt && afterLoadedAt !== beforeLoadedAt){
-          saveMergedMain((enh) => { enh.currentBatch.structureAdditions = clone(enh.recipeDraft.structureAdditions); });
-        }
-        pendingContext.fromDraftToBatch = false;
-        renderAll();
-      }, 120);
+    });
+    // app.js reports whether the load was confirmed. Mirror the draft's structure
+    // additions onto the batch only on a real load; always clear the pending flag
+    // (including on cancel) so it can't leak into an unrelated later render.
+    window.addEventListener("meadevil-draft-loaded-to-batch", (event) => {
+      if (event.detail && event.detail.loaded){
+        saveMergedMain((enh) => { enh.currentBatch.structureAdditions = clone(enh.recipeDraft.structureAdditions); });
+      }
+      pendingContext.fromDraftToBatch = false;
+      renderAll();
     });
 
     $("saveRecipeBtn")?.addEventListener("click", () => {

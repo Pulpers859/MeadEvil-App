@@ -164,13 +164,29 @@
     return Math.round(yan);
   }
 
+  // Nutrient "effectiveness" = mg of YAN delivered per gram of product per liter
+  // of must. DAP and Fermaid K use their measured YAN contribution (~210 and ~100
+  // ppm per g/L) because their nitrogen is inorganic/high-efficiency and dosed 1:1.
+  //
+  // Fermaid O is different. Its *measured* YAN is only ~40 ppm per g/L (4% N), but
+  // it is organic nitrogen that yeast assimilate far more efficiently, so every
+  // real dosing model — including this app's own calculateTosna — doses on Fermaid
+  // O's YAN *equivalence*, which Scott Labs documents at ~160-240 ppm per g/L. We
+  // use 188.93 (= 50 * 3.78541 L/gal * 0.9982), the value that reconciles this
+  // model's TOSNA mode with calculateTosna so both scale with gravity. Using the
+  // raw measured 40 made Fermaid O demand so large that the 1.2 g/L cap always
+  // bound, flattening the schedule into a fixed number regardless of OG.
+  const FERMAID_O_YAN_PER_G_PER_L = 188.93;
+  const FERMAID_K_YAN_PER_G_PER_L = 100;
+  const DAP_YAN_PER_G_PER_L = 210;
+
   function calculateAdvancedNutrients({
     batchGallons,
     targetYanPpm,
     fruitOffsetPpm = 0,
-    fermaidOEffectiveness = 40,
-    fermaidKEffectiveness = 100,
-    dapEffectiveness = 210,
+    fermaidOEffectiveness = FERMAID_O_YAN_PER_G_PER_L,
+    fermaidKEffectiveness = FERMAID_K_YAN_PER_G_PER_L,
+    dapEffectiveness = DAP_YAN_PER_G_PER_L,
     protocol = "advanced",
     enforceLimits = true,
     limitO = 1.2,
@@ -185,9 +201,9 @@
     const target = num(targetYanPpm);
     const offset = Math.max(0, num(fruitOffsetPpm) || 0);
     const liters = gallonsToLiters(gallons);
-    const effO = num(fermaidOEffectiveness) || 40;
-    const effK = num(fermaidKEffectiveness) || 100;
-    const effD = num(dapEffectiveness) || 210;
+    const effO = num(fermaidOEffectiveness) || FERMAID_O_YAN_PER_G_PER_L;
+    const effK = num(fermaidKEffectiveness) || FERMAID_K_YAN_PER_G_PER_L;
+    const effD = num(dapEffectiveness) || DAP_YAN_PER_G_PER_L;
     const mode = String(protocol || "advanced");
     if (!(gallons > 0 && target > 0 && liters > 0)) return null;
 
