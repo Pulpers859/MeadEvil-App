@@ -860,7 +860,10 @@
 
   function buildConceptPreviewHtml(){
     const { main, enhancement } = currentEnhancementState();
-    const mentorMain = main.mentor || {};
+    // Concept fields are owned by app.js inside the {_schema,data} envelope
+    // (.data.mentor); the old top-level main.mentor is a phantom that app.js's
+    // next persist destroys, so read the envelope layer.
+    const mentorMain = getMainData().mentor || {};
     const beginner = enhancement.mentor.beginner || {};
     const project = String(mentorMain.conceptName || "").trim();
     const inspiration = String(mentorMain.inspiration || "").trim();
@@ -1162,23 +1165,26 @@
   function buildLocalPacket(){
     const { main, enhancement } = currentEnhancementState();
     const beginner = enhancement.mentor.beginner;
-    const conceptName = $("mentorConceptName")?.value.trim() || (main.mentor || {}).conceptName || "Untitled concept";
-    const style = $("mentorStyle")?.value.trim() || (main.mentor || {}).style || "Open lane";
-    const inspiration = $("mentorInspiration")?.value.trim() || (main.mentor || {}).inspiration || "";
-    const vision = $("mentorVision")?.value.trim() || (main.mentor || {}).vision || "";
+    // Concept fields live in the envelope's .data.mentor (owned by app.js), not
+    // the phantom top-level main.mentor.
+    const mainMentor = getMainData().mentor || {};
+    const conceptName = $("mentorConceptName")?.value.trim() || mainMentor.conceptName || "Untitled concept";
+    const style = $("mentorStyle")?.value.trim() || mainMentor.style || "Open lane";
+    const inspiration = $("mentorInspiration")?.value.trim() || mainMentor.inspiration || "";
+    const vision = $("mentorVision")?.value.trim() || mainMentor.vision || "";
     const followupNote = $("mentorFollowup")?.value.trim() || "";
     const mustHave = preferredConceptTerms(beginner.mustHaveSimple);
     const avoid = preferredConceptTerms(beginner.avoidSimple);
     const onHand = preferredConceptTerms(beginner.ingredientsOnHand);
     const combinedText = [style, inspiration, vision, beginner.serveContext, beginner.mustHaveSimple, beginner.avoidSimple, beginner.ingredientsOnHand, beginner.noGo, followupNote].join(" ");
     const k = detectKeywords(combinedText);
-    const targetAbv = Number($("mentorTargetAbv")?.value || (main.mentor || {}).targetAbv || 0);
-    const sweetness = $("mentorSweetness")?.value || (main.mentor || {}).sweetness || "Dry";
+    const targetAbv = Number($("mentorTargetAbv")?.value || mainMentor.targetAbv || 0);
+    const sweetness = $("mentorSweetness")?.value || mainMentor.sweetness || "Dry";
     const mode = enhancement.mentor.mode || "scout";
     const blunt = Boolean($("mentorBluntMode")?.checked ?? enhancement.mentor.blunt);
     const conversation = normalizeMentorConversation(enhancement.mentor.conversation);
-    const batchSize = $("mentorBatchSize")?.value || (main.mentor || {}).batchSize || "";
-    const carbonation = $("mentorCarbonation")?.value || (main.mentor || {}).carbonation || "Still";
+    const batchSize = $("mentorBatchSize")?.value || mainMentor.batchSize || "";
+    const carbonation = $("mentorCarbonation")?.value || mainMentor.carbonation || "Still";
     const snapshot = buildConceptSnapshot({
       conceptName,
       style,
@@ -1574,14 +1580,18 @@
     renderAdjunctList(recipeRows);
     renderTranscript(enhancement.mentor.conversation);
 
-    if ($("mentorConceptName")) $("mentorConceptName").value = (main.mentor || {}).conceptName || "";
-    if ($("mentorStyle")) $("mentorStyle").value = (main.mentor || {}).style || "";
-    if ($("mentorBatchSize")) $("mentorBatchSize").value = (main.mentor || {}).batchSize || "";
-    if ($("mentorTargetAbv")) $("mentorTargetAbv").value = (main.mentor || {}).targetAbv || "";
-    if ($("mentorSweetness")) $("mentorSweetness").value = (main.mentor || {}).sweetness || "Dry";
-    if ($("mentorCarbonation")) $("mentorCarbonation").value = (main.mentor || {}).carbonation || "Still";
-    if ($("mentorInspiration")) $("mentorInspiration").value = (main.mentor || {}).inspiration || "";
-    if ($("mentorVision")) $("mentorVision").value = (main.mentor || {}).vision || "";
+    // Read concept fields from the envelope's .data.mentor (owned by app.js),
+    // NOT the phantom top-level main.mentor which app.js's persist destroys.
+    // Reading the phantom here is what blanked concept fields as the user typed.
+    const mainMentor = getMainData().mentor || {};
+    if ($("mentorConceptName")) $("mentorConceptName").value = mainMentor.conceptName || "";
+    if ($("mentorStyle")) $("mentorStyle").value = mainMentor.style || "";
+    if ($("mentorBatchSize")) $("mentorBatchSize").value = mainMentor.batchSize || "";
+    if ($("mentorTargetAbv")) $("mentorTargetAbv").value = mainMentor.targetAbv || "";
+    if ($("mentorSweetness")) $("mentorSweetness").value = mainMentor.sweetness || "Dry";
+    if ($("mentorCarbonation")) $("mentorCarbonation").value = mainMentor.carbonation || "Still";
+    if ($("mentorInspiration")) $("mentorInspiration").value = mainMentor.inspiration || "";
+    if ($("mentorVision")) $("mentorVision").value = mainMentor.vision || "";
     if ($("mentorServeContext")) $("mentorServeContext").value = enhancement.mentor.beginner.serveContext || "";
     if ($("mentorMustHaveSimple")) $("mentorMustHaveSimple").value = enhancement.mentor.beginner.mustHaveSimple || "";
     if ($("mentorAvoidSimple")) $("mentorAvoidSimple").value = enhancement.mentor.beginner.avoidSimple || "";
@@ -1615,9 +1625,13 @@
   }
 
   function updateMentorConceptField(field, value){
-    saveMentorMirrorToMain((main) => {
-      main.mentor = main.mentor || {};
-      main.mentor[field] = value;
+    // Write the concept field into the envelope's .data.mentor (the authoritative
+    // copy app.js reads and re-serializes). The legacy saveMentorMirrorToMain
+    // wrote a phantom top-level main.mentor that app.js's next persist destroyed,
+    // which is why concept fields blanked mid-edit.
+    writeMainData((data) => {
+      data.mentor = data.mentor || {};
+      data.mentor[field] = value;
     });
     renderConceptPreview();
   }
@@ -2454,9 +2468,9 @@
     $("clearMentorBtn")?.addEventListener("click", () => {
       if (!confirm("Reset the brainstorm concept? This clears the concept fields and the mentor thread.")) return;
       saveMergedMain((enh) => { enh.mentor = defaultMentorState(); });
-      saveMentorMirrorToMain((main) => {
-        blankMentorLegacyBridge(main);
-      });
+      // Clear the concept fields in the authoritative .data.mentor layer, not the
+      // phantom top-level bridge that no longer feeds the form.
+      writeMainData((data) => { blankMentorLegacyBridge(data); });
       if ($("mentorFollowup")) $("mentorFollowup").value = "";
       window.dispatchEvent(new Event("meadevil-cloud-restore"));
       setTimeout(renderAll, 60);
@@ -2469,8 +2483,9 @@
         enh.mentor = blankMentorThreadState(enh.mentor);
         enh.mentor.beginner = { ...enh.mentor.beginner, ...demo.beginner };
       });
-      saveMentorMirrorToMain((main) => {
-        main.mentor = { ...(main.mentor || {}), ...demo.concept };
+      // Seed the demo concept into the authoritative .data.mentor layer.
+      writeMainData((data) => {
+        data.mentor = { ...(data.mentor || {}), ...demo.concept };
       });
       if ($("mentorFollowup")) $("mentorFollowup").value = "";
       // app.js keeps its own in-memory copy of state. Without this, app.js
