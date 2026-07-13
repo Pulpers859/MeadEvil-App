@@ -196,9 +196,12 @@
     let gramsO = 0;
     let gramsK = 0;
     let gramsD = 0;
-    const maxO = (num(limitO) || 1.2) * liters;
-    const maxK = (num(limitK) || 0.5) * liters;
-    const maxD = (num(limitD) || 0.96) * liters;
+    // Respect an explicit 0 (custom mode: "none of this nutrient"); only fall
+    // back to the default ceiling when the limit is genuinely unset/invalid.
+    const limOverride = (value, fallback) => { const n = num(value); return n != null ? n : fallback; };
+    const maxO = limOverride(limitO, 1.2) * liters;
+    const maxK = limOverride(limitK, 0.5) * liters;
+    const maxD = limOverride(limitD, 0.96) * liters;
 
     function cap(value, maxValue){
       return enforceLimits ? Math.min(maxValue, value) : value;
@@ -212,7 +215,7 @@
       const yanD = totalYanMg * 0.80;
       gramsK = cap(yanK / effK, maxK);
       gramsD = cap(yanD / effD, maxD);
-      if (enforceLimits){
+      if (!enforceLimits){
         const remainingMg = Math.max(0, totalYanMg - ((gramsK * effK) + (gramsD * effD)));
         if (remainingMg > 0) gramsD += remainingMg / effD;
       }
@@ -232,11 +235,11 @@
       remainingMg -= gramsK * effK;
       gramsD = remainingMg > 0 ? Math.min(maxD, remainingMg / effD) : 0;
       remainingMg -= gramsD * effD;
-      if (remainingMg > 0){
+      // Only top Fermaid O back up past its cap when limits are intentionally
+      // disabled; when enforceLimits is on, respect the ceiling and let the YAN
+      // fall short rather than silently blowing through the limit the user set.
+      if (remainingMg > 0 && !enforceLimits){
         gramsO += remainingMg / effO;
-      }
-      if (!enforceLimits){
-        // no extra cap on the spillback when limits are intentionally disabled
       }
     }
 
@@ -324,10 +327,13 @@
     const s2 = num(sg2);
     if (!(v1 > 0 && s1 > 0 && v2 > 0 && s2 > 0)) return null;
     const totalVol = v1 + v2;
-    const weightedPoints = ((sgToPoints(s1) * v1) + (sgToPoints(s2) * v2)) / totalVol;
+    // Use signed points so dry meads (SG < 1.000) blend correctly; the shared
+    // sgToPoints/pointsToSg helpers clamp at 1.000 and would zero-out dry inputs.
+    const signedPoints = (sg) => (sg - 1) * 1000;
+    const weightedPoints = ((signedPoints(s1) * v1) + (signedPoints(s2) * v2)) / totalVol;
     return {
       totalVolume: totalVol,
-      blendedSg: pointsToSg(weightedPoints),
+      blendedSg: 1 + (weightedPoints / 1000),
       weightedPoints
     };
   }
@@ -436,6 +442,10 @@
         perGallonPoints: points / gallons
       });
     });
+    // No valid fermentable rows means there is no source bill yet — return null
+    // so the UI shows the "add fermentable rows" empty state instead of a phantom
+    // OG 1.000 that triggers false "reality is low vs target" warnings.
+    if (!lineItems.length) return null;
     return {
       batchGallons: gallons,
       totalPoints,

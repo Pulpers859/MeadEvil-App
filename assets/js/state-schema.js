@@ -175,11 +175,17 @@
     }
 
     function loadStoredData(){
+      const raw = (() => { try { return localStorage.getItem(storageKey); } catch { return null; } })();
       try{
-        const parsed = JSON.parse(localStorage.getItem(storageKey) || "null");
+        const parsed = JSON.parse(raw || "null");
         return normalizeData(unwrapPayload(parsed).state);
       } catch(error){
         console.error("Could not load app data", error);
+        // Preserve the unparseable blob under a backup key so a subsequent save
+        // doesn't destroy data that might still be manually recoverable.
+        if (raw){
+          try{ localStorage.setItem(`${storageKey}-corrupt-backup`, raw); } catch(_){ /* best effort */ }
+        }
         return normalizeData(null);
       }
     }
@@ -187,8 +193,17 @@
     function persistStoredData(data){
       try{
         localStorage.setItem(storageKey, JSON.stringify(serializeState(data)));
+        return true;
       } catch(error){
         console.error("Could not save app data", error);
+        // Signal so the UI can warn the user their changes are not being saved
+        // (full quota, private-mode storage disabled, etc.).
+        try{
+          window.dispatchEvent(new CustomEvent("meadevil-storage-error", {
+            detail: { name: error && error.name, message: error && error.message }
+          }));
+        } catch(_){ /* environments without CustomEvent */ }
+        return false;
       }
     }
 

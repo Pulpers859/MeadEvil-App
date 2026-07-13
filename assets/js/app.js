@@ -429,6 +429,9 @@
     return formatDateTime(log.createdAt);
   }
 
+  // NOTE: string `value`s are inserted as raw HTML so callers can pass markup.
+  // Any caller embedding user-entered or imported text MUST escapeHTML it first
+  // (see renderMentor / topSources). Prefer passing pre-escaped strings.
   function renderRows(id, rows){
     const el = $(id);
     if (!el) return;
@@ -1175,6 +1178,17 @@
     if (data.tombstones.length > TOMBSTONE_LIMIT){
       data.tombstones = data.tombstones.slice(-TOMBSTONE_LIMIT);
     }
+  }
+
+  // Revive records whose ids are being brought back into an active collection
+  // (e.g. resuming an archived batch reintroduces its old log ids). Without this
+  // the cloud-sync union would strip them right back out on the next merge.
+  function clearTombstones(collection, ids){
+    const revive = new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String));
+    if (!revive.size) return;
+    data.tombstones = data.tombstones.filter(
+      (entry) => !(entry.collection === collection && revive.has(String(entry.id)))
+    );
   }
 
   function normalizeIsoDate(value){
@@ -2006,7 +2020,7 @@
     const actualOg = bill ? Number(bill.estimatedOg) : null;
     const ogDeltaPoints = targetOg && actualOg ? Math.round((actualOg - targetOg) * 1000) : null;
     const topSources = bill && bill.lineItems.length
-      ? clone(bill.lineItems).sort((a, b) => b.totalPoints - a.totalPoints).slice(0, 3).map((item) => `${item.description} (${round(item.perGallonPoints, 1)} pts/gal)`).join(", ")
+      ? clone(bill.lineItems).sort((a, b) => b.totalPoints - a.totalPoints).slice(0, 3).map((item) => `${escapeHTML(item.description)} (${round(item.perGallonPoints, 1)} pts/gal)`).join(", ")
       : "Need source rows";
     const sourceSummary = recipeSourceSummary(recipe);
 
@@ -2465,11 +2479,13 @@
     const measuredAbv = (stabOg && stabLatestSg) ? calcABV(stabOg, stabLatestSg) : null;
     const stabAbv = measuredAbv || Number(data.currentBatch.estimatedAbv) || Number(data.currentBatch.targetAbv) || null;
     const stab = calculateStabilizers ? calculateStabilizers({ volumeGallons: stabVolume, abv: stabAbv, ph: c.currentPh }) : null;
+    let sorbateBit = "";
+    let phBit = "";
     if (stab){
-      const sorbateBit = stab.sorbateUnnecessary
+      sorbateBit = stab.sorbateUnnecessary
         ? `no sorbate needed — at ${round(stab.abv, 1)}% ABV the alcohol already blocks refermentation`
         : `<strong>${round(stab.sorbateGrams, 1)} g</strong> potassium sorbate`;
-      const phBit = stab.phAssumed
+      phBit = stab.phAssumed
         ? `pH assumed 3.6 — record the actual pH above to tighten the dose`
         : `pH ${stab.ph}`;
     }
@@ -2937,8 +2953,13 @@
 
   function renderMentor(){
     const built = buildMentor(data.mentor);
-    renderRows("mentorPairings", built.pairings);
-    renderRows("mentorIngredientPlan", built.ingredientPlan);
+    // buildMentor rows interleave user-entered concept text and imported
+    // mentor-knowledge fields as plain strings; escape before renderRows
+    // inserts them as HTML (defends against stored XSS via import/sync).
+    const escapeRows = (rows) => (Array.isArray(rows) ? rows : []).map(([label, value]) =>
+      [label, typeof value === "string" ? escapeHTML(value) : value]);
+    renderRows("mentorPairings", escapeRows(built.pairings));
+    renderRows("mentorIngredientPlan", escapeRows(built.ingredientPlan));
   }
 
   function renderAll(){
@@ -3803,8 +3824,13 @@
         const item = data.archive.find((entry) => entry.id === archiveLoad);
         if (!item) return;
         if (batchHasData() && !confirm("Resume this archived batch as the active batch? The current live batch will be replaced.")) return;
+        // Tombstone the outgoing live logs so sync doesn't union them into the
+        // resumed batch, then revive the restored batch's own log ids so sync
+        // doesn't strip the gravity trail we just brought back (see H2/H3).
+        recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
         data.currentBatch = clone(item.batch);
         data.fermentationLogs = clone(item.fermentationLogs);
+        clearTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
         data.fermentChecklist = clone(item.fermentChecklist);
         data.nutrients = clone(item.nutrients);
         data.cellar = clone(item.cellar);
