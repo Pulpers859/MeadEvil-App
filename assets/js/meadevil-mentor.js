@@ -2231,10 +2231,17 @@
       if (projected && projected.honeyLb) honeyLb = projected.honeyLb;
     }
 
+    // honeyLb is the TOTAL honey bill. Split it across the amount-less honey rows
+    // so two honey candidates don't each get the full estimate (doubling the bill
+    // and roughly doubling the potential ABV).
+    const amountlessHoneyCount = packet.sourceBillCandidates.filter(
+      (c) => (c.type || "Custom") === "Honey" && !c.amount
+    ).length || 1;
+    const perHoneyLb = honeyLb ? honeyLb / amountlessHoneyCount : null;
     const rows = packet.sourceBillCandidates.map((candidate) => {
       const type = candidate.type || "Custom";
       const amount = candidate.amount
-        || (type === "Honey" && honeyLb ? String(Math.round(honeyLb * 100) / 100) : "");
+        || (type === "Honey" && perHoneyLb ? String(Math.round(perHoneyLb * 100) / 100) : "");
       return {
         id: makeId("src"),
         sourceType: type,

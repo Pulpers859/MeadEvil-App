@@ -2588,7 +2588,9 @@
             </div>
           </div>
         `).join("")
-      : emptyState("Save a recipe from Build", "That will start the reusable build library here.", "focus", "Vault");
+      : recipeSearch
+        ? emptyState(`No recipes match “${escapeHTML(data.ui.recipeSearch.trim())}”`, "Clear the search to see the full library.", "calm", "No match")
+        : emptyState("Save a recipe from Build", "That will start the reusable build library here.", "focus", "Vault");
 
     const archiveSearch = (data.ui.archiveSearch || "").trim().toLowerCase();
     const items = clone(data.archive)
@@ -2627,7 +2629,9 @@
             </div>
           </div>`;
         }).join("")
-      : emptyState("Archive a finished batch from Finish", "That will start the cellar history here.", "focus", "Vault");
+      : archiveSearch
+        ? emptyState(`No archived batches match “${escapeHTML(data.ui.archiveSearch.trim())}”`, "Clear the search to see the full history.", "calm", "No match")
+        : emptyState("Archive a finished batch from Finish", "That will start the cellar history here.", "focus", "Vault");
   }
 
   function renderCalcs(){
@@ -3602,6 +3606,7 @@
     $("gravityLog").addEventListener("click", (event) => {
       const deleteId = event.target.dataset.logDelete;
       if (deleteId) {
+        if (!confirm("Delete this gravity reading? A recorded measurement cannot be reconstructed.")) return;
         recordTombstones("fermentationLogs", deleteId);
         data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== deleteId);
         persistData();
@@ -3634,6 +3639,13 @@
             return;
           }
           Object.keys(pending).forEach((key) => { entry[key] = pending[key]; });
+          // The trend chart, rate window, and timestamps prefer telemetryAt over
+          // date for imported readings. If the user edits the date, move
+          // telemetryAt with it so the reading actually repositions instead of
+          // silently plotting at its old imported time.
+          if (pending.date && entry.telemetryAt) {
+            entry.telemetryAt = `${pending.date}T12:00:00`;
+          }
         }
         data.ui.editingLogId = null;
         persistData();
@@ -3830,6 +3842,7 @@
     $("cellarAdditionList").addEventListener("click", (event) => {
       const id = event.target.dataset.cellarAdditionDelete;
       if (!id) return;
+      if (!confirm("Remove this cellar addition from the log?")) return;
       data.cellar.additions = data.cellar.additions.filter((row) => row.id !== id);
       if (!data.cellar.additions.length) data.cellar.additions = [defaultCellarAddition()];
       persistData();
