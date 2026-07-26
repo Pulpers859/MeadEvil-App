@@ -14,6 +14,11 @@
   /* Brightened purple used only for focus rings so the indicator clears the
      WCAG 3:1 non-text contrast minimum against the near-black background. */
   --focus:#b489e6;
+  /* --purple is a brand wash used at low alpha in gradients; at full strength it
+     is only ~2.6:1 on the near-black panels, so it must never be the ONLY signal
+     for a control state. --purple-ui is the interactive variant that clears the
+     WCAG 1.4.11 3:1 non-text minimum and is what checked checkboxes render in. */
+  --purple-ui:#9a6ad6;
   --crimson:#a32649;
   --crimson-2:#61172b;
   --toxic:#8dbd49;
@@ -119,6 +124,12 @@ option{background:#140e1a;color:var(--cream)}
 }
 .skip-to-content{position:absolute;left:-999px;top:4px;z-index:999;padding:8px 16px;background:var(--crimson);color:#fff;border-radius:var(--radius-sm);font-weight:800}
 .skip-to-content:focus{left:12px}
+
+/* Disabled buttons. .mini-btn:disabled was styled but .btn:disabled was not, so a
+   primary button (notably the mentor's Send, disabled for the whole request)
+   rendered at full strength and still ran its hover lift. */
+.btn:disabled,.btn[disabled]{opacity:.5;cursor:not-allowed;box-shadow:none;filter:none;transform:none}
+.btn:disabled:hover,.btn[disabled]:hover{transform:none;filter:none;box-shadow:none}
 
 /* Transient feedback toasts (save/copy/import outcomes). */
 .toast-host{
@@ -233,6 +244,9 @@ option{background:#140e1a;color:var(--cream)}
 .header-right{gap:6px}
 .brand-lockup{display:grid;gap:4px;justify-items:center;text-align:center}
 .brand-badge{
+  /* This is the page <h1>. Reset the UA heading margin so promoting it from a
+     div did not change the header layout. */
+  margin:0;
   display:inline-flex;
   align-items:center;
   gap:6px;
@@ -340,7 +354,7 @@ option{background:#140e1a;color:var(--cream)}
   padding:7px 10px 8px;
   color:var(--cream-dim);
   background:transparent;
-  border:1px solid rgba(244,230,208,.055);
+  border:1px solid rgba(244,230,208,.16);
   border-radius:10px;
   box-shadow:none;
   font-size:.88rem;
@@ -376,15 +390,18 @@ option{background:#140e1a;color:var(--cream)}
   font-weight:800;
   letter-spacing:.15em;
   text-transform:uppercase;
+  /* --cream-dim alone is 6.6:1 and passes; the old opacity:.76 dropped the
+     composite to 4.22:1, under AA body at this 0.58rem size. */
   color:var(--cream-dim);
-  opacity:.76;
 }
 .tab-btn.active{
   background:
     radial-gradient(circle at 50% 0%, rgba(255,194,140,.12), transparent 58%),
     linear-gradient(180deg, rgba(80,42,100,.24), rgba(89,31,66,.18));
   color:var(--cream);
-  border-color:rgba(255,199,148,.20);
+  /* Was .20 (~1.7:1) — below the 3:1 non-text minimum and effectively invisible,
+     so the six destinations read as one dark strip with one lit word. */
+  border-color:rgba(255,199,148,.55);
   box-shadow:0 7px 18px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
 }
 .tab-btn.active::before{
@@ -573,7 +590,7 @@ option{background:#140e1a;color:var(--cream)}
 .field label{font-size:.74rem;font-weight:800;color:#e8d8c1;letter-spacing:.065em;text-transform:uppercase}
 .checkbox-field{display:flex;align-items:flex-end}
 .switch{display:inline-flex;align-items:center;gap:8px;color:var(--cream);font-weight:700}
-.switch input{width:18px;height:18px;accent-color:var(--purple)}
+.switch input{width:18px;height:18px;accent-color:var(--purple-ui)}
 #tab-cellar .finish-wide{grid-column:span 2}
 #tab-cellar .work-card.accent-soft > .form-grid-3{grid-template-columns:repeat(4,minmax(0,1fr))}
 
@@ -598,7 +615,7 @@ option{background:#140e1a;color:var(--cream)}
 
 .check-item,.log-row,.schedule-row,.recipe-item,.archive-card,.empty-state,.source-row{padding:10px 12px;border-radius:var(--radius-lg)}
 .check-item{display:grid;grid-template-columns:auto 1fr;gap:var(--sp-md);align-items:start}
-.check-item input{width:18px;height:18px;margin-top:2px;accent-color:var(--purple)}
+.check-item input{width:18px;height:18px;margin-top:2px;accent-color:var(--purple-ui)}
 .slim-list .check-item{padding:8px 10px}
 .mono-input{font-family:Consolas,Monaco,"Courier New",monospace;font-size:.82rem}
 .source-row{display:grid;gap:var(--sp-sm)}
@@ -1711,7 +1728,10 @@ option{background:#140e1a;color:var(--cream)}
 }
 
 @media (max-width: 720px){
-  body{padding-bottom:128px}
+  /* This stacked with .tab-panel{padding-bottom:128px} below for ~256px of dead
+     scroll under every mobile screen against a ~116px tab bar. The panel rule
+     alone already clears the fixed nav. */
+  body{padding-bottom:0}
   .container{width:min(var(--max), calc(100% - 16px))}
   .tab-panel .container::before{
     inset:18px -8px auto;
@@ -1728,7 +1748,7 @@ option{background:#140e1a;color:var(--cream)}
     grid-template-columns:repeat(3, minmax(0, 1fr));
     gap:4px;
     width:min(100%, 520px);
-    margin:0;
+    margin:0 auto;
     padding:4px;
     border-radius:14px;
     background:rgba(14,10,19,.97);
@@ -1745,6 +1765,10 @@ option{background:#140e1a;color:var(--cream)}
   .tab-btn-label{font-size:.81rem}
   .tab-btn-meta{display:none}
   .tab-panel{padding-bottom:128px}
+  /* Six tabs wrap to two rows here (~116px + safe area). The toast host's default
+     84px offset put every toast ON TOP of the tab bar, and .toast{pointer-events:auto}
+     meant it also swallowed navigation taps for 2.6-5.2s after every save. */
+  .toast-host{bottom:calc(132px + env(safe-area-inset-bottom, 0px))}
   .section-head{
     gap:6px;
     margin-bottom:var(--sp-md);
@@ -1875,3 +1899,22 @@ option{background:#140e1a;color:var(--cream)}
 .hidden-field{display:none !important}
 .input-hint{display:block;margin-top:4px;color:var(--cream-dim);font-size:.76rem}
 input[readonly]{opacity:.90}
+
+
+/* Long unbreakable tokens — webhook URLs, pasted model output, long recipe names —
+   had nowhere to wrap, and body{overflow-x:clip} made the overflow unreachable
+   rather than scrollable. Allow them to break instead of disappearing. */
+.small,.notes-box,.mentor-turn-text,.muted,.info-row-value,.recipe-item,.archive-card,code{overflow-wrap:anywhere}
+
+/* Inline caveat for a tool whose output is only valid in a narrow window
+   (e.g. the refractometer conversion before fermentation starts). Warm signal,
+   not an error box. */
+.warn-copy{
+  margin-top:var(--sp-sm);
+  padding:8px 10px;
+  border-radius:var(--radius-sm);
+  border-left:3px solid #ffc796;
+  background:rgba(255,199,148,.06);
+  color:#ffd3a8;
+  line-height:1.4;
+}

@@ -160,13 +160,19 @@ async function clearAppState(page, fullReset = false) {
   } else {
     // Keep archive, clear active batch and recipe draft
     await page.evaluate(() => {
-      const state = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      const __raw = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      // app.js wraps the ledger: { _schema, data: {...} }. Unwrap to the data layer.
+      const state = (__raw && __raw._schema && __raw.data) ? __raw.data : __raw;
       state.currentBatch = { name: "", style: "Traditional", batchGallons: "", targetAbv: "", sweetness: "Dry", carbonation: "Still", yeast: "", yeastOther: "", yeastTolerance: "", temp: "", nitrogenRequirement: "low", dryYeast: "", honeyPPG: "35", additions: [], structureAdditions: [] };
       state.recipeDraft = { name: "", style: "Traditional", batchGallons: "", targetAbv: "", sweetness: "Dry", carbonation: "Still", yeast: "", yeastOther: "", yeastTolerance: "", temp: "", nitrogenRequirement: "low", dryYeast: "", honeyPPG: "35", additions: [], structureAdditions: [] };
       state.fermentationLogs = [];
       state.recipes = [];
       state.ui = { ...(state.ui || {}), selectedRecipeId: null, activeTab: "recipes" };
-      localStorage.setItem("meadevil-app-v2", JSON.stringify(state));
+      // Write back in the SAME shape it was read in. `state` may be the inner data
+      // layer of an envelope; persisting it bare would strip {_schema, data} and
+      // hand the app a legacy-shaped blob.
+      if (__raw && __raw._schema && __raw.data) __raw.data = state;
+      localStorage.setItem("meadevil-app-v2", JSON.stringify(__raw && __raw._schema ? __raw : state));
       localStorage.removeItem("meadevil-app-v2-meadevil-mentor");
     });
   }
@@ -191,7 +197,32 @@ async function setSelectValue(page, selector, value) {
   }, value);
 }
 
+// Destructive prompts render through the app's own modal (app.js confirmDialog),
+// not window.confirm, so the page-level dialog handler above never sees them.
+// `confirm` picks the affirmative; on the replace-batch prompt that is the
+// "Discard and replace" button, which is what these passes intend.
+async function answerModal(page, action = "confirm", timeout = 1500) {
+  const appeared = await page.waitForSelector(".modal-backdrop .modal-card", { timeout })
+    .then(() => true).catch(() => false);
+  if (!appeared) return false;
+  // Three-button modal order is ghost / primary(alt) / danger(confirm); a comma
+  // selector resolves by DOM order, so pick the intended button explicitly.
+  await page.evaluate((act) => {
+    const root = document.querySelector(".modal-backdrop .modal-actions");
+    if (!root) return;
+    const pick = act === "cancel"
+      ? root.querySelector(".btn-ghost")
+      : act === "alt"
+        ? root.querySelector(".btn-primary")
+        : (root.querySelector(".btn-danger") || root.querySelector(".btn-primary"));
+    if (pick) pick.click();
+  }, action);
+  await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 2000 }).catch(() => {});
+  return true;
+}
+
 async function clickTab(page, tabName) {
+
   // Use JS click to avoid pointer-interception by the fixed tab bar
   await page.$eval(`button.tab-btn[data-tab="${tabName}"]`, btn => btn.click());
   await delay(300);
@@ -378,6 +409,7 @@ async function runPass(context, passNumber, idea) {
     // 4. LOAD TO BATCH → auto-navigates to Ferment
     console.log("  [Build] Loading draft to batch...");
     await page.$eval("#loadDraftToBatchBtn", btn => btn.click());
+    await answerModal(page, "confirm");
     await delay(500);
 
     // 4. FERMENT TAB
@@ -487,8 +519,13 @@ async function runPass(context, passNumber, idea) {
       console.log(`  [Finish] Bottle count: ${bottleText}`);
     }
 
-    // Check some cellar checklist items
-    const cellarCheckCount = await page.$$eval("#stabilizationChecklist input[type='checkbox']", checks => {
+    // Check some cellar checklist items.
+    // This used to target #stabilizationChecklist, which does not exist anywhere in
+    // the markup — so it silently checked 0 items on every pass and proved nothing.
+    // The Finish checklist state was built, cloned, archived and restored end to end
+    // but had no renderer until it was added; #cellarChecklist is the real element.
+    await page.$eval("#cellarChecklistCard", el => { el.open = true; }).catch(() => {});
+    const cellarCheckCount = await page.$$eval("#cellarChecklist input[type='checkbox']", checks => {
       const count = Math.min(2, checks.length);
       for (let i = 0; i < count; i++) {
         checks[i].checked = true;
@@ -503,6 +540,7 @@ async function runPass(context, passNumber, idea) {
     await clickTab(page, "ferment");
     await delay(300);
     await page.$eval("#archiveBatchBtn", btn => btn.click());
+    await answerModal(page, "confirm");
     await delay(500);
 
     // Should auto-navigate to archive tab
@@ -522,7 +560,9 @@ async function runPass(context, passNumber, idea) {
     await clickTab(page, "ferment");
     await delay(300);
     const batchCleared = await page.evaluate(() => {
-      const state = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      const __raw = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      // app.js wraps the ledger: { _schema, data: {...} }. Unwrap to the data layer.
+      const state = (__raw && __raw._schema && __raw.data) ? __raw.data : __raw;
       return !state.currentBatch?.name;
     });
     if (!batchCleared) errors.push("BATCH NOT CLEARED: currentBatch still has data after archive");
@@ -534,7 +574,9 @@ async function runPass(context, passNumber, idea) {
     await delay(300);
 
     const archiveCheck = await page.evaluate((expectedName) => {
-      const state = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      const __raw = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      // app.js wraps the ledger: { _schema, data: {...} }. Unwrap to the data layer.
+      const state = (__raw && __raw._schema && __raw.data) ? __raw.data : __raw;
       const first = (state.archive || [])[0];
       return { name: first?.batch?.name || "", id: first?.id || "" };
     }, idea.name);
@@ -542,13 +584,18 @@ async function runPass(context, passNumber, idea) {
     if (archiveCheck.name !== idea.name) {
       errors.push(`ARCHIVE NAME MISMATCH: expected "${idea.name}", got "${archiveCheck.name}"`);
     } else {
-      // Load the first entry back
+      // Load the first entry back. Resuming an archived batch confirms whenever a
+      // live batch would be replaced, so answer that modal before asserting the tab
+      // — otherwise the prompt sits open and Ferment never activates.
       await page.$eval('button[data-archive-load]', btn => btn.click());
+      await answerModal(page, "confirm");
       await delay(500);
       await verifyTabActive(page, "ferment");
 
       const loadedName = await page.evaluate(() => {
-        const state = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+        const __raw = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      // app.js wraps the ledger: { _schema, data: {...} }. Unwrap to the data layer.
+      const state = (__raw && __raw._schema && __raw.data) ? __raw.data : __raw;
         return state.currentBatch?.name || "";
       });
       if (loadedName !== idea.name) {
@@ -559,6 +606,7 @@ async function runPass(context, passNumber, idea) {
 
       // Re-archive to keep it in vault for user reference
       await page.$eval("#archiveBatchBtn", btn => btn.click());
+      await answerModal(page, "confirm");
       await delay(300);
     }
 
@@ -618,7 +666,9 @@ async function main() {
     await delay(600);
 
     const archiveNames = await page.evaluate(() => {
-      const state = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      const __raw = JSON.parse(localStorage.getItem("meadevil-app-v2") || "{}");
+      // app.js wraps the ledger: { _schema, data: {...} }. Unwrap to the data layer.
+      const state = (__raw && __raw._schema && __raw.data) ? __raw.data : __raw;
       return (state.archive || []).map(a => a.batch?.name || "unnamed");
     });
     console.log(`Vault contains ${archiveNames.length} entries:`);

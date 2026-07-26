@@ -67,14 +67,30 @@
     });
   }
 
+  // PPG = gravity points per pound per gallon. Pure sucrose is ~46, which is the
+  // hard physical ceiling: nothing can be more than 100% fermentable sugar by
+  // weight. Two entries used to violate that or come close to it —
+  //   "Juice Concentrate" was 48 (impossible), and
+  //   "Fruit / Puree" was 10 (2-5x real fruit, which is 85-90% water).
+  // Both fed the Build tab's target-vs-reality engine, so a fruit mead was told
+  // its bill was on target when it was 10-15 points light. Fruit is now unlocked
+  // so the PPG can be set per fruit; the defaults below are conservative.
   const SOURCE_PRESETS = {
     "Honey": { ppg: "35", unit: "lb", locked: true },
     "Maple Syrup": { ppg: "29.8", unit: "lb", locked: true },
     "Table Sugar": { ppg: "46", unit: "lb", locked: true },
     "Juice (single strength)": { ppg: "5", unit: "lb", locked: true },
-    "Juice Concentrate": { ppg: "48", unit: "lb", locked: true },
-    "Fruit / Puree": { ppg: "10", unit: "lb", locked: true },
+    "Juice Concentrate": { ppg: "31", unit: "lb", locked: true },
+    "Fruit / Puree": { ppg: "5", unit: "lb", locked: false },
     "Custom": { ppg: "", unit: "lb", locked: false }
+  };
+
+  // Typical fermentable-sugar PPG by fruit, for the hint shown next to an
+  // unlocked Fruit / Puree row. Whole-fruit values (sugar % of wet weight x 46).
+  const FRUIT_PPG_HINTS = {
+    raspberry: 2.1, strawberry: 2.3, blackberry: 2.8, peach: 3.9,
+    plum: 4.4, blueberry: 4.6, apple: 4.8, pear: 4.8,
+    cherry: 6.4, grape: 7.4, mango: 6.1, pineapple: 4.6, banana: 5.6
   };
 
   const CSV_SOURCE_SLOTS = 6;
@@ -422,8 +438,11 @@
       toast.classList.remove("show");
       setTimeout(() => toast.remove(), 220);
     };
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(remove, tone === "error" ? 5200 : 2600);
+    // Each toast owns its own timer. A single shared module-level timer meant a
+    // second toast cleared the first one's removal timeout, so the first toast's
+    // `remove` never ran and it stayed on screen forever, stacking over the UI.
+    const timer = setTimeout(remove, tone === "error" ? 5200 : 2600);
+    toast.dataset.timerId = String(timer);
     toast.addEventListener("click", remove);
   }
 
@@ -432,6 +451,11 @@
   // Escape, the Cancel button, and a backdrop click all resolve false; the
   // confirm button resolves true. Focus starts on Cancel (the safe choice) and
   // returns to the triggering element on close.
+  //
+  // An optional `altLabel` adds a third, non-destructive choice. When it is set the
+  // promise resolves to the string "confirm" or "alt" instead of `true` (cancel is
+  // still `false`), so a caller can offer a safe way out — e.g. "Archive this batch
+  // first" — instead of forcing a straight destroy-or-cancel decision.
   let activeConfirm = null;
   function confirmDialog(options = {}){
     const {
@@ -439,6 +463,7 @@
       message = "",
       confirmLabel = "Confirm",
       cancelLabel = "Cancel",
+      altLabel = "",
       tone = "default"
     } = options;
 
@@ -478,13 +503,21 @@
       cancelBtn.type = "button";
       cancelBtn.className = "btn btn-ghost";
       cancelBtn.textContent = cancelLabel;
+      const altBtn = altLabel ? document.createElement("button") : null;
+      if (altBtn){
+        altBtn.type = "button";
+        altBtn.className = "btn btn-primary";
+        altBtn.textContent = altLabel;
+      }
       const confirmBtn = document.createElement("button");
       confirmBtn.type = "button";
       confirmBtn.className = `btn ${tone === "danger" ? "btn-danger" : "btn-primary"}`;
       confirmBtn.textContent = confirmLabel;
       actions.appendChild(cancelBtn);
+      if (altBtn) actions.appendChild(altBtn);
       actions.appendChild(confirmBtn);
       card.appendChild(actions);
+      if (altBtn) card.classList.add("modal-card-triple");
       backdrop.appendChild(card);
       document.body.appendChild(backdrop);
       void backdrop.offsetWidth;
@@ -501,22 +534,28 @@
         if (previouslyFocused && typeof previouslyFocused.focus === "function"){
           previouslyFocused.focus();
         }
-        resolve(Boolean(result));
+        // With a third option the caller needs to know WHICH affirmative was
+        // chosen, so resolve the string; otherwise keep the boolean contract.
+        resolve(altLabel ? (result || false) : Boolean(result));
       }
       activeConfirm = close;
 
+      // Cycle focus across whichever buttons this dialog actually has.
+      const focusables = [cancelBtn, altBtn, confirmBtn].filter(Boolean);
       function onKey(event){
         if (event.key === "Escape"){ event.preventDefault(); close(false); }
         else if (event.key === "Tab"){
-          // Trap focus between the two buttons.
           event.preventDefault();
-          const next = document.activeElement === confirmBtn ? cancelBtn : confirmBtn;
+          const idx = focusables.indexOf(document.activeElement);
+          const step = event.shiftKey ? -1 : 1;
+          const next = focusables[(idx + step + focusables.length) % focusables.length] || focusables[0];
           next.focus();
         }
       }
 
       cancelBtn.addEventListener("click", () => close(false));
-      confirmBtn.addEventListener("click", () => close(true));
+      if (altBtn) altBtn.addEventListener("click", () => close("alt"));
+      confirmBtn.addEventListener("click", () => close(altLabel ? "confirm" : true));
       backdrop.addEventListener("mousedown", (event) => { if (event.target === backdrop) close(false); });
       document.addEventListener("keydown", onKey, true);
       cancelBtn.focus();
@@ -618,12 +657,26 @@
     return Number.isFinite(createdTime) ? createdTime : null;
   }
 
+  // Gravity points added after the start by step feeding. Sugar added mid-ferment
+  // is fermented too, so the ORIGINAL gravity stops describing the batch's total
+  // sugar. Without this the app under-reported ABV for the rest of the batch's
+  // life (a 3x30-point step feed on a 1.110 must reads 13% when it is really ~25%)
+  // — and because the sorbate model scales inversely with ABV, that under-report
+  // also told the user to add several times more sorbate than needed.
+  function stepFeedPointsAdded(){
+    const log = Array.isArray(data.currentBatch.stepFeedLog) ? data.currentBatch.stepFeedLog : [];
+    return log.reduce((sum, entry) => {
+      const pts = Number(entry && entry.points);
+      return Number.isFinite(pts) && pts > 0 ? sum + pts : sum;
+    }, 0);
+  }
+
   function fermentationOg(){
     const preferred = [
       Number(data.currentBatch.targetOg),
       Number(data.nutrients.og)
     ].find((value) => Number.isFinite(value) && value > 0);
-    if (preferred) return preferred;
+    if (preferred) return preferred + (stepFeedPointsAdded() / 1000);
 
     // No recorded OG: the best stand-in is the highest gravity ever logged,
     // not the most recent one (which trends toward FG as fermentation runs).
@@ -923,6 +976,57 @@
     ];
   }
 
+  // Moves the live batch into the Vault and clears the working slots. Shared by the
+  // "Archive to Vault" button and by the "archive first" escape hatch offered when
+  // starting a new batch would otherwise destroy this one.
+  function archiveCurrentBatch(){
+    if (!batchHasData()) return false;
+    data.archive.unshift(normalizeArchiveItem({
+      archivedAt: new Date().toISOString(),
+      batch: clone(data.currentBatch),
+      nutrients: clone(data.nutrients),
+      cellar: clone(data.cellar),
+      fermentChecklist: clone(data.fermentChecklist),
+      cellarChecklist: clone(data.cellarChecklist),
+      fermentationLogs: clone(data.fermentationLogs),
+      summary: data.cellar.tastingNotes || data.currentBatch.quickNote || data.currentBatch.notes || ""
+    }));
+    recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
+    data.currentBatch = defaultCurrentBatch();
+    data.fermentationLogs = [];
+    data.fermentChecklist = defaultFermentChecklist();
+    data.nutrients = defaultNutrients();
+    data.cellar = defaultCellar();
+    data.cellarChecklist = defaultCellarChecklist();
+    // RAPT telemetry and the elapsed clock belong to the batch that just ended.
+    // Leaving them attached made a brand-new batch open showing the previous
+    // batch's latest gravity/temp and a clock still counting from the old pitch.
+    data.rapt = { ...defaultRaptSync(), deviceId: data.rapt && data.rapt.deviceId ? data.rapt.deviceId : "" };
+    data.clock = normalizeClock(null);
+    return true;
+  }
+
+  // Shared confirm for "this will replace the active batch". Offers a third way
+  // out — archive the current batch first — because the destructive path
+  // tombstones every gravity reading, which cloud sync cannot resurrect.
+  async function confirmReplaceActiveBatch(sourceLabel){
+    if (!batchHasData()) return true;
+    const choice = await confirmDialog({
+      title: "Replace the active batch?",
+      message: `Starting a new batch from ${sourceLabel} clears the current Ferment, Feed, Finish, and gravity records. Archiving first keeps them in the Vault.`,
+      altLabel: "Archive first, then start",
+      confirmLabel: "Discard and replace",
+      cancelLabel: "Cancel",
+      tone: "danger"
+    });
+    if (!choice) return false;
+    if (choice === "alt"){
+      archiveCurrentBatch();
+      showToast("Previous batch archived to Vault.", "good");
+    }
+    return true;
+  }
+
   function buildRecipeAwareChecklist(recipe){
     const base = defaultFermentChecklist();
     if (!recipe) return base;
@@ -1058,7 +1162,10 @@
 
   function defaultCellar(){
     return {
-      finishPath: "Backsweetened and still",
+      // Was "Backsweetened and still", which made cellarAnalysis treat every
+      // brand-new, unpitched batch as backsweetening-planned and immediately warn
+      // "record k-meta and sorbate" — warning fatigue before the yeast is in.
+      finishPath: "Dry and still",
       stableSgA: "",
       stableDateA: "",
       stableSgB: "",
@@ -1252,7 +1359,18 @@
     return { ok: true, value: trimmed };
   }
 
-  function validateLogInputs({ gravity, temp, pH }){
+  function validateLogInputs({ gravity, temp, pH, date }){
+    // A blank/garbage date produced NaN in the log comparator, so the reading
+    // landed at an arbitrary position, dropped out of the trend chart, and could
+    // make latestGravityLog() return the wrong row — which drives the nutrient
+    // cutoff call.
+    if (date !== undefined){
+      const text = String(date || "").trim();
+      if (!text) return { ok: false, message: "Date is required for a gravity reading." };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(new Date(`${text}T12:00:00`).getTime())){
+        return { ok: false, message: "Date looks off. Use the date picker." };
+      }
+    }
     const g = validateGravityValue(gravity);
     if (!g.ok) return g;
     const t = validateOptionalReading(temp, { min: 20, max: 120, label: "Temp °F" });
@@ -1801,6 +1919,21 @@
     }
     if (c.currentPh) greenlights.push(`Current pH recorded at ${c.currentPh}. Re-check after any significant sweetening or acid shift.`);
     if (c.finishPath === "Oak / spice aging") greenlights.push("Oak / spice aging selected. Bench trials matter even more here than in fruit-forward batches.");
+    // Rank by danger, not by the order the checks happen to run in. Only the first
+    // warning is shown uncollapsed, so "you already added chemicals early" must
+    // outrank "you have not satisfied the gate yet".
+    const DANGER_ORDER = [
+      "Chemical additions are recorded before the stability gate is clear.",
+      "Bottle-conditioning conflicts with a stabilized backsweetened finish.",
+      "Record both k-meta and sorbate before backsweetening.",
+      "Run a bench trial before scaling a sweeter finish.",
+      "Need two stable SG readings at least a week apart before stabilization.",
+      "One post-fermentation addition is missing a note."
+    ];
+    warnings.sort((a, b) => {
+      const ai = DANGER_ORDER.indexOf(a); const bi = DANGER_ORDER.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
     return { gateReady, stablePair, spacingDays, warnings, greenlights, latest };
   }
 
@@ -1833,7 +1966,12 @@
   }
   function syncRecipeDerived(){
     const recipe = data.recipeDraft;
-    if (recipe.targetOg){
+    // Only refresh the suggested YAN while the user has not overridden it, AND only
+    // when the open draft is the batch that is actually fermenting. This used to
+    // run on EVERY renderAll(), so a Target YAN typed on the Feed tab was silently
+    // reverted on the next render (and on boot, which made the Feed input and the
+    // Feed summary card display two different numbers on the same screen).
+    if (recipe.targetOg && !data.nutrients.targetYanUserSet && draftDescribesActiveBatch(recipe)){
       data.nutrients.targetYanPpm = String(suggestYanPpm({ og: recipe.targetOg, yeastRequirement: data.nutrients.yeastRequirement || recipe.nitrogenRequirement || "low" }));
     }
     const plan = estimateRecipeTargets({
@@ -1843,14 +1981,39 @@
       yeastTolerance: recipe.yeastTolerance,
       honeyPPG: 35
     });
-    recipe.targetOg = plan ? String(round(plan.targetOg, 3)) : "";
-    recipe.targetFg = plan ? String(round(plan.targetFg, 3)) : "";
-    recipe.estimatedAbv = plan ? String(round(plan.targetAbv, 1)) : "";
+    // Only overwrite when there is a real plan. Blanking on a null plan destroyed
+    // gravity targets that arrived from a CSV/backup import (which can carry
+    // targetOg without targetAbv) the moment the recipe was opened in Build.
+    if (plan){
+      recipe.targetOg = String(round(plan.targetOg, 3));
+      recipe.targetFg = String(round(plan.targetFg, 3));
+      recipe.estimatedAbv = String(round(plan.targetAbv, 1));
+    }
+  }
+
+  // Is the Build draft describing the batch that is actually fermenting? Only then
+  // may draft edits write into data.nutrients, which is the LIVE batch's feed plan.
+  //
+  // Without this gate, sketching an unrelated 1-gallon experiment in Build
+  // rewrote a running 5-gallon batch's Feed tab — batch size, OG, dry yeast, and
+  // nitrogen requirement all silently replaced, changing the nutrient schedule for
+  // a mead already in primary. Feed is an execution panel fed BY Build; it is not
+  // a mirror of whatever scratch draft happens to be open.
+  function draftDescribesActiveBatch(recipeLike){
+    if (!batchHasData()) return true;
+    const recipe = recipeLike || data.recipeDraft || {};
+    const batchRecipeId = data.currentBatch && data.currentBatch.recipeId;
+    return Boolean(batchRecipeId && recipe.id && batchRecipeId === recipe.id);
   }
 
   function syncNutrientsFromRecipe(recipeLike, options = {}){
     const recipe = recipeLike || data.recipeDraft || {};
     const force = Boolean(options.force);
+    // Gate on identity, not on the `force` flag. applyRecipeToBatch assigns
+    // currentBatch.recipeId BEFORE calling this, so the load path still passes.
+    // Every other caller (yeast dropdown, Build field edits, "New draft") is
+    // editing a scratch draft and must not reach into a running batch's feed plan.
+    if (!draftDescribesActiveBatch(recipe)) return;
     const yeastName = displayYeastName(recipe);
     const preset = YEAST_PRESETS[recipe.yeast] || (YEAST_PRESETS[yeastName] || null);
     const resolvedRequirement = recipe.nitrogenRequirement || (preset ? preset.nitrogenRequirement : data.nutrients.yeastRequirement) || "low";
@@ -1859,7 +2022,7 @@
     if (force || !data.nutrients.brix) data.nutrients.brix = recipe.targetOg ? String(round(sgToBrix(recipe.targetOg), 1)) : data.nutrients.brix;
     data.nutrients.dryYeast = recipe.dryYeast || "";
     data.nutrients.yeastRequirement = resolvedRequirement;
-    if (data.nutrients.og){
+    if (data.nutrients.og && !data.nutrients.targetYanUserSet){
       data.nutrients.targetYanPpm = String(suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }));
     }
     if (force && !data.nutrients.protocol){
@@ -1942,7 +2105,18 @@
 
   function applyNutrientProtocolDefaults(protocol){
     const defaults = nutrientProtocolDefaults(protocol);
-    if (!defaults) return;
+    // Custom has no storage of its own — it reuses the same six fields the presets
+    // stomp. Stash them on the way out and restore on the way back in, or dialling
+    // in a custom plan and clicking TOSNA to compare destroyed it permanently.
+    const CUSTOM_KEYS = ["enforceLimits","limitO","limitK","limitD","ratioO","ratioK","ratioD"];
+    const current = String(data.nutrients.protocol || "");
+    if (current === "custom"){
+      data.nutrients.customPlan = CUSTOM_KEYS.reduce((acc, k) => { acc[k] = data.nutrients[k]; return acc; }, {});
+    }
+    if (!defaults){
+      if (data.nutrients.customPlan) Object.assign(data.nutrients, data.nutrients.customPlan);
+      return;
+    }
     Object.assign(data.nutrients, defaults);
   }
 
@@ -2124,18 +2298,19 @@
       <div class="source-row">
         <div class="form-grid-4">
           <div class="field source-type-field">
-            <label>Source</label>
+            <label>Source
             <select data-source-id="${row.id}" data-source-field="sourceType">
               ${Object.keys(SOURCE_PRESETS).map((option) => `<option ${row.sourceType === option ? "selected" : ""}>${option}</option>`).join("")}
             </select>
+            </label>
           </div>
-          <div class="field source-desc-field"><label>Description</label><input data-source-id="${row.id}" data-source-field="description" value="${escapeHTML(row.description)}" placeholder="Orange blossom, tart cherry, medium toast oak..." /></div>
-          <div class="field source-amount-field"><label>Amount</label><input data-source-id="${row.id}" data-source-field="amount" type="number" step="0.1" value="${escapeHTML(row.amount)}" /></div>
-          <div class="field source-unit-field"><label>Unit</label><select data-source-id="${row.id}" data-source-field="unit"><option ${row.unit === "lb" ? "selected" : ""}>lb</option><option ${row.unit === "kg" ? "selected" : ""}>kg</option></select></div>
+          <div class="field source-desc-field"><label>Description<input data-source-id="${row.id}" data-source-field="description" value="${escapeHTML(row.description)}" placeholder="Orange blossom, tart cherry, medium toast oak..." /></label></div>
+          <div class="field source-amount-field"><label>Amount<input data-source-id="${row.id}" data-source-field="amount" type="number" step="0.1" value="${escapeHTML(row.amount)}" /></label></div>
+          <div class="field source-unit-field"><label>Unit<select data-source-id="${row.id}" data-source-field="unit"><option ${row.unit === "lb" ? "selected" : ""}>lb</option><option ${row.unit === "kg" ? "selected" : ""}>kg</option></select></label></div>
         </div>
         <div class="form-grid-2 source-row-footer">
-          <div class="field source-ppg-field"><label>PPG</label><input data-source-id="${row.id}" data-source-field="ppg" type="number" step="0.1" value="${escapeHTML(row.ppg)}" ${locked ? "readonly" : ""} /><span class="input-hint">${presetLabel}</span></div>
-          <div class="field checkbox-field"><button class="mini-btn" data-source-delete="${row.id}" type="button">Remove source</button></div>
+          <div class="field source-ppg-field"><label>PPG<input data-source-id="${row.id}" data-source-field="ppg" type="number" step="0.1" value="${escapeHTML(row.ppg)}" ${locked ? "readonly" : ""} /></label><span class="input-hint">${presetLabel}</span></div>
+          <div class="field checkbox-field"><button class="mini-btn utility-danger" data-source-delete="${row.id}" type="button">Remove source</button></div>
         </div>
       </div>
     `;
@@ -2529,6 +2704,14 @@
         ["Fruit offset", `${round(advanced.fruitOffsetPpm, 0)} ppm`],
         ["Caps", protocol === "custom" ? "Custom" : "Protocol defaults applied"],
         ["Effective YAN", `${round(advanced.effectiveYanPpm, 0)} ppm`],
+        // The headline number used to be the TARGET regardless of whether the
+        // per-product ceilings could actually deliver it. At high gravity or high
+        // nitrogen demand the Fermaid O cap binds hard and the plan supplies barely
+        // half — while the panel still claimed the target was met. Under-nutrition
+        // is the most common cause of a stalled, sulfury mead, so say it plainly.
+        ["This plan delivers", advanced.capBound
+          ? `${round(advanced.deliveredYanPpm, 0)} ppm — short by ${round(advanced.yanShortfallPpm, 0)} ppm, product caps are binding`
+          : `${round(advanced.deliveredYanPpm, 0)} ppm`],
         ["Fermaid O", `${round(advanced.gramsO, 1)} g`],
         ["Fermaid K", `${round(advanced.gramsK, 1)} g`],
         ["DAP", `${round(advanced.gramsD, 1)} g`]
@@ -2551,7 +2734,23 @@
     $("nutrientDiscipline").innerHTML = `${data.nutrients.notes ? `Batch note: ${escapeHTML(data.nutrients.notes)}<br><br>` : ""}${suggested ? `For ${escapeHTML(yeastContext)}, a <strong>${escapeHTML(String(data.nutrients.yeastRequirement))}</strong> nitrogen-demand profile at this gravity suggests about <strong>${suggested} ppm</strong> before fruit offset.` : "Select a protocol to generate a feed plan."}`;
   }
 
+  function renderCellarChecklist(){
+    const host = $("cellarChecklist");
+    if (!host) return;
+    const list = Array.isArray(data.cellarChecklist) ? data.cellarChecklist : [];
+    const remaining = list.filter((item) => !item.done).length;
+    const summary = $("cellarChecklistSummary");
+    if (summary) summary.textContent = remaining ? `${remaining} open` : "All done";
+    host.innerHTML = list.map((item) => `
+      <label class="check-item">
+        <input type="checkbox" data-cellar-task-toggle="${escapeHTML(item.id)}" ${item.done ? "checked" : ""} />
+        <span>${escapeHTML(item.text)}</span>
+      </label>
+    `).join("");
+  }
+
   function renderCellar(){
+    renderCellarChecklist();
     const c = data.cellar;
     const back = calculateBacksweetening({
       volumeGallons: c.backsweetenVolume,
@@ -2628,9 +2827,18 @@
         ? `pH assumed 3.6 — record the actual pH above to tighten the dose`
         : `pH ${stab.ph}`;
     }
-    const stabilizerHtml = stab
-      ? `<div class="cellar-status-line">Dose ${round(stab.volumeGallons, 2)} gal at ${round(stab.abv, 1)}% ABV: <strong>${round(stab.kmetaGrams, 1)} g</strong> k-meta for ${stab.so2Ppm} ppm free SO2 plus ${sorbateBit}. <span>${phBit}.</span></div>`
-      : "";
+    // The dose was rendered from the moment a recipe loaded — i.e. during primary.
+    // Mid-ferment the measured ABV is tiny (day 2 of a 1.110 must reads ~2%), and
+    // the sorbate model scales INVERSELY with ABV, so the app printed a bolded,
+    // authoritative gram figure that was several times the correct dose, right next
+    // to a "Gate waiting" chip. A number in bold beats a caveat in prose, and the
+    // project's own rule (HANDOFF §9/§13) is: do not stabilize until gravity is
+    // stable. Withhold the number until the gate is actually clear.
+    const stabilizerHtml = !stab
+      ? ""
+      : analysis.gateReady
+        ? `<div class="cellar-status-line">Stabilizer math for ${round(stab.volumeGallons, 2)} gal at ${round(stab.abv, 1)}% ABV: <strong>${round(stab.kmetaGrams, 1)} g</strong> k-meta for ${stab.so2Ppm} ppm free SO2 plus ${sorbateBit}. <span>${phBit}.</span></div>`
+        : `<div class="cellar-status-line">Stabilizer dose stays locked until the stability gate clears. Dosing off a mid-fermentation gravity would size the sulfite and sorbate against an ABV the batch has not reached yet.</div>`;
     const [primaryWarning, ...extraWarnings] = analysis.warnings;
     const warningHtml = primaryWarning
       ? `<div class="cellar-status-check"><strong>Check</strong><span>${escapeHTML(primaryWarning)}</span></div>`
@@ -3419,6 +3627,19 @@
     recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
     data.fermentationLogs = [];
     data.fermentChecklist = buildRecipeAwareChecklist(recipe);
+    // The RAPT bridge accumulates readings under one key forever, and the dedupe
+    // set is rebuilt from the (now empty) local log. Without clearing the cached
+    // telemetry and stamping the new batch's start, the next auto-refresh pulls the
+    // PREVIOUS batch's tail into this one and draws it a fermentation curve that
+    // belongs to a different mead. importRaptReadings ignores anything older than
+    // telemetrySince.
+    data.rapt = {
+      ...defaultRaptSync(),
+      batchKey: data.rapt && data.rapt.batchKey ? data.rapt.batchKey : "active",
+      deviceId: data.rapt && data.rapt.deviceId ? data.rapt.deviceId : "",
+      telemetrySince: data.currentBatch.loadedAt
+    };
+    data.clock = normalizeClock(null);
     let structureAdds = Array.isArray(recipe.structureAdditions) && recipe.structureAdditions.length
       ? recipe.structureAdditions
       : readEnhancementStructureAdditions("recipeDraft");
@@ -3576,10 +3797,22 @@
       persistData();
       renderRecipes();
     });
-    $("recipeSourceList").addEventListener("click", (event) => {
+    $("recipeSourceList").addEventListener("click", async (event) => {
       const id = event.target.dataset.sourceDelete;
       if (!id) return;
-      data.recipeDraft.additions = data.recipeDraft.additions.filter((row) => row.id !== id);
+      const row = data.recipeDraft.additions.find((item) => item.id === id);
+      // Every other destructive path in the app confirms. This one deleted a
+      // fermentable row instantly, and the Source Bill is the gravity source of
+      // truth with no undo anywhere — a mis-tap on a phone silently changed the
+      // recipe's OG. Only prompt when the row actually holds something.
+      const rowHasContent = row && (row.description || row.amount || (row.sourceType && row.sourceType !== "Honey"));
+      if (rowHasContent && !(await confirmDialog({
+        title: "Remove this fermentable?",
+        message: `${row.description || row.sourceType || "This source"} will be removed from the source bill. Gravity and ABV estimates will change.`,
+        confirmLabel: "Remove source",
+        tone: "danger"
+      }))) return;
+      data.recipeDraft.additions = data.recipeDraft.additions.filter((item) => item.id !== id);
       if (!data.recipeDraft.additions.length) data.recipeDraft.additions = [defaultAdditionRow()];
       persistData();
       renderRecipes();
@@ -3631,12 +3864,7 @@
 
     $("loadDraftToBatchBtn").addEventListener("click", async () => {
       let loaded = false;
-      if (!batchHasData() || (await confirmDialog({
-        title: "Start a new active batch?",
-        message: "This starts a new active batch from the Build draft. The current Ferment, Feed, Finish, and gravity records will be replaced.",
-        confirmLabel: "Replace batch",
-        tone: "danger"
-      }))){
+      if (await confirmReplaceActiveBatch("the Build draft")){
         const recipe = recipeFromDraft();
         applyRecipeToBatch(recipe);
         loaded = true;
@@ -3742,6 +3970,18 @@
       hideTrendTooltip();
     });
 
+    if ($("cellarChecklist")){
+      $("cellarChecklist").addEventListener("change", (event) => {
+        const id = event.target.dataset.cellarTaskToggle;
+        if (!id) return;
+        const item = (data.cellarChecklist || []).find((task) => task.id === id);
+        if (!item) return;
+        item.done = event.target.checked;
+        persistData();
+        renderCellarChecklist();
+      });
+    }
+
     $("fermentChecklist").addEventListener("change", (event) => {
       const item = data.fermentChecklist.find((task) => task.id === event.target.dataset.taskToggle);
       if (!item) return;
@@ -3763,7 +4003,7 @@
       const gravity = $("logGravity").value;
       const temp = $("logTemp").value;
       const pH = $("logPH").value;
-      const check = validateLogInputs({ gravity, temp, pH });
+      const check = validateLogInputs({ gravity, temp, pH, date: $("logDate").value });
       if (!check.ok) {
         setLogEntryError(check.reason);
         return;
@@ -3871,7 +4111,7 @@
       if (!plan) return;
       data.currentBatch.stepFeedLog.push({ date: new Date().toISOString(), points: data.currentBatch.stepFeedPoints, honeyLb: plan.honeyLbPerFeed });
       persistData();
-      renderFerment();
+      renderAll();
     });
 
     $("clearActiveBatchBtn").addEventListener("click", async () => {
@@ -3896,23 +4136,7 @@
 
     $("archiveBatchBtn").addEventListener("click", () => {
       if (!batchHasData()) return;
-      data.archive.unshift(normalizeArchiveItem({
-        archivedAt: new Date().toISOString(),
-        batch: clone(data.currentBatch),
-        nutrients: clone(data.nutrients),
-        cellar: clone(data.cellar),
-        fermentChecklist: clone(data.fermentChecklist),
-        cellarChecklist: clone(data.cellarChecklist),
-        fermentationLogs: clone(data.fermentationLogs),
-        summary: data.cellar.tastingNotes || data.currentBatch.quickNote || data.currentBatch.notes || ""
-      }));
-      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
-      data.currentBatch = defaultCurrentBatch();
-      data.fermentationLogs = [];
-      data.fermentChecklist = defaultFermentChecklist();
-      data.nutrients = defaultNutrients();
-      data.cellar = defaultCellar();
-      data.cellarChecklist = defaultCellarChecklist();
+      archiveCurrentBatch();
       persistData();
       populateNutrientForm();
       populateCellarForm();
@@ -3941,7 +4165,10 @@
       if (!el) return;
       const handler = () => {
         data.nutrients[key] = el.value;
-        if (["batchGallons","og","brix"].includes(key) && data.nutrients.og) {
+        // Typing in Target YAN marks it user-owned; clearing it hands control back
+        // to the automatic suggestion.
+        if (key === "targetYanPpm") data.nutrients.targetYanUserSet = String(el.value).trim() !== "";
+        if (["batchGallons","og","brix"].includes(key) && data.nutrients.og && !data.nutrients.targetYanUserSet) {
           data.nutrients.targetYanPpm = String(suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }));
           if ($("nutrientTargetYan")) $("nutrientTargetYan").value = data.nutrients.targetYanPpm;
         }
@@ -4090,13 +4317,12 @@
       if (recipeLoad){
         const recipe = data.recipes.find((item) => item.id === recipeLoad);
         if (!recipe) return;
-        if (batchHasData() && !(await confirmDialog({
-          title: "Start a new active batch?",
-          message: "This starts a new active batch from the saved recipe. The current Ferment, Feed, Finish, and gravity records will be replaced.",
-          confirmLabel: "Replace batch",
-          tone: "danger"
-        }))) return;
-        data.ui.selectedRecipeId = recipe.id;
+        if (!(await confirmReplaceActiveBatch(`"${recipe.name || "this recipe"}"`))) return;
+        // NOTE: deliberately does NOT move data.ui.selectedRecipeId. That id is the
+        // "which saved recipe is the Build form editing" pointer, and the Build form
+        // still holds whatever draft the user had open. Repointing it here meant a
+        // later "Save recipe" wrote the draft over THIS recipe — silently destroying
+        // a saved recipe the user never opened. Starting a batch is not editing.
         applyRecipeToBatch(recipe);
       }
       if (recipeDelete){
@@ -4340,7 +4566,13 @@
 
 
   function csvEscape(value){
-    const text = String(value ?? "");
+    let text = String(value ?? "");
+    // Spreadsheet formula injection: a field starting with = + - @ or a control
+    // char is executed as a formula by Excel/Sheets/Numbers on open. The content
+    // can arrive from an imported backup, a synced device, or mentor output, so
+    // it is not necessarily the exporting user's own typing. Prefix a quote to
+    // neutralise it; the leading ' is stripped by importers as a text marker.
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
@@ -4625,10 +4857,19 @@
       });
       const existing = data.recipes.find((item) => item.name.trim().toLowerCase() === recipe.name.trim().toLowerCase());
       if (existing){
-        recipe.id = existing.id;
-        recipe.createdAt = existing.createdAt;
-        recipe.updatedAt = new Date().toISOString();
-        data.recipes = data.recipes.map((item) => item.id === existing.id ? recipe : item);
+        // MERGE, don't replace. The CSV format carries 14 fields plus 6 source
+        // slots — it does NOT carry structureAdditions, acidPlan, tanninPlan,
+        // honeyBase, fruitAdjuncts, or sources beyond the 6th. Replacing the record
+        // wholesale silently deleted all of them, so the export/import round-trip
+        // itself destroyed the botanicals the Build architecture is built around.
+        const merged = { ...existing, ...recipe };
+        merged.id = existing.id;
+        merged.createdAt = existing.createdAt;
+        merged.updatedAt = new Date().toISOString();
+        // Keep fields the CSV cannot express.
+        merged.structureAdditions = existing.structureAdditions;
+        if (!additions.length) merged.additions = existing.additions;
+        data.recipes = data.recipes.map((item) => item.id === existing.id ? merged : item);
       } else {
         data.recipes.unshift(recipe);
       }
@@ -4692,15 +4933,26 @@
       try{
         const raw = await file.text();
         const imported = parseImportedState(raw);
-        if (imported.enhancement) {
-          try { localStorage.setItem(ENHANCEMENT_KEY, JSON.stringify(imported.enhancement)); } catch(e) {}
-        }
+        // Unconditional: the prompt promises to replace ALL current data. When a
+        // backup carried no _enhancement (any pre-mentor or hand-built backup), the
+        // PREVIOUS device's structure additions and brainstorm thread survived the
+        // import and re-attached themselves to the freshly imported draft — fusing
+        // recipe A's ingredients with recipe B's oak/juniper rows.
+        try {
+          if (imported.enhancement) localStorage.setItem(ENHANCEMENT_KEY, JSON.stringify(imported.enhancement));
+          else localStorage.removeItem(ENHANCEMENT_KEY);
+        } catch(e) { /* storage unavailable; import still proceeds */ }
         data = imported.normalizedData;
         // Tombstone records that existed locally but are absent from the backup,
         // so a cloud-sync union doesn't resurrect them after the restore.
         Object.keys(priorIds).forEach((collection) => {
           const importedIds = new Set((data[collection] || []).map((entry) => entry.id));
           recordTombstones(collection, priorIds[collection].filter((id) => !importedIds.has(id)));
+          // ...and clear tombstones for ids this backup RESTORES. Without this a
+          // record you deleted, then recovered from a backup, reappeared in the UI
+          // and was stripped straight back out by the next cloud merge, because the
+          // stale tombstone still outranked it.
+          clearTombstones(collection, [...importedIds]);
         });
         populateRecipeForm();
         populateNutrientForm();
@@ -4821,6 +5073,28 @@
   window.addEventListener("meadevil-storage-error", () => {
     showToast("Changes are not being saved — device storage is full or blocked.", "error");
   });
+
+  // Stored data was unreadable. The app has just loaded an EMPTY ledger, which
+  // looks identical to a fresh install — so say so loudly instead of letting the
+  // user assume everything is gone and start re-entering it (the first save would
+  // then cement the empty state as the new truth).
+  function warnStorageCorrupt(detail){
+    const backedUp = Boolean(detail && detail.backedUp);
+    showToast(
+      backedUp
+        ? "Saved data could not be read. A copy of the unreadable file was kept — do not re-enter anything until it is checked."
+        : "Saved data could not be read and could not be backed up. Recipes and batch records may be missing.",
+      "error"
+    );
+  }
+  window.addEventListener("meadevil-storage-corrupt", (event) => warnStorageCorrupt(event && event.detail));
+  // The failure usually happens during the initial loadStoredData(), which runs
+  // before this listener exists — so drain the flag that path also sets.
+  if (window.__meadevilStorageCorrupt){
+    const pending = window.__meadevilStorageCorrupt;
+    delete window.__meadevilStorageCorrupt;
+    setTimeout(() => warnStorageCorrupt(pending), 0);
+  }
 
   // The Brainstorm layer owns the structure-additions editor and stores rows in
   // its enhancement key before merging them into the main state. Refresh our

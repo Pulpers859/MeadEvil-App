@@ -1613,7 +1613,14 @@
     if ($("mentorTimePatience")) $("mentorTimePatience").value = enhancement.mentor.beginner.timePatience || "a few months is fine";
     if ($("mentorModel")) $("mentorModel").value = VALID_MODELS.includes(enhancement.mentor.model) ? enhancement.mentor.model : "gpt-4o-mini";
     if ($("mentorBluntMode")) $("mentorBluntMode").checked = Boolean(enhancement.mentor.blunt);
-    document.querySelectorAll(".mentor-mode-btn").forEach((button) => button.classList.toggle("active", button.dataset.mentorMode === enhancement.mentor.mode));
+    // aria-pressed as well as the class: the nutrient protocol buttons and the
+    // chart series pills both expose their state this way, so a screen reader user
+    // could tell which was selected everywhere EXCEPT the coach-mode buttons.
+    document.querySelectorAll(".mentor-mode-btn").forEach((button) => {
+      const selected = button.dataset.mentorMode === enhancement.mentor.mode;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    });
 
     const statusMode = enhancement.mentor.status.lastError ? "mentor-status-bad" : enhancement.mentor.status.mode === "remote" ? "mentor-status-good" : "mentor-status-warn";
     if ($("mentorCoachStatus")) $("mentorCoachStatus").innerHTML = `<span class="${statusMode}">${escapeHTML(enhancement.mentor.status.message || "MeadEvil Mentor ready.")}</span>${enhancement.mentor.status.lastRunAt ? `<br><span class="muted">Last run: ${escapeHTML(new Date(enhancement.mentor.status.lastRunAt).toLocaleString())}</span>` : ""}`;
@@ -1740,7 +1747,10 @@
       styleLane: pickText(concept.style_lane, concept.styleLane, localPacket.packet.styleLane),
       finishDirection: pickText(concept.finish_direction, concept.finishDirection, localPacket.packet.finishDirection),
       yeastLane: pickText(build.yeast, concept.yeast_lane, concept.yeastLane, localPacket.packet.yeastLane),
-      sourceBillCandidates: objectList(build.source_bill_candidates ?? build.sourceBillCandidates, localPacket.packet.sourceBillCandidates),
+      sourceBillCandidates: mergeSourceBillCandidates(
+        build.source_bill_candidates ?? build.sourceBillCandidates,
+        localPacket.packet.sourceBillCandidates
+      ),
       adjunctCandidates: objectList(build.adjunct_candidates ?? build.adjunctCandidates, localPacket.packet.adjunctCandidates),
       riskControls: normalizeStringList(reply.risk_controls ?? json.risk_controls, localPacket.packet.riskControls),
       productionSequence: normalizeStringList(reply.production_sequence ?? json.production_sequence, localPacket.packet.productionSequence),
@@ -1791,13 +1801,31 @@
 
   const FUNCTION_URL = "/.netlify/functions/meadevil-mentor";
 
+  // A hung endpoint used to freeze the Brainstorm UI forever: no timeout, no abort,
+  // and the only control (Send) stays disabled for the whole request, so there was
+  // no way back except reloading the page and losing the thread.
+  const MENTOR_REQUEST_TIMEOUT_MS = 60000;
+
   async function callMentorFunction(payload, model){
     const body = { ...payload, model };
-    const response = await fetch(FUNCTION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MENTOR_REQUEST_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error && error.name === "AbortError"){
+        throw new Error(`Mentor request timed out after ${Math.round(MENTOR_REQUEST_TIMEOUT_MS / 1000)}s. The endpoint may be unreachable.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok){
       const text = await response.text().catch(() => "");
       let msg = `Mentor function returned ${response.status}`;
@@ -2171,6 +2199,37 @@
       .filter((item) => item.ingredient && (item.phase || item.amount));
   }
 
+  // Union the backend's fermentable list with the locally-derived one, keyed by
+  // normalized name, mirroring mergeAdjunctCandidates.
+  //
+  // This used to be a plain "non-empty backend list wins outright" replace. The
+  // backend's prose extractor only recognises HONEY terms, so any non-empty
+  // response (which always contains at least one honey) discarded the local list
+  // wholesale — and the local list is the one that carries fruit, juice, and
+  // concentrate. Net effect: a melomel designed in Brainstorm arrived in Build
+  // with the honey and no fruit at all.
+  function mergeSourceBillCandidates(backendList, localList){
+    const merged = new Map();
+    const upsert = (item) => {
+      if (!isPlainObject(item)) return;
+      const name = String(item.name || "").trim();
+      const key = normalizeIngredientKey(name);
+      if (!key) return;
+      const prev = merged.get(key) || {};
+      merged.set(key, {
+        ...prev,
+        ...item,
+        name: name || prev.name || "",
+        type: item.type || prev.type || "Custom",
+        amount: String(item.amount || prev.amount || "").trim()
+      });
+    };
+    (Array.isArray(backendList) ? backendList : []).forEach(upsert);
+    (Array.isArray(localList) ? localList : []).forEach(upsert);
+    const out = [...merged.values()];
+    return out.length ? out : clone(Array.isArray(localList) ? localList : []);
+  }
+
   function mergeAdjunctCandidates(packetAdjuncts, conversationAdjuncts){
     const merged = new Map();
     const upsert = (item) => {
@@ -2253,7 +2312,7 @@
       (c) => (c.type || "Custom") === "Honey" && !c.amount
     ).length || 1;
     const perHoneyLb = honeyLb ? honeyLb / amountlessHoneyCount : null;
-    const rows = packet.sourceBillCandidates.map((candidate) => {
+    let rows = packet.sourceBillCandidates.map((candidate) => {
       const type = candidate.type || "Custom";
       const amount = candidate.amount
         || (type === "Honey" && perHoneyLb ? String(Math.round(perHoneyLb * 100) / 100) : "");
@@ -2266,6 +2325,23 @@
         ppg: sourcePresetPpg(type)
       };
     });
+
+    // The split above only covers rows with NO amount. Amounts that the backend
+    // scraped out of prose bypass it entirely — and that scraper binds a single
+    // stated total to every honey term near it, so "about 7.5 lb of honey ...
+    // mostly wildflower with a little linden" arrives as 7.5 + 7.5 = 15 lb, which
+    // roughly doubles the projected ABV. Treat a bill that overshoots the computed
+    // target by more than 15% as a shared total and rescale it proportionally.
+    if (honeyLb) {
+      const honeyRows = rows.filter((r) => r.sourceType === "Honey" && parseFloat(r.amount) > 0);
+      const honeySum = honeyRows.reduce((sum, r) => sum + parseFloat(r.amount), 0);
+      if (honeyRows.length > 1 && honeySum > honeyLb * 1.15) {
+        const scale = honeyLb / honeySum;
+        honeyRows.forEach((r) => {
+          r.amount = String(Math.round(parseFloat(r.amount) * scale * 100) / 100);
+        });
+      }
+    }
     const finalRows = rows.length ? rows : [{ id: makeId("src"), sourceType: "Honey", description: "", amount: "", unit: "lb", ppg: "35" }];
 
     // Write straight to the inner data so the meadevil-cloud-restore reload at

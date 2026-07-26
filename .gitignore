@@ -45,3 +45,6 @@ desktop.ini
 
 # Heavy local design sources (exported icons live in assets/icons/)
 assets/brand/*.afdesign
+
+# Test tooling installed with --no-save; the app itself has no build step.
+node_modules/

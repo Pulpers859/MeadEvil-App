@@ -5,12 +5,21 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 // Only these models may be requested from the browser. Anything else is coerced
 // to the cheap default so a caller cannot select an expensive model on the
 // account owner's dime.
-const ALLOWED_MODELS = new Set(["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]);
+//
+// The expensive models used to be on this list, which defeated the entire point:
+// a caller could simply ask for the priciest one. This endpoint is unauthenticated
+// by nature (a static site holds no secret), so the allowlist is the ONLY spend
+// control that actually binds. Keep it to the cheap model.
+const ALLOWED_MODELS = new Set(["gpt-4o-mini"]);
 const DEFAULT_MODEL = "gpt-4o-mini";
 // Hard caps to keep a single request from running up unbounded token spend.
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_HISTORY_TURNS = 40;
 const MAX_TURN_CHARS = 6000;
+// Without a ceiling, one request can bill for an unbounded completion.
+const MAX_COMPLETION_TOKENS = 1400;
+// A hung upstream would otherwise burn the whole function timeout on every call.
+const UPSTREAM_TIMEOUT_MS = 45000;
 
 function pinModel(requested) {
   return ALLOWED_MODELS.has(requested) ? requested : DEFAULT_MODEL;
@@ -25,9 +34,27 @@ function originAllowed(event) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (!allowList.length) return true;
+  if (!allowList.length) {
+    // Unset means "allow all", which is the right default for local dev but ships
+    // an open, unmetered proxy if it reaches production. Say so in the logs.
+    console.warn("MENTOR_ALLOWED_ORIGINS is not set — the mentor endpoint is open to any origin. Set it in the Netlify environment before deploying. See docs/SETUP.md.");
+    return true;
+  }
   const origin = event.headers?.origin || event.headers?.Origin || "";
   return allowList.includes(origin);
+}
+
+// Echo the caller's origin only when it is on the allowlist. A blanket
+// `Access-Control-Allow-Origin: *` let any web page in any visitor's browser
+// spend the owner's API credit; the app itself is same-origin and needs none of it.
+function resolveAllowedOrigin(event) {
+  const allowList = (process.env.MENTOR_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const origin = event?.headers?.origin || event?.headers?.Origin || "";
+  if (!allowList.length) return origin || "*";
+  return allowList.includes(origin) ? origin : allowList[0];
 }
 
 function clampTurnText(value) {
@@ -691,18 +718,30 @@ async function callOpenAI({ apiKey, model, temperature, responseFormat, messages
   const body = {
     model,
     temperature,
-    messages
+    messages,
+    max_tokens: MAX_COMPLETION_TOKENS
   };
   if (responseFormat) body.response_format = responseFormat;
 
-  const res = await fetch(OPENAI_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(body)
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(OPENAI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error(`OpenAI request timed out after ${UPSTREAM_TIMEOUT_MS}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -925,6 +964,7 @@ function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
 }
 
 export async function handler(event) {
+  activeRequestOrigin = resolveAllowedOrigin(event);
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders(), body: "" };
   }
@@ -1008,6 +1048,11 @@ export async function handler(event) {
   }
 }
 
+// The origin of the request currently being handled, so responses can echo an
+// allowlisted origin instead of a blanket wildcard. Set once per invocation;
+// Netlify functions handle one request per invocation.
+let activeRequestOrigin = "*";
+
 function respond(code, body) {
   return {
     statusCode: code,
@@ -1019,7 +1064,8 @@ function respond(code, body) {
 function corsHeaders() {
   return {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": activeRequestOrigin,
+    "Vary": "Origin",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type"
   };

@@ -23,7 +23,16 @@ export async function handler(event) {
     }
     return respond(405, { error: "GET and POST only" });
   } catch (error) {
-    return respond(Number(error?.statusCode || 500), { error: String(error?.message || error) });
+    // Deliberate 4xx/503 messages (bad batch key, missing secret, service not
+    // configured) are safe and useful to the caller. Anything else is an internal
+    // failure whose message enumerates env-var names and upstream Firestore
+    // errors, so log it server-side and return a generic body.
+    const status = Number(error?.statusCode || 500);
+    if (status >= 400 && status < 500) {
+      return respond(status, { error: String(error?.message || "Request rejected") });
+    }
+    console.error("RAPT bridge error:", error);
+    return respond(status, { error: "RAPT bridge error." });
   }
 }
 

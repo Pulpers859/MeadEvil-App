@@ -64,19 +64,31 @@ Do not break the recipe -> batch -> archive loop.
 
 ## 5) Current tab intent
 
-Current tabs:
-- Dash - active batch pulse only
-- Build - recipe creation, source bill, design target, source reality, sanity engine
-- Ferment - active batch, gravity log, sugar break, step feeding
-- Feed - nutrient protocol execution and inherited batch values
-- Cellar - stabilization, backsweetening, post-fermentation additions, bench trials, blending, packaging helpers
-- Archive - saved recipes and archived batches
-- Calcs - compact utility math
-- Brainstorm - concept / idea support
+The app ships **six** tabs (`index.html`). `Dash` and `Calcs` are no longer tabs —
+they were folded into accordions inside other tabs. Two empty orphan shells
+(`#tab-dashboard`, `#tab-calcs`) remain in the markup, and `state-schema.js`
+redirects any stored `activeTab` of `dashboard`/`calcs` to `recipes` so old state
+cannot strand a user on a blank panel.
+
+| Tab label | `data-tab` | Role |
+| --- | --- | --- |
+| Brainstorm | `meadmaker` | concept / idea support |
+| Build | `recipes` | recipe creation, source bill, design target, source reality, sanity engine |
+| Ferment | `ferment` | active batch, gravity log, sugar break, step feeding |
+| Feed | `nutrients` | nutrient protocol execution and inherited batch values |
+| Finish | `cellar` | stabilization, backsweetening, post-fermentation additions, bench trials, blending, packaging |
+| Vault | `archive` | saved recipes and archived batches |
+
+Folded-in surfaces:
+- Batch pulse (the former Dash) is a `<details>` inside **Ferment**
+- Quick math (the former Calcs) is a `<details>` inside **Build**
 
 Important naming rule:
 - the tab must say `Build`, not `Forge`
 - `Brainstorm` replaces the older `Riff` naming
+- `Finish` and `Vault` are the shipped labels; older notes call these
+  `Cellar` and `Archive`, and the internal `data-tab` ids still use the old names.
+  When this document says "Cellar" or "Archive" below, it means Finish / Vault.
 
 ## 6) Build tab rules
 

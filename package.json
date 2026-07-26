@@ -1,0 +1,17 @@
+{
+  "name": "meadevil-app",
+  "version": "2.0.0",
+  "private": true,
+  "description": "MeadEvil - static, no-build meadmaking app. This manifest exists only to pin the test/dev tooling; the app itself ships as plain HTML/CSS/JS with no build step.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "node tests/regressions.mjs && node tests/e2e-workflow.mjs",
+    "test:regressions": "node tests/regressions.mjs",
+    "test:e2e": "node tests/e2e-workflow.mjs",
+    "test:smoke": "node scripts/meadevil-smoke-test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

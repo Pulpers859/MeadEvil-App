@@ -4,3 +4,25 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Security headers.
+#
+# The app loads three third-party script bundles (Firebase compat) from gstatic and
+# a stylesheet from Google Fonts; everything else is same-origin. There are no
+# inline <script> blocks and no inline on* handlers in index.html, so script-src
+# does NOT need 'unsafe-inline'.
+#
+# style-src DOES need 'unsafe-inline': index.html carries one inline style
+# attribute and app.js sets `style="--fill-pct:..."` through innerHTML when
+# rendering meters. Inline style *attributes* are covered by style-src, so
+# removing 'unsafe-inline' here would silently break those bars.
+#
+# connect-src must keep the Google hosts or Firestore sync stops working.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://firebaseinstallations.googleapis.com; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=()"

@@ -21,9 +21,9 @@
   <script src="assets/js/mead-logic.js" defer></script>
   <script src="assets/js/yeast-data.js" defer></script>
   <script src="assets/js/firebase-config-loader.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" integrity="sha384-AQ3POAMqIhwS81FrUH95ekxqBZHeP5tG2JfEL3+7GuTtfRLWnrRh32UxwzM+//A9" crossorigin="anonymous" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" integrity="sha384-TnlRYaR4JYz/lpaGuaiU61PjNberSA4vjLjtF+oRC/IkohkJqnWxw5EmDSOt1vA1" crossorigin="anonymous" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" integrity="sha384-qn4Jh88HhJA8dplNQyGjOh9OGI4izVhrfj/qIFgaKcdgOE06pXqIKGlsCILZcLAC" crossorigin="anonymous" defer></script>
   <script src="assets/js/firebase-sync.js" defer></script>
   <script src="assets/js/state-schema.js" defer></script>
   <script src="assets/js/app.js" defer></script>
@@ -36,7 +36,7 @@
     <div class="container nav-wrap">
       <div class="header-top-row">
         <div class="header-left">
-          <div class="brand-badge"><span class="brand-dot"></span> MeadEvil</div>
+          <h1 class="brand-badge"><span class="brand-dot"></span> MeadEvil</h1>
         </div>
         <div class="header-right">
           <button class="mini-btn" id="batchClockBtn" type="button">Start Clock</button>
@@ -138,8 +138,8 @@
                   </div>
                 </div>
               </details>
-              <div class="notes-box" id="mentorCoachStatus"></div>
-              <div class="notes-box mentor-reply-box" id="mentorCoachReply"></div>
+              <div class="notes-box" id="mentorCoachStatus" role="status" aria-live="polite"></div>
+              <div class="notes-box mentor-reply-box" id="mentorCoachReply" aria-live="polite"></div>
               <div class="field">
                 <textarea id="mentorFollowup" aria-label="Reply to the brainstorm partner" placeholder="Reply here..."></textarea>
               </div>
@@ -200,7 +200,7 @@
                 <div class="field"><label for="recipeTargetAbv">Target ABV (%)</label><input id="recipeTargetAbv" type="number" step="0.1" placeholder="12" /></div>
                 <div class="field core-wide"><label for="recipeSweetness">Sweetness target</label><select id="recipeSweetness"><option>Dry</option><option>Off-dry</option><option>Semi-sweet</option><option>Sweet</option></select></div>
               </div>
-              <details class="recipe-extras-fold setup-fold">
+              <details class="recipe-extras-fold setup-fold" open>
                 <summary class="recipe-extras-summary">
                   <span class="small">Fermentation setup</span>
                   <span class="fold-hint">Yeast, nutrient demand, packaging</span>
@@ -405,6 +405,7 @@
                         </div>
                         <div class="field"><label for="calcBrixInput">Brix</label><input id="calcBrixInput" type="number" step="0.1" /></div>
                         <div class="result calc-result" id="calcSgResult"></div>
+                        <p class="small warn-copy">Pre-fermentation only. Ethanol distorts refractometer readings, so once the yeast is working this conversion reads far too sweet — a dry 0.998 mead can show as 1.032. Use a hydrometer after pitching.</p>
                       </article>
                     </div>
                     </div>
@@ -490,7 +491,7 @@
         </div>
 
         <!-- Batch pulse (was its own Stage tab) -->
-        <details class="card accord-card summary-panel pulse-card" id="batchPulseAccord">
+        <details class="card accord-card summary-panel pulse-card" id="batchPulseAccord" open>
           <summary class="accord-summary">
             <span class="accord-title">Batch pulse</span>
             <span class="small" id="pulseOneLiner"></span>
@@ -568,7 +569,7 @@
               <div class="trend-chart-shell" id="fermentationTrendChart"></div>
               <div class="trend-meta" id="fermentationTrendMeta"></div>
             </div>
-            <details class="card accord-card work-card" id="gravityLogCard">
+            <details class="card accord-card work-card" id="gravityLogCard" open>
               <summary class="accord-summary">
                 <span class="accord-title">Gravity log</span>
                 <span class="small" id="gravityLogSummary"></span>
@@ -733,6 +734,15 @@
                 </div>
               </details>
               <div class="result" id="cellarSmartSummary"></div>
+              <details class="card accord-card utility-panel" id="cellarChecklistCard">
+                <summary class="accord-summary">
+                  <span class="accord-title">Finish check list</span>
+                  <span class="small" id="cellarChecklistSummary"></span>
+                </summary>
+                <div class="accord-body">
+                  <div class="checklist" id="cellarChecklist"></div>
+                </div>
+              </details>
             </div>
             <div class="card work-card">
               <div class="toolbar"><h3>Sweeten math</h3></div>

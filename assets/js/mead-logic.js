@@ -1,7 +1,15 @@
 (function(){
   "use strict";
 
+  // Strict numeric coercion. Plain `Number()` turns "", "   ", null, [] and false
+  // into 0, which is NOT the same as "the user left this blank" — and callers here
+  // branch on `null` to mean unset. Treating a cleared input as a real 0 silently
+  // zeroed whole nutrient plans (blank custom limits produced a 0 g schedule while
+  // the panel still claimed it was hitting the YAN target), so blanks return null.
   function num(value){
+    if (value === null || value === undefined || typeof value === "boolean") return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    if (Array.isArray(value)) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
@@ -44,11 +52,47 @@
     return (n / (258.6 - ((n / 258.2) * 227.1))) + 1;
   }
 
-  function calcABV(og, fg){
+  // ABV.
+  //
+  // The familiar (OG - FG) * 131.25 is calibrated for BEER gravities (OG <= ~1.070)
+  // and understates alcohol badly in mead's normal range: at OG 1.130 / FG 1.000 it
+  // reports 17.1% against a real ~19.3%, and at 1.160/1.010 it is ~4 points low.
+  // Mead routinely starts at 1.100-1.150, so the beer factor is the wrong default
+  // for this app. `calcABV` therefore uses the Cutaiar/Hall high-gravity formula,
+  // which tracks the simple one closely at low gravity and diverges where it should.
+  //
+  // Both are exported: `calcABVSimple` is kept for reference and for anyone
+  // reconciling MeadEvil's numbers against a beer calculator.
+  function calcABVSimple(og, fg){
     const ogNum = num(og);
     const fgNum = num(fg);
     if (!(ogNum > 1 && fgNum > 0 && ogNum > fgNum)) return null;
     return (ogNum - fgNum) * 131.25;
+  }
+
+  const ABV_K = 76.08;
+  const ABV_DIVISOR = 1.775;
+  const ETHANOL_DENSITY = 0.794;
+  function calcABV(og, fg){
+    const ogNum = num(og);
+    const fgNum = num(fg);
+    if (!(ogNum > 1 && fgNum > 0 && ogNum > fgNum)) return null;
+    if (!(ABV_DIVISOR - ogNum > 0)) return calcABVSimple(ogNum, fgNum);
+    return (ABV_K * (ogNum - fgNum) / (ABV_DIVISOR - ogNum)) * (fgNum / ETHANOL_DENSITY);
+  }
+
+  // Inverse of calcABV: what OG lands a given ABV at a given finishing gravity.
+  // Must invert the SAME formula calcABV uses, or the app plans a honey bill
+  // against one model and then judges yeast tolerance against another — which is
+  // exactly why an over-tolerance build used to sail past the warning.
+  function ogForTargetAbv(targetAbv, fg){
+    const abvNum = num(targetAbv);
+    const fgNum = num(fg);
+    if (!(abvNum > 0 && fgNum > 0)) return null;
+    const k = (ABV_K * fgNum) / ETHANOL_DENSITY;
+    const denom = k + abvNum;
+    if (!(denom > 0)) return null;
+    return ((ABV_DIVISOR * abvNum) + (k * fgNum)) / denom;
   }
 
   function sweetnessToFg(level){
@@ -98,14 +142,20 @@
     const toleranceNum = num(yeastTolerance);
     const resolvedFg = sweetnessToFg(sweetness);
     if (!(batchNum > 0 && abvNum > 0)) return null;
-    const targetOg = resolvedFg + (abvNum / 131.25);
+    const targetOg = ogForTargetAbv(abvNum, resolvedFg);
+    if (!(targetOg > 1)) return null;
     const honey = estimateHoneyForTargetOG({ targetOg, batchGallons: batchNum, honeyPPG });
+    // Judge tolerance against the ABV this OG will REALLY produce, not against the
+    // number the user typed. Rounding and the sweetness assumption can push the
+    // real figure past a yeast's ceiling while the requested value sits under it.
+    const impliedAbv = calcABV(targetOg, resolvedFg) || abvNum;
     return {
       batchGallons: batchNum,
       targetAbv: abvNum,
+      impliedAbv,
       targetFg: resolvedFg,
       targetOg,
-      exceedsTolerance: toleranceNum > 0 ? abvNum > toleranceNum : false,
+      exceedsTolerance: toleranceNum > 0 ? Math.max(abvNum, impliedAbv) > toleranceNum : false,
       yeastTolerance: toleranceNum || null,
       honeyLb: honey ? honey.honeyLb : null,
       honeyKg: honey ? honey.honeyKg : null,
@@ -260,6 +310,16 @@
     }
 
     const totalGrams = gramsO + gramsK + gramsD;
+    // What the plan ACTUALLY delivers after the per-product ceilings bind. The UI
+    // used to headline `effectiveYanPpm` (the target) regardless of capping, so a
+    // high-gravity or high-nitrogen batch was told it was hitting e.g. 426 ppm
+    // while the schedule really supplied ~227 ppm. Under-nutrition is the single
+    // most common cause of a stalled, sulfury mead — so report both numbers and
+    // let the caller say plainly when the plan falls short.
+    const deliveredYanMg = (gramsO * effO) + (gramsK * effK) + (gramsD * effD);
+    const deliveredYanPpm = liters > 0 ? deliveredYanMg / liters : 0;
+    const yanShortfallPpm = Math.max(0, effectiveYanPpm - deliveredYanPpm);
+    const capBound = enforceLimits && yanShortfallPpm > 1;
     const breakGravity = calcOneThirdBreak(og);
     const scheduleShares = [0.25, 0.25, 0.25, 0.25];
     const labels = ["24 hours", "48 hours", "72 hours", "1/3 sugar break or day 7"];
@@ -279,6 +339,9 @@
       fruitOffsetPpm: offset,
       effectiveYanPpm,
       totalYanMg,
+      deliveredYanPpm,
+      yanShortfallPpm,
+      capBound,
       gramsO,
       gramsK,
       gramsD,
@@ -328,7 +391,8 @@
   function calculateBottleCount({ gallons, bottleOz = 12, lossPct = 5 } = {}){
     const gallonsNum = num(gallons);
     const bottleNum = num(bottleOz);
-    const lossNum = Math.max(0, num(lossPct) || 0);
+    // Clamp both ends: a loss above 100% used to yield negative bottle counts.
+    const lossNum = clamp(num(lossPct) || 0, 0, 100);
     if (!(gallonsNum > 0 && bottleNum > 0)) return null;
     const packagedOz = gallonsNum * 128 * (1 - (lossNum / 100));
     const fullBottles = Math.floor(packagedOz / bottleNum);
@@ -388,20 +452,22 @@
     };
   }
 
+  // Free SO2 needed to hold ~0.8 mg/L MOLECULAR SO2, the accepted protective
+  // level for a still wine/mead. Molecular fraction follows the Henderson-
+  // Hasselbalch relation for sulfurous acid (pKa1 = 1.81):
+  //   free SO2 = molecular_target * (1 + 10^(pH - 1.81))
+  // The previous hard-coded table was correct through pH 3.7 but had the last two
+  // rows shifted down one step (pH 3.8 carried pH 3.9's value, pH 3.9 carried
+  // pH 4.0's), a ~24% sulfite OVERDOSE at those pH values, and it flat-lined
+  // above pH 4.0 where the real requirement keeps climbing steeply.
+  const MOLECULAR_SO2_TARGET = 0.8;
+  const SO2_PKA1 = 1.81;
   function freeSo2TargetPpm(ph){
-    const rounded = Math.round(num(ph) * 10) / 10;
-    if (!(rounded > 0)) return 50;
-    if (rounded <= 2.9) return 11;
-    if (rounded === 3.0) return 13;
-    if (rounded === 3.1) return 16;
-    if (rounded === 3.2) return 21;
-    if (rounded === 3.3) return 26;
-    if (rounded === 3.4) return 32;
-    if (rounded === 3.5) return 39;
-    if (rounded === 3.6) return 50;
-    if (rounded === 3.7) return 63;
-    if (rounded === 3.8) return 98;
-    return 123;
+    const phNum = num(ph);
+    if (!(phNum > 0)) return 50;
+    // Clamp to the range where this model is meaningful for mead/wine.
+    const bounded = clamp(phNum, 2.8, 4.2);
+    return Math.round(MOLECULAR_SO2_TARGET * (1 + Math.pow(10, bounded - SO2_PKA1)));
   }
 
   function calculateStabilizers({ volumeGallons, abv, ph } = {}){
@@ -432,9 +498,14 @@
   function poundsFromAmount(amount, unit){
     const n = num(amount);
     if (!(n > 0)) return null;
-    const normalized = String(unit || "lb").toLowerCase();
-    if (normalized === "lb") return n;
-    if (normalized === "kg") return n * 2.20462;
+    // CSV/backup import can carry any unit string. An unrecognised unit used to
+    // return null, and calculateSourceBill silently DROPPED the whole row — an
+    // all-ounce bill rendered as "no fermentables entered". Convert what we can.
+    const normalized = String(unit || "lb").toLowerCase().trim();
+    if (normalized === "lb" || normalized === "lbs" || normalized === "pound" || normalized === "pounds") return n;
+    if (normalized === "kg" || normalized === "kgs" || normalized === "kilogram" || normalized === "kilograms") return n * 2.20462;
+    if (normalized === "oz" || normalized === "ounce" || normalized === "ounces") return n / 16;
+    if (normalized === "g" || normalized === "gram" || normalized === "grams") return n * 0.00220462;
     return null;
   }
 
@@ -535,6 +606,8 @@
     sgToBrix,
     brixToSg,
     calcABV,
+    calcABVSimple,
+    ogForTargetAbv,
     sweetnessToFg,
     estimateHoneyForTargetOG,
     estimateOGFromHoney,

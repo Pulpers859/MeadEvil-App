@@ -26,23 +26,54 @@
       normalizeClock
     } = options;
 
+    // Record ids are interpolated straight into `data-*` HTML attributes by the
+    // renderers (e.g. `data-recipe-edit="${recipe.id}"`), so an id carrying a
+    // quote character breaks out of the attribute and injects markup. Imported
+    // backups and cloud-synced documents are attacker-reachable, so ids are
+    // hard-restricted to an id-safe charset HERE, at the single choke point every
+    // inbound record passes through. Anything else is replaced with a fresh id
+    // rather than silently mangled.
+    const ID_SAFE = /^[A-Za-z0-9_-]{1,64}$/;
+    function safeId(value, prefix){
+      const text = String(value ?? "");
+      return ID_SAFE.test(text) ? text : makeId(prefix);
+    }
+
+    // Checklists arrive from imports/sync too and their `id` reaches
+    // `data-task-toggle="${item.id}"`, so they need the same treatment.
+    function normalizeChecklist(list, fallback){
+      if (!Array.isArray(list) || !list.length) return fallback();
+      return list
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+          ...item,
+          id: safeId(item.id, "task"),
+          text: String(item.text ?? ""),
+          done: Boolean(item.done)
+        }));
+    }
+
     function normalizeRecipe(recipe){
       const input = recipe || {};
       const merged = { ...defaultRecipeDraft(), ...input };
-      merged.id = input.id || makeId("recipe");
+      merged.id = safeId(input.id, "recipe");
       merged.createdAt = input.createdAt || new Date().toISOString();
       merged.updatedAt = input.updatedAt || merged.createdAt;
       merged.additions = Array.isArray(input.additions) && input.additions.length
-        ? input.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") }))
+        ? input.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: safeId(row.id, "src") }))
         : [defaultAdditionRow()];
-      merged.structureAdditions = Array.isArray(input.structureAdditions) ? input.structureAdditions : [];
+      merged.structureAdditions = Array.isArray(input.structureAdditions)
+        ? input.structureAdditions
+          .filter((row) => row && typeof row === "object")
+          .map((row) => ({ ...row, id: safeId(row.id, "adj") }))
+        : [];
       return merged;
     }
 
     function normalizeLog(log){
       const input = log || {};
       return {
-        id: input.id || makeId("grav"),
+        id: safeId(input.id, "grav"),
         date: input.date || todayStr(),
         gravity: String(input.gravity || ""),
         temp: String(input.temp || ""),
@@ -60,13 +91,13 @@
     function normalizeArchiveItem(item){
       const input = item || {};
       return {
-        id: input.id || makeId("arch"),
+        id: safeId(input.id, "arch"),
         archivedAt: input.archivedAt || new Date().toISOString(),
         batch: { ...defaultCurrentBatch(), ...(input.batch || {}) },
         nutrients: { ...defaultNutrients(), ...(input.nutrients || {}) },
         cellar: { ...defaultCellar(), ...(input.cellar || {}) },
-        fermentChecklist: Array.isArray(input.fermentChecklist) && input.fermentChecklist.length ? input.fermentChecklist : defaultFermentChecklist(),
-        cellarChecklist: Array.isArray(input.cellarChecklist) && input.cellarChecklist.length ? input.cellarChecklist : defaultCellarChecklist(),
+        fermentChecklist: normalizeChecklist(input.fermentChecklist, defaultFermentChecklist),
+        cellarChecklist: normalizeChecklist(input.cellarChecklist, defaultCellarChecklist),
         fermentationLogs: Array.isArray(input.fermentationLogs) ? input.fermentationLogs.map(normalizeLog) : [],
         summary: input.summary || ""
       };
@@ -136,19 +167,29 @@
         mentorKnowledge: normalizeMentorKnowledge(input.mentorKnowledge)
       };
       merged.recipeDraft.additions = Array.isArray(merged.recipeDraft.additions) && merged.recipeDraft.additions.length
-        ? merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") }))
+        ? merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: safeId(row && row.id, "src") }))
         : [defaultAdditionRow()];
+      merged.recipeDraft.structureAdditions = Array.isArray(merged.recipeDraft.structureAdditions)
+        ? merged.recipeDraft.structureAdditions
+          .filter((row) => row && typeof row === "object")
+          .map((row) => ({ ...row, id: safeId(row.id, "adj") }))
+        : [];
       merged.currentBatch.additions = Array.isArray(merged.currentBatch.additions) && merged.currentBatch.additions.length
-        ? merged.currentBatch.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: row.id || makeId("src") }))
+        ? merged.currentBatch.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: safeId(row && row.id, "src") }))
         : [defaultAdditionRow()];
+      merged.currentBatch.structureAdditions = Array.isArray(merged.currentBatch.structureAdditions)
+        ? merged.currentBatch.structureAdditions
+          .filter((row) => row && typeof row === "object")
+          .map((row) => ({ ...row, id: safeId(row.id, "adj") }))
+        : [];
       merged.currentBatch.stepFeedLog = Array.isArray(merged.currentBatch.stepFeedLog) ? merged.currentBatch.stepFeedLog : [];
       merged.cellar.additions = Array.isArray(merged.cellar.additions) && merged.cellar.additions.length
-        ? merged.cellar.additions.map((row) => ({ ...defaultCellarAddition(), ...row, id: row.id || makeId("cellaradd") }))
+        ? merged.cellar.additions.map((row) => ({ ...defaultCellarAddition(), ...row, id: safeId(row && row.id, "cellaradd") }))
         : [defaultCellarAddition()];
       merged.recipes = Array.isArray(input.recipes) ? input.recipes.map(normalizeRecipe) : [];
       merged.fermentationLogs = Array.isArray(input.fermentationLogs) ? input.fermentationLogs.map(normalizeLog) : [];
-      merged.fermentChecklist = Array.isArray(input.fermentChecklist) && input.fermentChecklist.length ? input.fermentChecklist : defaultFermentChecklist();
-      merged.cellarChecklist = Array.isArray(input.cellarChecklist) && input.cellarChecklist.length ? input.cellarChecklist : defaultCellarChecklist();
+      merged.fermentChecklist = normalizeChecklist(input.fermentChecklist, defaultFermentChecklist);
+      merged.cellarChecklist = normalizeChecklist(input.cellarChecklist, defaultCellarChecklist);
       merged.archive = Array.isArray(input.archive) ? input.archive.map(normalizeArchiveItem) : [];
       merged.tombstones = Array.isArray(input.tombstones)
         ? input.tombstones.filter((entry) => entry && entry.collection && entry.id)
@@ -183,9 +224,25 @@
         console.error("Could not load app data", error);
         // Preserve the unparseable blob under a backup key so a subsequent save
         // doesn't destroy data that might still be manually recoverable.
+        let backedUp = false;
         if (raw){
-          try{ localStorage.setItem(`${storageKey}-corrupt-backup`, raw); } catch(_){ /* best effort */ }
+          try{
+            localStorage.setItem(`${storageKey}-corrupt-backup`, raw);
+            backedUp = true;
+          } catch(_){ /* best effort */ }
         }
+        // TELL THE USER. Silently returning a blank ledger made the app open
+        // looking factory-fresh: no recipes, no batch, no archive. The natural
+        // reaction is to start re-entering everything, and the first save then
+        // cements the empty state as the new truth.
+        // loadStoredData() runs during module init, BEFORE app.js has attached its
+        // listeners, so a bare event would be dispatched into the void. Record the
+        // fact on a well-known flag as well and let boot drain it.
+        const detail = { backedUp, backupKey: `${storageKey}-corrupt-backup` };
+        try{ window.__meadevilStorageCorrupt = detail; } catch(_){ /* non-browser host */ }
+        try{
+          window.dispatchEvent(new CustomEvent("meadevil-storage-corrupt", { detail }));
+        } catch(_){ /* environments without CustomEvent */ }
         return normalizeData(null);
       }
     }
