@@ -13,6 +13,12 @@
  *  11. Stabilizer (k-meta / sorbate) dosing in the Finish summary
  *  12. Hydrometer CSV import (downsample, dedupe, unit normalization)
  *  13. BeerJSON recipe export
+ * Suites 14-18 pin the round-2 findings:
+ *  14. The printed recipe card must reflect the SELECTED nutrient protocol
+ *  15. Duplicate record ids must not collide on delete
+ *  16. A batch started from an unsaved draft stays identity-linked to that draft
+ *  17. RAPT import must not pull the previous batch's telemetry
+ *  18. Exports must download with filesystem-safe filenames
  */
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
@@ -168,7 +174,14 @@ async function testRecipeCardExport(context) {
   const text = await fs.readFile(path, "utf8");
 
   check("card has no null/undefined artifacts", !/null|undefined/.test(text), (text.match(/.*(null|undefined).*/g) || []).join(" | "));
-  check("card prints TOSNA dose math", /TOSNA: [\d.]+ g Fermaid O total \([\d.]+ g × 4 doses\)/.test(text));
+  // The card now prints the SELECTED protocol's plan (see suite 14) rather than an
+  // unconditional TOSNA line, so it names the protocol and doses per product.
+  check("card names the active protocol", /Protocol:\s*Fermaid O \(TOSNA 2\.0\)/.test(text),
+    (text.match(/Protocol:.*/) || ["(no protocol line)"])[0]);
+  check("card prints per-product dose math", /Fermaid O: [\d.]+ g total \([\d.]+ g × 4 doses\)/.test(text),
+    (text.match(/Fermaid O:.*/) || ["(no Fermaid O line)"])[0]);
+  check("card states target vs delivered YAN", /Target YAN: \d+ ppm\s*\|\s*This plan delivers: \d+ ppm/.test(text),
+    (text.match(/Target YAN:.*/) || ["(no YAN line)"])[0]);
   check("card prints Go-Ferm water volume", /Go-Ferm: [\d.]+ g in \d+ mL water/.test(text));
   check("card prints structure additions", /STRUCTURE ADDITIONS/.test(text) && /Vanilla bean/.test(text));
   await page.close();
@@ -522,6 +535,167 @@ async function testBeerJsonExport(context) {
   await page.close();
 }
 
+// Round-2 pins.
+async function testPrintedCardMatchesProtocol(context) {
+  console.log("\n[14] Printed recipe card must match the SELECTED nutrient protocol");
+  const page = await freshPage(context);
+  await buildAndSaveRecipe(page, { name: "Card Protocol Pin", gallons: "5", abv: "18", honeyLb: "17" });
+  await setVal(page, "#recipeDryYeast", "10");
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+
+  // Switch to the DAP-based protocol.
+  await clickTab(page, "nutrients");
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll("[data-nutrient-protocol]")]
+      .find(b => b.dataset.nutrientProtocol === "k_dap_20_80");
+    if (btn) btn.click();
+  });
+  await delay(500);
+  const feed = await page.$eval("#advancedNutrientSummary", el => el.innerText);
+  const feedK = Number((feed.match(/FERMAID K\s*\n\s*([\d.]+)\s*g/i) || [])[1]);
+  const feedD = Number((feed.match(/\bDAP\s*\n\s*([\d.]+)\s*g/i) || [])[1]);
+
+  await clickTab(page, "recipes");
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: 8000 }),
+    page.$eval("#printRecipeCardBtn", btn => btn.click())
+  ]);
+  const card = await fs.readFile(await download.path(), "utf8");
+
+  // The card used to print `currentTosnaPlan()` unconditionally, so a DAP-based
+  // batch got a printout reading "TOSNA: N g Fermaid O" — wrong product, wrong
+  // amount, on the sheet taken to the fermenter.
+  check("card names the selected protocol", /Protocol:\s*Fermaid K \/ DAP/i.test(card),
+    (card.match(/Protocol:.*/) || ["(no protocol line)"])[0]);
+  check("card does not print a TOSNA Fermaid O plan for a DAP protocol",
+    !/TOSNA:/i.test(card) && !/Fermaid O:/i.test(card),
+    (card.match(/.*(TOSNA|Fermaid O).*/) || [""])[0]);
+  const cardK = Number((card.match(/Fermaid K:\s*([\d.]+)\s*g/i) || [])[1]);
+  const cardD = Number((card.match(/DAP:\s*([\d.]+)\s*g/i) || [])[1]);
+  check("card Fermaid K matches the Feed tab", Number.isFinite(cardK) && Math.abs(cardK - feedK) < 0.15, `card=${cardK} feed=${feedK}`);
+  check("card DAP matches the Feed tab", Number.isFinite(cardD) && Math.abs(cardD - feedD) < 0.15, `card=${cardD} feed=${feedD}`);
+  await page.close();
+}
+
+async function testDuplicateIdsAreSplit(context) {
+  console.log("\n[15] Duplicate record ids must not collide on delete");
+  const page = await freshPage(context);
+  await page.evaluate((k) => {
+    localStorage.setItem(k, JSON.stringify({
+      _schema: { app: "MeadEvil", version: 1 },
+      data: {
+        recipes: [
+          { id: "dup-id", name: "Dup One", additions: [] },
+          { id: "dup-id", name: "Dup Two", additions: [] }
+        ],
+        currentBatch: { name: "Linked", recipeId: 'hostile"id' }
+      }
+    }));
+  }, STORAGE_KEY);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(900);
+
+  const s = await state(page);
+  const ids = (s.recipes || []).map(r => r.id);
+  check("duplicate ids are split apart", new Set(ids).size === ids.length, ids.join(","));
+  check("first occurrence keeps its stable id", ids[0] === "dup-id", ids.join(","));
+  check("unsafe recipeId cross-reference is scrubbed",
+    !String((s.currentBatch || {}).recipeId || "").includes('"'), JSON.stringify((s.currentBatch || {}).recipeId));
+
+  // Deleting one must remove exactly one.
+  await clickTab(page, "archive");
+  const before = ids.length;
+  await clickAndAnswer(page, "button[data-recipe-delete]", "confirm", 500);
+  const after = ((await state(page)).recipes || []).length;
+  check("deleting one recipe removes exactly one", after === before - 1, `${before} -> ${after}`);
+  await page.close();
+}
+
+async function testDraftBatchIdentityLink(context) {
+  console.log("\n[16] A batch started from an unsaved draft stays linked to it");
+  const page = await freshPage(context);
+  await clickTab(page, "recipes");
+  await setVal(page, "#recipeName", "Identity Link Pin");
+  await setVal(page, "#recipeBatchGallons", "3");
+  await setVal(page, "#recipeTargetAbv", "12");
+  await setVal(page, "#recipeDryYeast", "5");
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+
+  const s = await state(page);
+  const draftId = (s.recipeDraft || {}).id;
+  const batchRef = (s.currentBatch || {}).recipeId;
+  check("draft id is stamped and matches the batch", Boolean(draftId) && draftId === batchRef, `draft=${draftId} batch=${batchRef}`);
+
+  // Feed must follow a Build edit for the batch it belongs to.
+  await setVal(page, "#recipeDryYeast", "9");
+  await delay(400);
+  await clickTab(page, "nutrients");
+  const dry = await page.$eval("#nutrientDryYeastDisplay", el => el.value);
+  check("Feed follows a Build edit for its own batch", String(dry) === "9", `dry=${dry}`);
+
+  // ...but an unrelated draft must NOT touch the live plan.
+  await clickTab(page, "recipes");
+  await clickAndAnswer(page, "#clearRecipeBtn", "confirm", 400);
+  await setVal(page, "#recipeName", "Unrelated");
+  await setVal(page, "#recipeDryYeast", "2");
+  await delay(400);
+  await clickTab(page, "nutrients");
+  const dry2 = await page.$eval("#nutrientDryYeastDisplay", el => el.value);
+  check("unrelated draft cannot rewrite the live feed plan", String(dry2) === "9", `dry=${dry2}`);
+  await page.close();
+}
+
+async function testRaptStaleReadingsRejected(context) {
+  console.log("\n[17] RAPT import must not pull the previous batch's readings");
+  const page = await freshPage(context);
+  // Bridge offers two pre-batch readings and one current one.
+  await page.route("**/rapt-bridge**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ readings: [
+      { gravity: 1.100, temperature: 68, telemetryAt: "2026-05-01T08:00:00.000Z", readingId: "old-1", deviceId: "d1", deviceName: "Pill" },
+      { gravity: 1.060, temperature: 68, telemetryAt: "2026-05-08T08:00:00.000Z", readingId: "old-2", deviceId: "d1", deviceName: "Pill" },
+      { gravity: 1.118, temperature: 70, telemetryAt: "2026-07-01T08:00:00.000Z", readingId: "new-1", deviceId: "d1", deviceName: "Pill" }
+    ] })
+  }));
+  await buildAndSaveRecipe(page, { name: "RAPT Floor Pin" });
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+
+  // Pin telemetrySince between the old and new readings.
+  await page.evaluate((k) => {
+    const raw = JSON.parse(localStorage.getItem(k) || "{}");
+    const d = raw._schema ? raw.data : raw;
+    d.rapt.telemetrySince = "2026-06-01T00:00:00.000Z";
+    if (raw._schema) raw.data = d;
+    localStorage.setItem(k, JSON.stringify(raw._schema ? raw : d));
+  }, STORAGE_KEY);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(1000);
+  await clickTab(page, "ferment");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await delay(1800);
+
+  const logs = ((await state(page)).fermentationLogs || []);
+  const stale = logs.filter(l => String(l.telemetryAt || "").startsWith("2026-05"));
+  check("pre-batch telemetry is rejected", stale.length === 0, `${stale.length} stale of ${logs.length}`);
+  check("current-batch telemetry still imports", logs.some(l => String(l.telemetryAt || "").startsWith("2026-07")), JSON.stringify(logs.map(l => l.telemetryAt)));
+  await page.close();
+}
+
+async function testExportFilenames(context) {
+  console.log("\n[18] Exports download with filesystem-safe names");
+  const page = await freshPage(context);
+  await buildAndSaveRecipe(page, { name: 'Nasty: v2/final "best" <draft>|x' });
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: 8000 }),
+    page.$eval("#printRecipeCardBtn", btn => btn.click())
+  ]);
+  const name = download.suggestedFilename();
+  check("recipe-card filename has no path/reserved characters", !/[\\/:*?"<>|\r\n\t]/.test(name), name);
+  check("recipe-card download produced a file", Boolean(await download.path()), name);
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -539,6 +713,11 @@ async function main() {
   await testStabilizerMath(context);
   await testGravityCsvImport(context);
   await testBeerJsonExport(context);
+  await testPrintedCardMatchesProtocol(context);
+  await testDuplicateIdsAreSplit(context);
+  await testDraftBatchIdentityLink(context);
+  await testRaptStaleReadingsRejected(context);
+  await testExportFilenames(context);
 
   await context.close();
   await browser.close();

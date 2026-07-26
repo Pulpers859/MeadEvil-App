@@ -1504,6 +1504,15 @@
         .map((entry) => String(entry.sourceId || ""))
         .filter(Boolean)
     );
+    // The bridge accumulates every reading the device has ever posted under one
+    // batch key, and starting a new batch empties the local log — which empties
+    // the sourceId dedupe set above. Without a floor, the next auto-refresh pulls
+    // the PREVIOUS batch's tail into this one and draws the new mead a
+    // fermentation curve that belongs to a different batch. `telemetrySince` is
+    // stamped with the batch's loadedAt by applyRecipeToBatch; honour it here.
+    const sinceRaw = data.rapt && data.rapt.telemetrySince;
+    const sinceTime = sinceRaw ? new Date(sinceRaw).getTime() : NaN;
+    const floor = Number.isFinite(sinceTime) ? sinceTime : null;
     const anchor = fermentationAnchor(logs);
     // Buckets already represented by an auto-imported reading. Once a window
     // holds a telemetry point we skip any further auto readings that land in it,
@@ -1516,8 +1525,14 @@
     );
 
     let added = 0;
+    let skippedStale = 0;
     logs.forEach((log) => {
       if (!log) return;
+      if (floor != null){
+        const logTime = logTimelineTime(log);
+        // Predates this batch: it belongs to whatever was fermenting before.
+        if (logTime != null && logTime < floor){ skippedStale += 1; return; }
+      }
       const sourceId = String(log.sourceId || "");
       if (sourceId && existingSourceIds.has(sourceId)) return;
       const bucket = gravityBucketKey(log, anchor);
@@ -1527,6 +1542,9 @@
       if (bucket != null) occupiedBuckets.add(bucket);
       added += 1;
     });
+    if (skippedStale > 0){
+      console.info(`RAPT import: skipped ${skippedStale} reading(s) older than this batch's start.`);
+    }
     return added;
   }
 
@@ -3867,6 +3885,15 @@
       if (await confirmReplaceActiveBatch("the Build draft")){
         const recipe = recipeFromDraft();
         applyRecipeToBatch(recipe);
+        // recipeFromDraft() mints an id when the draft was never saved as a recipe.
+        // Stamp it back onto the draft so the draft and the batch share an
+        // identity: without this the Feed-sync identity gate treats the very draft
+        // the batch was built from as "an unrelated recipe" and silently stops
+        // Build edits from reaching that batch's feed plan.
+        if (recipe.id && data.recipeDraft.id !== recipe.id){
+          data.recipeDraft.id = recipe.id;
+          persistData();
+        }
         loaded = true;
       }
       // Always signal the outcome so meadevil-mentor.js mirrors the draft's
@@ -4653,14 +4680,36 @@
     return row;
   }
 
+  // Single download path for every export. The anchor MUST be in the document
+  // before .click(): Firefox and several in-app WebViews ignore a click on a
+  // detached element, which made "Export" silently do nothing with no error.
+  // Filenames are also sanitised — a recipe name carrying a slash, quote, colon
+  // or newline produced a broken or truncated download on Windows and Safari.
+  function safeDownloadName(name, fallback = "meadevil-export"){
+    const cleaned = String(name || "")
+      .replace(/[\\/:*?"<>|\r\n\t]+/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^[-.]+|[-.]+$/g, "")
+      .slice(0, 100);
+    return cleaned || fallback;
+  }
+
   function downloadTextFile(filename, text, type = "text/plain"){
     const blob = new Blob([text], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = safeDownloadName(filename);
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Revoke on a later tick so the download has started, and always detach.
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 1000);
   }
 
   function downloadRecipeCsvTemplate(){
@@ -4704,9 +4753,37 @@
       ? r.structureAdditions
       : readEnhancementStructureAdditions("recipeDraft");
     const adjuncts = draftStructure.filter((a) => a && a.ingredient && a.ingredient.trim());
-    const tosna = currentTosnaPlan();
+    // The card must print the protocol the user ACTUALLY selected. It used to
+    // print `currentTosnaPlan()` unconditionally, so a batch on
+    // "Fermaid K / DAP (20%:80%)" was handed a printout reading
+    // "TOSNA: 21.2 g Fermaid O" — the wrong product AND the wrong amount, on the
+    // sheet you carry to the fermenter. It also bypassed the per-product ceilings
+    // the Feed tab applies, so the two disagreed even in TOSNA mode.
+    const cardPlan = currentAdvancedPlan();
     const goFerm = calculateGoFerm(data.nutrients.dryYeast);
     const sources = (r.additions || []).filter((row) => row.description && row.description.trim());
+
+    // One line per product that the selected plan actually calls for, plus the
+    // staged schedule, so the card matches the Feed tab exactly.
+    const nutrientLines = [];
+    if (cardPlan){
+      nutrientLines.push(`  Protocol: ${cardPlan.protocolLabel}`);
+      const doses = cardPlan.schedule.length || 4;
+      if (cardPlan.gramsO > 0) nutrientLines.push(`  Fermaid O: ${round(cardPlan.gramsO, 1)} g total (${round(cardPlan.gramsO / doses, 1)} g × ${doses} doses)`);
+      if (cardPlan.gramsK > 0) nutrientLines.push(`  Fermaid K: ${round(cardPlan.gramsK, 1)} g total (${round(cardPlan.gramsK / doses, 1)} g × ${doses} doses)`);
+      if (cardPlan.gramsD > 0) nutrientLines.push(`  DAP: ${round(cardPlan.gramsD, 1)} g total (${round(cardPlan.gramsD / doses, 1)} g × ${doses} doses)`);
+      if (!(cardPlan.gramsO > 0 || cardPlan.gramsK > 0 || cardPlan.gramsD > 0)) {
+        nutrientLines.push(`  No nutrient additions resolved — check batch size, OG, and target YAN.`);
+      }
+      nutrientLines.push(`  Schedule: ${cardPlan.schedule.map((s) => s.label).join(" / ")}`);
+      nutrientLines.push(`  Target YAN: ${round(cardPlan.effectiveYanPpm, 0)} ppm  |  This plan delivers: ${round(cardPlan.deliveredYanPpm, 0)} ppm`);
+      if (cardPlan.capBound) {
+        nutrientLines.push(`  NOTE: product ceilings are binding — this plan is ${round(cardPlan.yanShortfallPpm, 0)} ppm short of target.`);
+      }
+      if (cardPlan.breakGravity) nutrientLines.push(`  Stop feeding at the 1/3 sugar break (~${round(cardPlan.breakGravity, 3)} SG).`);
+    } else {
+      nutrientLines.push("  No nutrient plan calculated yet.");
+    }
 
     const lines = [
       `RECIPE CARD: ${r.name || "Untitled"}`,
@@ -4728,7 +4805,7 @@
       adjuncts.length ? `` : "",
       `NUTRIENT PLAN`,
       `${"-".repeat(30)}`,
-      tosna ? `  TOSNA: ${round(tosna.totalFermaidO, 1)} g Fermaid O total (${round(tosna.addEach, 1)} g × ${tosna.schedule.length} doses)` : "  No nutrient plan calculated yet.",
+      ...nutrientLines,
       goFerm ? `  Go-Ferm: ${round(goFerm.goFermGrams, 1)} g in ${round(goFerm.rehydrationWaterMl, 0)} mL water` : "",
       r.dryYeast ? `  Dry yeast: ${r.dryYeast} g` : "",
       ``,
@@ -4738,13 +4815,7 @@
       `Generated by MeadEvil — ${new Date().toLocaleDateString()}`
     ].filter((line) => line !== undefined).join("\n");
 
-    const blob = new Blob([lines], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${(r.name || "recipe").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-card.txt`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadTextFile(`${safeDownloadName(r.name, "recipe").toLowerCase()}-card.txt`, lines, "text/plain");
   }
 
   function exportRecipesCsv(){
@@ -4904,13 +4975,7 @@
         if (enhRaw) enhancement = JSON.parse(enhRaw);
       } catch(e) {}
       const exportPayload = serializeExportState(data, enhancement);
-      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `meadevilapp-backup-${todayStr()}.json`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadTextFile(`meadevilapp-backup-${todayStr()}.json`, JSON.stringify(exportPayload, null, 2), "application/json");
     });
     $("importDataBtn").addEventListener("click", () => $("importFileInput").click());
     $("importFileInput").addEventListener("change", async (event) => {

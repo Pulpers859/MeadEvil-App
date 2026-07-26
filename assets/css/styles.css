@@ -122,8 +122,33 @@ option{background:#140e1a;color:var(--cream)}
     scroll-behavior:auto !important;
   }
 }
-.skip-to-content{position:absolute;left:-999px;top:4px;z-index:999;padding:8px 16px;background:var(--crimson);color:#fff;border-radius:var(--radius-sm);font-weight:800}
-.skip-to-content:focus{left:12px}
+/* Off-screen-until-focused skip link. The old `left:-999px` parking spot kept a
+   148px-wide box in the layout, which showed up as ~6px of phantom horizontal
+   overflow on documentElement.scrollWidth at some widths. clip-path + zero size
+   removes it from the scroll area entirely while keeping it focusable. */
+.skip-to-content{
+  position:absolute;
+  top:4px;
+  left:12px;
+  z-index:999;
+  padding:8px 16px;
+  background:var(--crimson);
+  color:#fff;
+  border-radius:var(--radius-sm);
+  font-weight:800;
+  width:1px;
+  height:1px;
+  overflow:hidden;
+  clip-path:inset(50%);
+  white-space:nowrap;
+}
+.skip-to-content:focus,
+.skip-to-content:focus-visible{
+  width:auto;
+  height:auto;
+  overflow:visible;
+  clip-path:none;
+}
 
 /* Disabled buttons. .mini-btn:disabled was styled but .btn:disabled was not, so a
    primary button (notably the mentor's Send, disabled for the whole request)
@@ -667,6 +692,14 @@ option{background:#140e1a;color:var(--cream)}
 }
 .empty-state.good .empty-state-kicker{color:#cfe7a2;border-color:rgba(141,189,73,.24)}
 .compact-search{max-width:220px;padding:8px 10px;font-size:.88rem}
+/* The 721-1024px "keep controls at 16px" rule above is a plain element/class
+   selector, and this .compact-search rule appears LATER in the file with equal
+   specificity — so it silently won and the Vault search fields dropped back to
+   ~14px, re-enabling iOS focus-zoom on exactly the widths that query exists to
+   protect. Re-assert it after the base rule. */
+@media (min-width:721px) and (max-width:1024px){
+  .compact-search{font-size:16px}
+}
 
 /* ─── Build hierarchy ─── */
 .build-layout{

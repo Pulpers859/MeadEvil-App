@@ -39,18 +39,47 @@
       return ID_SAFE.test(text) ? text : makeId(prefix);
     }
 
+    // Sanitising an id is not enough on its own: a DUPLICATE id is id-safe and so
+    // passes straight through, and every lookup/mutation in the app is
+    // `find(x => x.id === id)` / `filter(x => x.id !== id)`. That means two records
+    // sharing an id make "edit" always hit the first and "delete" remove BOTH —
+    // silent data loss. Enforce uniqueness within each collection, keeping the
+    // first occurrence's id stable so existing cross-references still resolve.
+    function dedupeIds(list, prefix){
+      const seen = new Set();
+      return list.map((item) => {
+        if (!item || typeof item !== "object") return item;
+        let id = safeId(item.id, prefix);
+        if (seen.has(id)) id = makeId(prefix);
+        seen.add(id);
+        return item.id === id ? item : { ...item, id };
+      });
+    }
+
     // Checklists arrive from imports/sync too and their `id` reaches
     // `data-task-toggle="${item.id}"`, so they need the same treatment.
     function normalizeChecklist(list, fallback){
       if (!Array.isArray(list) || !list.length) return fallback();
-      return list
+      const cleaned = list
         .filter((item) => item && typeof item === "object")
         .map((item) => ({
           ...item,
-          id: safeId(item.id, "task"),
           text: String(item.text ?? ""),
           done: Boolean(item.done)
         }));
+      return cleaned.length ? dedupeIds(cleaned, "task") : fallback();
+    }
+
+    // `recipeId` is a cross-reference, not a render value — today it is only ever
+    // used for `find()` lookups, so an unsafe value here is not an injection.
+    // Scrub it anyway: keeping attacker-controlled text in state is what turned
+    // record ids into a stored-XSS vector in the first place, and a future
+    // renderer that prints the provenance link would silently reopen it.
+    function sanitizeBatchRefs(batch){
+      if (!batch || typeof batch !== "object") return batch;
+      const ref = String(batch.recipeId ?? "");
+      if (ref && !ID_SAFE.test(ref)) return { ...batch, recipeId: "" };
+      return batch;
     }
 
     function normalizeRecipe(recipe){
@@ -93,7 +122,7 @@
       return {
         id: safeId(input.id, "arch"),
         archivedAt: input.archivedAt || new Date().toISOString(),
-        batch: { ...defaultCurrentBatch(), ...(input.batch || {}) },
+        batch: sanitizeBatchRefs({ ...defaultCurrentBatch(), ...(input.batch || {}) }),
         nutrients: { ...defaultNutrients(), ...(input.nutrients || {}) },
         cellar: { ...defaultCellar(), ...(input.cellar || {}) },
         fermentChecklist: normalizeChecklist(input.fermentChecklist, defaultFermentChecklist),
@@ -158,7 +187,7 @@
         ui: { ...base.ui, ...((input.ui) || {}) },
         clock: normalizeClock(input.clock),
         recipeDraft: { ...defaultRecipeDraft(), ...((input.recipeDraft) || {}) },
-        currentBatch: { ...defaultCurrentBatch(), ...((input.currentBatch) || {}) },
+        currentBatch: sanitizeBatchRefs({ ...defaultCurrentBatch(), ...((input.currentBatch) || {}) }),
         nutrients: { ...defaultNutrients(), ...((input.nutrients) || {}) },
         cellar: { ...defaultCellar(), ...((input.cellar) || {}) },
         calcs: { ...defaultCalcs(), ...((input.calcs) || {}) },
@@ -167,7 +196,7 @@
         mentorKnowledge: normalizeMentorKnowledge(input.mentorKnowledge)
       };
       merged.recipeDraft.additions = Array.isArray(merged.recipeDraft.additions) && merged.recipeDraft.additions.length
-        ? merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: safeId(row && row.id, "src") }))
+        ? dedupeIds(merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row })), "src")
         : [defaultAdditionRow()];
       merged.recipeDraft.structureAdditions = Array.isArray(merged.recipeDraft.structureAdditions)
         ? merged.recipeDraft.structureAdditions
@@ -175,7 +204,7 @@
           .map((row) => ({ ...row, id: safeId(row.id, "adj") }))
         : [];
       merged.currentBatch.additions = Array.isArray(merged.currentBatch.additions) && merged.currentBatch.additions.length
-        ? merged.currentBatch.additions.map((row) => ({ ...defaultAdditionRow(), ...row, id: safeId(row && row.id, "src") }))
+        ? dedupeIds(merged.currentBatch.additions.map((row) => ({ ...defaultAdditionRow(), ...row })), "src")
         : [defaultAdditionRow()];
       merged.currentBatch.structureAdditions = Array.isArray(merged.currentBatch.structureAdditions)
         ? merged.currentBatch.structureAdditions
@@ -184,13 +213,13 @@
         : [];
       merged.currentBatch.stepFeedLog = Array.isArray(merged.currentBatch.stepFeedLog) ? merged.currentBatch.stepFeedLog : [];
       merged.cellar.additions = Array.isArray(merged.cellar.additions) && merged.cellar.additions.length
-        ? merged.cellar.additions.map((row) => ({ ...defaultCellarAddition(), ...row, id: safeId(row && row.id, "cellaradd") }))
+        ? dedupeIds(merged.cellar.additions.map((row) => ({ ...defaultCellarAddition(), ...row })), "cellaradd")
         : [defaultCellarAddition()];
-      merged.recipes = Array.isArray(input.recipes) ? input.recipes.map(normalizeRecipe) : [];
-      merged.fermentationLogs = Array.isArray(input.fermentationLogs) ? input.fermentationLogs.map(normalizeLog) : [];
+      merged.recipes = Array.isArray(input.recipes) ? dedupeIds(input.recipes.map(normalizeRecipe), "recipe") : [];
+      merged.fermentationLogs = Array.isArray(input.fermentationLogs) ? dedupeIds(input.fermentationLogs.map(normalizeLog), "grav") : [];
       merged.fermentChecklist = normalizeChecklist(input.fermentChecklist, defaultFermentChecklist);
       merged.cellarChecklist = normalizeChecklist(input.cellarChecklist, defaultCellarChecklist);
-      merged.archive = Array.isArray(input.archive) ? input.archive.map(normalizeArchiveItem) : [];
+      merged.archive = Array.isArray(input.archive) ? dedupeIds(input.archive.map(normalizeArchiveItem), "arch") : [];
       merged.tombstones = Array.isArray(input.tombstones)
         ? input.tombstones.filter((entry) => entry && entry.collection && entry.id)
         : [];
