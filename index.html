@@ -40,9 +40,8 @@
           <button class="sync-pill" id="syncPill" type="button" aria-live="polite" title="Sync status"><span class="sync-dot"></span><span>Local only</span></button>
         </div>
         <div class="header-right">
-          <button class="mini-btn" id="batchClockBtn" type="button">Start Clock</button>
-          <button class="mini-btn" id="batchClockResetBtn" type="button">Clear clock</button>
-          <div id="batchClockDisplay" class="pill gold">00:00:00</div>
+          <button class="mini-btn clock-reset" id="batchClockResetBtn" type="button" hidden>Reset</button>
+          <button class="clock-pill" id="batchClockBtn" type="button" aria-pressed="false" aria-label="Start brew-day timer" title="Brew-day timer"><span class="clock-icon" aria-hidden="true"></span><span id="batchClockDisplay">00:00:00</span></button>
         </div>
       </div>
     </div>

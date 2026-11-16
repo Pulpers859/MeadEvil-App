@@ -1976,3 +1976,13 @@ input[readonly]{opacity:.90}
 .volume-log{display:grid;gap:6px;margin-top:6px}
 .volume-log:empty{display:none}
 .volume-log-row{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-sm);padding:6px 10px;border:1px solid rgba(244,230,208,.08);border-radius:10px;font-size:.86rem}
+
+/* Header: one-control brew timer */
+.clock-pill{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 12px;border-radius:999px;border:1px solid rgba(244,230,208,.14);background:linear-gradient(180deg, rgba(163,38,73,.18), rgba(107,59,164,.12));color:var(--cream);font:inherit;font-size:.82rem;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
+.clock-pill:hover{border-color:rgba(244,230,208,.3)}
+.clock-icon{width:0;height:0;border-style:solid;border-width:5px 0 5px 8px;border-color:transparent transparent transparent currentColor}
+.clock-pill.is-running{border-color:rgba(141,189,73,.5)}
+.clock-pill.is-running .clock-icon{width:8px;height:10px;border:0;border-left:3px solid currentColor;border-right:3px solid currentColor;box-sizing:border-box}
+.clock-reset{min-height:36px}
+.clock-reset[hidden]{display:none}
+.plan-empty{margin:0;padding:var(--sp-sm) 2px;color:var(--cream-2);line-height:1.55}

@@ -378,7 +378,7 @@
       outputs: defaultMentorOutputs(),
       status: {
         mode: "local",
-        message: "MeadEvil Mentor ready. No live endpoint checked yet.",
+        message: "Mentor ready. Describe what you want in the glass to start.",
         lastRunAt: "",
         lastError: ""
       }
@@ -706,7 +706,7 @@
   }
 
   function formatIngredientList(list){
-    return list && list.length ? list.map(escapeHTML).join(", ") : "Still undefined";
+    return list && list.length ? list.map(escapeHTML).join(", ") : `<span class="muted">Not decided yet</span>`;
   }
 
   function detectKeywords(text){
@@ -1552,6 +1552,16 @@
     if (!output) return;
     const safePacket = normalizeMentorPacket(output.packet);
     if ($("mentorCoachReply")) $("mentorCoachReply").innerHTML = output.conversationReplyHtml || output.coachReplyHtml || "";
+    // Before there is a concept, eight rows each reading "undefined" looked like
+    // a broken screen. Say what this panel is for instead.
+    const roles = safePacket.ingredientRoles;
+    const planIsEmpty = ![roles.carries, roles.supports, roles.liftStructure, roles.dangerNotes, safePacket.ruiners, safePacket.sourceBillCandidates, safePacket.adjunctCandidates]
+      .some((list) => Array.isArray(list) && list.length);
+    if (planIsEmpty){
+      if ($("mentorPairings")) $("mentorPairings").innerHTML = `<p class="plan-empty">Nothing here yet. Describe the mead in Concept Spark and send a message to the partner — what carries the concept, what supports it and what could ruin it will fill in as you talk.</p>`;
+      if ($("mentorIngredientPlan")) $("mentorIngredientPlan").innerHTML = `<p class="plan-empty">Fermentables and structure additions appear here once a direction is chosen. Forge mode turns them into amounts you can send to Build.</p>`;
+      return;
+    }
     renderRows("mentorPairings", [
       ["What carries the concept", formatIngredientList(safePacket.ingredientRoles.carries)],
       ["What only supports it", formatIngredientList(safePacket.ingredientRoles.supports)],

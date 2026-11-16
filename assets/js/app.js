@@ -2328,10 +2328,16 @@
     const runningMs = data.clock.running && data.clock.lastStartedAt ? (Date.now() - data.clock.lastStartedAt) : 0;
     const elapsed = (Number(data.clock.elapsedMs) || 0) + Math.max(0, runningMs);
     display.textContent = formatClock(elapsed);
+    // One control: the readout IS the start/pause button. The header used to
+    // spend two buttons and a pill on this on every tab; Reset now only exists
+    // while there is something to reset.
     if (button){
-      button.textContent = data.clock.running ? "Stop Clock" : "Start Clock";
       button.setAttribute("aria-pressed", data.clock.running ? "true" : "false");
+      button.setAttribute("aria-label", data.clock.running ? "Pause brew-day timer" : (elapsed > 0 ? "Resume brew-day timer" : "Start brew-day timer"));
+      button.classList.toggle("is-running", Boolean(data.clock.running));
     }
+    const reset = $("batchClockResetBtn");
+    if (reset) reset.hidden = !(elapsed > 0) || Boolean(data.clock.running);
   }
 
   function startClockTicker(){
@@ -2883,6 +2889,8 @@
     `).join("");
   }
 
+  let cellarAdditionsOpen = false;
+
   function renderVolumeNow(){
     const c = data.cellar;
     const hint = $("cellarVolumeHint");
@@ -2956,7 +2964,12 @@
       ? `About <strong>${bottles.fullBottles}</strong> full ${escapeHTML(String(c.cellarBottleOz))} oz bottles with roughly ${round(bottles.leftoverOz, 1)} oz left after ${escapeHTML(String(c.cellarLossPct))}% loss.`
       : `Enter packaging values.`;
 
-    $("cellarAdditionList").innerHTML = c.additions.length
+    // A new batch always carries one blank row. Showing it as an open six-field
+    // form made Finish read as "you have an addition to fill in" before anything
+    // had been added; show the empty state until the brewer asks for a row.
+    const additionsBlank = c.additions.every((row) => !String(row.amount || "").trim() && !String(row.notes || "").trim());
+    if (!additionsBlank) cellarAdditionsOpen = true;
+    $("cellarAdditionList").innerHTML = (c.additions.length && cellarAdditionsOpen)
       ? c.additions.map((row) => `
           <div class="recipe-source-row">
             <div class="compact-addition-top">
@@ -4488,6 +4501,13 @@
       renderCellar();
     });
     $("addCellarAdditionBtn").addEventListener("click", () => {
+      // First press reveals the blank row that is already there.
+      if (!cellarAdditionsOpen && data.cellar.additions.length){
+        cellarAdditionsOpen = true;
+        renderCellar();
+        return;
+      }
+      cellarAdditionsOpen = true;
       data.cellar.additions.push(defaultCellarAddition());
       persistData();
       renderCellar();
