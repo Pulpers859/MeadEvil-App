@@ -11,6 +11,7 @@
   // the three-way merge. Without it the merge cannot tell "this device changed
   // the field" from "this device has not seen the other device's change yet".
   const SYNC_BASE_KEY = "meadevil-sync-base-v2";
+  const OLD_SYNC_BASE_KEY = "meadevil-sync-base-v1";
   // Unioned by id (with tombstones); never merged as single values.
   const COLLECTION_KEYS = ["fermentationLogs", "recipes", "archive", "tombstones"];
   // Per-device state that is never uploaded. `ui` would switch tabs under the
@@ -288,6 +289,17 @@
     try{
       const parsed = JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || "null");
       if (parsed && parsed.docId === SHARED_DOC_ID && isPlain(parsed.sections)) return parsed;
+      // First run after the v1 -> v2 upgrade: the old baseline is still a true
+      // common ancestor for every section, so keep it instead of falling back
+      // to "no ancestor", which cannot tell a deliberate clear from a stale copy.
+      const old = JSON.parse(localStorage.getItem(OLD_SYNC_BASE_KEY) || "null");
+      if (old && old.docId === SHARED_DOC_ID && isPlain(old.sections)){
+        const sections = {};
+        Object.keys(old.sections).forEach((key) => {
+          if (!LOCAL_ONLY_KEYS.includes(key) && !COLLECTION_KEYS.includes(key)) sections[key] = old.sections[key];
+        });
+        return { docId: SHARED_DOC_ID, sections, logIds: [] };
+      }
     }catch(error){
       warn("Could not read sync baseline", error);
     }
@@ -561,6 +573,30 @@
 
   // ---- the merge ------------------------------------------------------------
 
+  // Is this side's batch already sitting in the Vault (archived by another device)?
+  function archiveCovers(archive, side, logs){
+    const covers = (whole, part) => !isPlain(part) || (isPlain(whole) && Object.keys(part).every((key) => same(whole[key], part[key])));
+    const keys = list(logs).map(logKey);
+    return list(archive).some((entry) => {
+      const entryLogs = new Set(list(entry.fermentationLogs).map(logKey));
+      return covers(entry.batch, side.currentBatch) && covers(entry.cellar, side.cellar) && keys.every((key) => entryLogs.has(key));
+    });
+  }
+
+  // Same batch (start time + recipe) already in the Vault, with every reading
+  // this side holds. Looser than archiveCovers: tolerates fields the other
+  // device has since edited or normalised.
+  function archivedByIdentity(archive, side){
+    const id = batchIdentity(side);
+    if (!side.currentBatch || !side.currentBatch.loadedAt) return false;
+    const keys = list(side.fermentationLogs).map(logKey);
+    return list(archive).some((entry) => {
+      if (batchIdentity({ currentBatch: entry.batch }) !== id) return false;
+      const entryLogs = new Set(list(entry.fermentationLogs).map(logKey));
+      return keys.every((key) => entryLogs.has(key));
+    });
+  }
+
   function buildMergedAppData(localPayload, cloudPayload, cloudUpdatedAt, base){
     if (!localPayload && !cloudPayload) return stampAppData({}, cloudUpdatedAt);
     if (!localPayload) return stampAppData(cloudPayload, cloudUpdatedAt);
@@ -593,7 +629,10 @@
         else if (cloudBatchId === baseBatchId) localWins = true;
         else localWins = true;
       } else {
-        localWins = batchIsReal(local) && !batchIsReal(cloud);
+        // A stale device with no ancestor must not resurrect a batch the
+        // cloud already archived (or cleared on purpose).
+        localWins = batchIsReal(local) && !batchIsReal(cloud)
+          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive), local);
       }
       winner = localWins ? local : cloud;
       loser = localWins ? cloud : local;
@@ -639,12 +678,7 @@
       const groupChanged = !hasBase || !same(batchGroupOf(loser), batchGroupOf(baseSections));
       // ...and is that work not already sitting in the Vault (the other device
       // archived this very batch)? Then there is nothing to recover.
-      const covers = (whole, part) => !isPlain(part) || (isPlain(whole) && Object.keys(part).every((key) => same(whole[key], part[key])));
-      const loserLogKeys = loserLogs.map(logKey);
-      const alreadyArchived = archive.some((entry) => {
-        const entryLogs = new Set(list(entry.fermentationLogs).map(logKey));
-        return covers(entry.batch, loser.currentBatch) && covers(entry.cellar, loser.cellar) && loserLogKeys.every((key) => entryLogs.has(key));
-      });
+      const alreadyArchived = archiveCovers(archive, loser, loserLogs) || archivedByIdentity(archive, loser);
       if (batchIsReal(loser) && (groupChanged || unseenLogs) && !alreadyArchived){
         const rescued = rescueEntry(loser, loserLogs);
         if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);

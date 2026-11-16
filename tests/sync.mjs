@@ -492,6 +492,30 @@ async function main() {
   check("the oversized state was not written", !JSON.stringify(cloudData()).includes("xxxxxxxxxx"));
   check("the data is still on the device", (await appData(lap)).recipeDraft.notes.length > 1000000);
 
+  console.log("\n[14] A stale device without a v2 baseline must not resurrect an archived batch");
+  await closeAll();
+  const oldBatch = { name: "Archived Batch", loadedAt: "2026-05-01T00:00:00.000Z", recipeId: "recipe-big", batchGallons: "5" };
+  const archivedLogs = [logRow(1, 5), logRow(2, 5)];
+  seedCloud(stateWith((d) => {
+    // The laptop archived the batch and set a pH on the (now empty) slot.
+    d.archive = [{ id: "arch-1", archivedAt: "2026-05-20T00:00:00.000Z", batch: { ...defaultEnvelope.data.currentBatch, ...oldBatch }, cellar: { ...defaultEnvelope.data.cellar }, fermentationLogs: archivedLogs }];
+  }, "2026-05-20T00:00:00.000Z"));
+  const staleArchive = stateWith((d) => {
+    Object.assign(d.currentBatch, oldBatch);
+    d.fermentationLogs = archivedLogs;
+  }, "2026-05-10T00:00:00.000Z");
+  const oldBase = JSON.stringify({ docId: "meadevil-shared", sections: { currentBatch: staleArchive.data.currentBatch, cellar: staleArchive.data.cellar }, tombstoneKeys: [] });
+  for (const [label, seed] of [["no baseline", {}], ["v1 baseline", { "meadevil-sync-base-v1": oldBase }]]) {
+    seedCloud(cloud.doc ? JSON.parse(JSON.parse(cloud.doc).appData ? JSON.stringify(JSON.parse(cloud.doc).appData) : "{}") : defaultEnvelope);
+    const ph = await device(browser, `stale-archive-${label}`, { authDelayMs: 300, seed: { [STORAGE_KEY]: JSON.stringify(staleArchive), ...seed } });
+    await delay(1800);
+    const c14 = cloudData();
+    check(`${label}: the archived batch is not revived`, !String(c14.currentBatch?.name || "").includes("Archived Batch") && !c14.currentBatch?.loadedAt, `${c14.currentBatch?.name}`);
+    check(`${label}: its readings stay out of the live log`, (c14.fermentationLogs || []).length === 0, String((c14.fermentationLogs || []).length));
+    check(`${label}: no duplicate vault copy`, (c14.archive || []).length === 1, String((c14.archive || []).length));
+    await closeAll();
+  }
+
   await browser.close();
   console.log("\n" + "=".repeat(50));
   if (failures.length) {
