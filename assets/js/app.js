@@ -672,20 +672,57 @@
     }, 0);
   }
 
-  function fermentationOg(){
-    const preferred = [
-      Number(data.currentBatch.targetOg),
-      Number(data.nutrients.og)
-    ].find((value) => Number.isFinite(value) && value > 0);
-    if (preferred) return preferred + (stepFeedPointsAdded() / 1000);
+  // ---- Which starting gravity does the math run on? ------------------------
+  // HANDOFF: "the Source Bill is the source of truth for fermentables and
+  // gravity math"; the design target is the north star you aim the bill at.
+  // In practice the bill's gravity was display-only and everything downstream
+  // (nutrient plan, 1/3 sugar break, ABV, sorbate dose) ran on the TARGET. A
+  // bill that builds to 1.125 against a 1.100 target was therefore fed for
+  // 1.100 and had its sugar break called 8 points early.
+  //
+  // Precedence, most real first:
+  //   measured  - a logged gravity above everything planned
+  //   declared  - the OG on the Feed tab once the brewer has typed their own
+  //   bill      - what the entered fermentables actually build
+  //   target    - the design intent, used until a bill exists
+  //
+  // A half-typed bill must not drive anything: one row of honey entered so far
+  // would swing the feed plan to hydromel numbers. Below this fraction of the
+  // target's gravity points the bill is treated as "still being written".
+  const BILL_COMPLETE_FRACTION = 0.6;
 
-    // No recorded OG: the best stand-in is the highest gravity ever logged,
-    // not the most recent one (which trends toward FG as fermentation runs).
+  function sourceBillOg(recipeLike){
+    if (!recipeLike) return null;
+    const bill = calculateSourceBill({ batchGallons: recipeLike.batchGallons, rows: recipeLike.additions });
+    const og = bill ? Number(bill.estimatedOg) : null;
+    return og && og > 1 ? og : null;
+  }
+
+  function planningOg(recipeLike){
+    const target = recipeLike && Number(recipeLike.targetOg) > 1 ? Number(recipeLike.targetOg) : null;
+    const billOg = sourceBillOg(recipeLike);
+    const billUsable = Boolean(billOg) && (!target || (billOg - 1) >= (target - 1) * BILL_COMPLETE_FRACTION);
+    if (billUsable) return { og: billOg, source: "bill", target, billOg };
+    return { og: target, source: target ? "target" : "none", target, billOg };
+  }
+
+  // Starting gravity of the live batch, before any step feeds.
+  function batchStartingOg(){
+    const declared = Number(data.nutrients.og) > 1 ? Number(data.nutrients.og) : null;
+    const planned = declared || planningOg(data.currentBatch).og || null;
+    // A reading above the plan proves the plan was low. A reading BELOW it
+    // proves nothing (the first reading is often taken days in), so the highest
+    // log only ever raises the figure.
     const highestLog = data.fermentationLogs
       .map((entry) => Number(entry.gravity))
       .filter((value) => Number.isFinite(value) && value > 0)
       .reduce((max, value) => Math.max(max, value), 0);
-    return highestLog || null;
+    return Math.max(planned || 0, highestLog || 0) || null;
+  }
+
+  function fermentationOg(){
+    const start = batchStartingOg();
+    return start ? start + (stepFeedPointsAdded() / 1000) : null;
   }
 
   function buildFermentationTrendModel(logs){
@@ -2042,8 +2079,9 @@
     // run on EVERY renderAll(), so a Target YAN typed on the Feed tab was silently
     // reverted on the next render (and on boot, which made the Feed input and the
     // Feed summary card display two different numbers on the same screen).
-    if (recipe.targetOg && !data.nutrients.targetYanUserSet && draftDescribesActiveBatch(recipe)){
-      data.nutrients.targetYanPpm = String(suggestYanPpm({ og: recipe.targetOg, yeastRequirement: data.nutrients.yeastRequirement || recipe.nitrogenRequirement || "low" }));
+    const draftOg = data.nutrients.ogUserSet && Number(data.nutrients.og) > 1 ? Number(data.nutrients.og) : planningOg(recipe).og;
+    if (draftOg && !data.nutrients.targetYanUserSet && draftDescribesActiveBatch(recipe)){
+      data.nutrients.targetYanPpm = String(suggestYanPpm({ og: draftOg, yeastRequirement: data.nutrients.yeastRequirement || recipe.nitrogenRequirement || "low" }));
     }
     const plan = estimateRecipeTargets({
       batchGallons: recipe.batchGallons,
@@ -2089,8 +2127,17 @@
     const preset = YEAST_PRESETS[recipe.yeast] || (YEAST_PRESETS[yeastName] || null);
     const resolvedRequirement = recipe.nitrogenRequirement || (preset ? preset.nitrogenRequirement : data.nutrients.yeastRequirement) || "low";
     if (force || !data.nutrients.batchGallons) data.nutrients.batchGallons = recipe.batchGallons || data.nutrients.batchGallons;
-    if (force || !data.nutrients.og) data.nutrients.og = recipe.targetOg || data.nutrients.og;
-    if (force || !data.nutrients.brix) data.nutrients.brix = recipe.targetOg ? String(round(sgToBrix(recipe.targetOg), 1)) : data.nutrients.brix;
+    // Feed's OG follows the recipe (bill first, target until a bill exists)
+    // until the brewer types a measured OG of their own on the Feed tab; from
+    // then on it is theirs. Starting a batch (force) hands it back to the recipe.
+    if (force) data.nutrients.ogUserSet = false;
+    if (force || !data.nutrients.og || !data.nutrients.ogUserSet){
+      const planned = planningOg(recipe).og;
+      if (planned){
+        data.nutrients.og = String(round(planned, 3));
+        data.nutrients.brix = String(round(sgToBrix(planned), 1));
+      }
+    }
     data.nutrients.dryYeast = recipe.dryYeast || "";
     data.nutrients.yeastRequirement = resolvedRequirement;
     if (data.nutrients.og && !data.nutrients.targetYanUserSet){
@@ -2099,6 +2146,16 @@
     if (force && !data.nutrients.protocol){
       data.nutrients.protocol = "tosna";
     }
+  }
+
+  // A source-bill edit changes the gravity the feed plan should be built for.
+  // syncNutrientsFromRecipe carries the identity gate, so sketching an
+  // unrelated draft still cannot touch a running batch's plan.
+  function syncFeedFromBill(){
+    syncRecipeDerived();
+    syncNutrientsFromRecipe(data.recipeDraft);
+    populateNutrientForm();
+    renderNutrients();
   }
 
   function syncCurrentBatchDerived(){
@@ -2294,7 +2351,7 @@
     const latest = latestGravityLog();
     const tosna = currentTosnaPlan();
     const advanced = currentAdvancedPlan();
-    const breakGravity = calcOneThirdBreak(batch.targetOg || data.nutrients.og);
+    const breakGravity = calcOneThirdBreak(batchStartingOg());
     const rate = fermentationRateSummary(data.fermentationLogs);
     const pitchDaysAgo = batch.pitchDate ? Math.floor((Date.now() - new Date(batch.pitchDate).getTime()) / 86400000) : null;
     const phase = batch.phase || "primary";
@@ -2437,7 +2494,13 @@
         if (ogDeltaPoints === 0) {
           return `<strong>On target.</strong> The current bill is landing on the planned OG.`;
         }
-        return `<strong>${ogDeltaPoints > 0 ? "Reality is high" : "Reality is low"} by ${Math.abs(ogDeltaPoints)} points.</strong> ${ogDeltaPoints > 0 ? "Trim the bill or own the stronger build." : "Add gravity or lower the target."}`;
+        // Say which gravity the rest of the app is now working from, so the
+        // number on the Feed tab is never a surprise.
+        const drive = planningOg(recipe);
+        const driveNote = drive.source === "bill"
+          ? `Feed, the sugar break and ABV are planned on the bill's <strong>${round(drive.og, 3)}</strong>, not the target.`
+          : `The bill looks unfinished, so Feed is still planned on the target <strong>${round(targetOg, 3)}</strong> until more of it is entered.`;
+        return `<strong>${ogDeltaPoints > 0 ? "Reality is high" : "Reality is low"} by ${Math.abs(ogDeltaPoints)} points.</strong> ${ogDeltaPoints > 0 ? "Trim the bill or own the stronger build." : "Add gravity or lower the target."} <span class="muted">${driveNote}</span>`;
       }
       if (!plan && !bill) {
         return `Set the target and write the bill to compare the plan against the actual build.`;
@@ -2680,7 +2743,7 @@
       $("gravityLog").insertAdjacentHTML("beforeend", emptyState("Earlier readings hidden", `${logs.length - visibleLogs.length} older reading${logs.length - visibleLogs.length === 1 ? "" : "s"} are tucked away until you expand the full log.`, "calm", "History"));
     }
 
-    const breakGravity = calcOneThirdBreak(data.currentBatch.targetOg || data.nutrients.og);
+    const breakGravity = calcOneThirdBreak(batchStartingOg());
     if (breakGravity || latest) {
       const sbRows = [];
       if (breakGravity) sbRows.push(["1/3 break target", `${round(breakGravity, 3)}`]);
@@ -3899,6 +3962,7 @@
       const row = data.recipeDraft.additions.find((item) => item.id === id);
       if (!row) return;
       row[field] = event.target.value;
+      syncFeedFromBill();
       persistData();
       renderRecipeComputed();
     });
@@ -3913,6 +3977,7 @@
         row.ppg = sourceDefault(row.sourceType);
         row.unit = sourceUnitDefault(row.sourceType);
       }
+      syncFeedFromBill();
       persistData();
       renderRecipes();
     });
@@ -3933,6 +3998,7 @@
       }))) return;
       data.recipeDraft.additions = data.recipeDraft.additions.filter((item) => item.id !== id);
       if (!data.recipeDraft.additions.length) data.recipeDraft.additions = [defaultAdditionRow()];
+      syncFeedFromBill();
       persistData();
       renderRecipes();
     });
@@ -4296,6 +4362,9 @@
         // Typing in Target YAN marks it user-owned; clearing it hands control back
         // to the automatic suggestion.
         if (key === "targetYanPpm") data.nutrients.targetYanUserSet = String(el.value).trim() !== "";
+        // Same idea for OG: a typed (measured) OG is the brewer's, and Build
+        // edits stop overwriting it; clearing the field hands it back.
+        if (key === "og" || key === "brix") data.nutrients.ogUserSet = String(el.value).trim() !== "";
         if (["batchGallons","og","brix"].includes(key) && data.nutrients.og && !data.nutrients.targetYanUserSet) {
           data.nutrients.targetYanPpm = String(suggestYanPpm({ og: data.nutrients.og, yeastRequirement: data.nutrients.yeastRequirement }));
           if ($("nutrientTargetYan")) $("nutrientTargetYan").value = data.nutrients.targetYanPpm;

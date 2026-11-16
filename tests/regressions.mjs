@@ -20,6 +20,8 @@
  *  17. RAPT import must not pull the previous batch's telemetry
  *  18. Exports must download with filesystem-safe filenames
  *  19. Finish math must follow the measured volume
+ *  21. The source bill drives the feed plan and sugar break; a half-typed bill
+ *      does not; measured values outrank both
  *  20. Refractometer readings must be alcohol-corrected with a formula that
  *      behaves at mead gravities
  */
@@ -557,6 +559,67 @@ async function testRefractometerCorrection(context) {
   await page.close();
 }
 
+async function testBillDrivesGravityMath(context) {
+  console.log("\n[21] The source bill, not the design target, drives the feed plan and sugar break");
+  const page = await freshPage(context);
+  await clickTab(page, "recipes");
+  await setVal(page, "#recipeName", "Bill Truth");
+  await setVal(page, "#recipeBatchGallons", "3");
+  await setVal(page, "#recipeTargetAbv", "12");
+  await delay(200);
+  const targetOg = Number((await state(page)).recipeDraft.targetOg);
+  const feedOg = async () => Number((await state(page)).nutrients.og);
+  const yan = async () => Number((await state(page)).nutrients.targetYanPpm);
+  check("with no bill, Feed plans on the design target", Math.abs((await feedOg()) - targetOg) < 0.0006, `${await feedOg()} vs ${targetOg}`);
+  const yanAtTarget = await yan();
+
+  const amount = '#recipeSourceList [data-source-field="amount"]';
+  // One pound of honey into 3 gal is a bill someone has only started typing.
+  await setVal(page, amount, "1");
+  await delay(250);
+  check("a barely-started bill does not drag the feed plan down", Math.abs((await feedOg()) - targetOg) < 0.0006, String(await feedOg()));
+  check("...and the screen says the bill looks unfinished", /looks unfinished/.test(await page.$eval("#recipeTargetRealityDelta", el => el.textContent)));
+
+  // 11 lb at 35 PPG in 3 gal = 1.128, well above a 12% target (~1.09).
+  await setVal(page, amount, "11");
+  await delay(250);
+  const billOg = 1 + (11 * 35 / 3) / 1000;
+  check("a real bill takes over Feed's OG", Math.abs((await feedOg()) - billOg) < 0.0006, `${await feedOg()} vs ${billOg.toFixed(3)}`);
+  check("...and the YAN target rises with it", (await yan()) > yanAtTarget, `${yanAtTarget} -> ${await yan()}`);
+  check("...and the screen says so", /planned on the bill/.test(await page.$eval("#recipeTargetRealityDelta", el => el.textContent)));
+  check("the design target itself is untouched", Math.abs(Number((await state(page)).recipeDraft.targetOg) - targetOg) < 0.0006);
+
+  await page.$eval("#saveRecipeBtn", (b) => b.click());
+  await delay(300);
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+  await clickTab(page, "ferment");
+  await delay(300);
+  // Feed stores the OG to 3 places (1.128), so the break lands on 1.085.
+  const storedOg = Number(billOg.toFixed(3));
+  const expectedBreak = storedOg - (storedOg - 1) / 3;
+  const fermentText = await page.$eval("#tab-ferment", el => el.textContent);
+  check("the 1/3 sugar break is computed from the bill", fermentText.includes(expectedBreak.toFixed(3)), `expected ${expectedBreak.toFixed(3)}`);
+  check("...not from the target", !fermentText.includes((targetOg - (targetOg - 1) / 3).toFixed(3)));
+
+  // A measured OG typed on Feed belongs to the brewer from then on.
+  await clickTab(page, "nutrients");
+  await setVal(page, "#nutrientOg", "1.120");
+  await clickTab(page, "recipes");
+  await setVal(page, amount, "10");
+  await delay(250);
+  check("a measured OG typed on Feed is not overwritten by later bill edits", Math.abs((await feedOg()) - 1.120) < 0.0006, String(await feedOg()));
+
+  // A logged reading above everything planned proves the plan was low.
+  await clickTab(page, "ferment");
+  await setVal(page, "#logDate", "2026-06-01");
+  await setVal(page, "#logGravity", "1.134");
+  await page.$eval("#addLogBtn", (b) => b.click());
+  await delay(300);
+  const breakFromLog = (1.134 - 0.134 / 3).toFixed(3);
+  check("a higher measured reading raises the sugar break", (await page.$eval("#tab-ferment", el => el.textContent)).includes(breakFromLog), `expected ${breakFromLog}`);
+  await page.close();
+}
+
 async function testGravityCsvImport(context) {
   console.log("\n[12] Hydrometer CSV import");
   const page = await freshPage(context);
@@ -811,6 +874,7 @@ async function main() {
   await testExportFilenames(context);
   await testMeasuredVolume(context);
   await testRefractometerCorrection(context);
+  await testBillDrivesGravityMath(context);
 
   await context.close();
   await browser.close();
