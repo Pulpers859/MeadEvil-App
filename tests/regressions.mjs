@@ -348,7 +348,9 @@ async function testAdjunctUiPersistence(context) {
     const m = JSON.parse(localStorage.getItem(k) || "{}");
     const enh = JSON.parse(localStorage.getItem(e) || "{}");
     return {
-      main: (m.recipeDraft?.structureAdditions || []).map(r => r.ingredient).filter(Boolean),
+      // The real state lives under the envelope's .data. This used to read a
+      // top-level phantom copy the mentor bridge bolted on, which app.js never loads.
+      main: ((m.data || m).recipeDraft?.structureAdditions || []).map(r => r.ingredient).filter(Boolean),
       enh: (enh.recipeDraft?.structureAdditions || []).map(r => r.ingredient).filter(Boolean)
     };
   }, [STORAGE_KEY, ENH_KEY]);

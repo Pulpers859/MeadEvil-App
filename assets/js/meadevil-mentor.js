@@ -330,12 +330,24 @@
     };
   }
 
+  const TURN_SOURCE_LABELS = { model: "GPT", template: "Quick reply", knowledge: "Knowledge base", local: "Offline logic" };
+  const TURN_SOURCE_TITLES = {
+    model: "Written by the live model.",
+    template: "A built-in reply. No model call was made for this message.",
+    knowledge: "Answered from MeadEvil's built-in mead knowledge base, not the live model.",
+    local: "Written by this browser's built-in logic because the live mentor was unavailable or switched off."
+  };
+
   function normalizeMentorTurn(value){
     const turn = defaultMentorTurn(isPlainObject(value) ? value : {});
     turn.role = turn.role === "mentor" ? "mentor" : "user";
     turn.mode = ["scout","pushback","forge","concept"].includes(turn.mode) ? turn.mode : "scout";
     turn.text = String(turn.text || "").trim();
     turn.createdAt = String(turn.createdAt || new Date().toISOString()).trim();
+    // Where a mentor turn's words came from: the model, the server's built-in
+    // templates/knowledge base, or this browser's local logic. "" = unknown
+    // (turns saved before this was tracked).
+    turn.source = turn.role === "mentor" && ["model", "template", "knowledge", "local"].includes(turn.source) ? turn.source : "";
     return turn;
   }
 
@@ -501,8 +513,29 @@
   }
 
 
+  // app.js persists { _schema, data: {...} }. This bridge predates that envelope
+  // and reads/writes recipeDraft, recipes, currentBatch and archive on the TOP
+  // level of whatever it is handed — which, for an envelope, is a level app.js
+  // never reads. So for every save it harvested nothing and bolted a phantom
+  // copy of the mentor thread plus structure additions onto the stored blob
+  // (dropped on app.js's next save, but uploaded to the cloud in between).
+  // Structure additions now reach app.js through the meadevil-structure-sync
+  // event and live in data.recipeDraft / data.currentBatch, so for an envelope
+  // this bridge has nothing to do except not make a mess.
+  const ENVELOPE_KEYS = ["_schema", "data", "meta", "_enhancement"];
+
+  function isEnvelope(main){
+    return Boolean(main) && typeof main === "object" && isPlainObject(main._schema) && isPlainObject(main.data);
+  }
+
+  function stripEnvelopePhantoms(main){
+    Object.keys(main).forEach((key) => { if (!ENVELOPE_KEYS.includes(key)) delete main[key]; });
+    return main;
+  }
+
   function harvestEnhancementFromMain(main, enhancement){
     if (!main || typeof main !== "object") return enhancement;
+    if (isEnvelope(main)) return enhancement;
     if (main.recipeDraft && Array.isArray(main.recipeDraft.structureAdditions)){
       enhancement.recipeDraft.structureAdditions = main.recipeDraft.structureAdditions.map(normalizeAdjunctRow);
     }
@@ -531,6 +564,7 @@
 
   function mergeEnhancementIntoMain(main, enhancement){
     if (!main || typeof main !== "object") return main;
+    if (isEnvelope(main)) return stripEnvelopePhantoms(main);
 
     main.meadevilMentor = clone(enhancement.mentor);
     main.recipeDraft = main.recipeDraft || {};
@@ -1488,6 +1522,7 @@
         <div class="mentor-turn-head">
           <span class="mentor-turn-role">${turn.mode === "concept" ? "Concept Spark" : turn.role === "mentor" ? "MeadEvil Mentor" : "You"}</span>
           <span class="mentor-turn-mode">${escapeHTML(turn.mode === "concept" ? "snapshot" : turn.mode)}</span>
+          ${turn.source ? `<span class="mentor-turn-source ${turn.source === "model" ? "is-model" : ""}" title="${escapeHTML(TURN_SOURCE_TITLES[turn.source])}">${escapeHTML(TURN_SOURCE_LABELS[turn.source])}</span>` : ""}
         </div>
         <div class="mentor-turn-text">${formatTurnText(turn.text)}</div>
       </div>
@@ -1901,6 +1936,7 @@
       packet: localPacket.packet
     };
     let status = { mode: "local", message: "Rendered with local mentor logic.", lastRunAt: new Date().toISOString(), lastError: "" };
+    let turnSource = "local";
 
     if (provider === "openai"){
       try {
@@ -1910,8 +1946,20 @@
           throw new Error(json.error);
         }
         finalOutput = normalizeRemoteResponse(json, localPacket);
-        status = { mode: "remote", message: `GPT response received (${model}).`, lastRunAt: new Date().toISOString(), lastError: "" };
+        const provenance = isPlainObject(json.provenance) ? json.provenance : {};
+        // An older deployed function sends no provenance; it cannot be told
+        // apart, so say only what is known.
+        turnSource = ["model", "template", "knowledge"].includes(provenance.source) ? provenance.source : "";
+        const message = turnSource === "model"
+          ? `GPT response received (${provenance.model || model}).`
+          : turnSource === "template"
+            ? "Quick built-in reply — that message did not need the model."
+            : turnSource === "knowledge"
+              ? "Answered from the built-in mead knowledge base, not the model."
+              : "Mentor response received.";
+        status = { mode: "remote", message, lastRunAt: new Date().toISOString(), lastError: "" };
       } catch(error){
+        turnSource = "local";
         status = { mode: "local", message: `GPT call failed. Falling back to local logic. ${String(error.message || error)}`, lastRunAt: new Date().toISOString(), lastError: String(error.message || error) };
       }
     }
@@ -1920,6 +1968,7 @@
       role: "mentor",
       mode: enhancementNow.mentor.mode || "scout",
       text: buildMentorTurnText(finalOutput),
+      source: turnSource,
       createdAt: new Date().toISOString()
     });
 

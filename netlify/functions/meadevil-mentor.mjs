@@ -20,6 +20,58 @@ const MAX_TURN_CHARS = 6000;
 const MAX_COMPLETION_TOKENS = 1400;
 // A hung upstream would otherwise burn the whole function timeout on every call.
 const UPSTREAM_TIMEOUT_MS = 45000;
+// The structured-extraction pass is a second, small model call made after the
+// reply exists. It must never be the reason a request dies, so it only runs if
+// enough of the function's time budget is left. Netlify's default synchronous
+// limit is 10s; raise MENTOR_FUNCTION_BUDGET_MS only if the site's limit is higher.
+const FUNCTION_BUDGET_MS = Math.max(4000, Number(process.env.MENTOR_FUNCTION_BUDGET_MS) || 9000);
+const EXTRACTION_MIN_MS = 2000;
+const EXTRACTION_MAX_TOKENS = 500;
+
+// Best-effort abuse brake. The endpoint spends the owner's API credit and a
+// static site cannot authenticate callers, so cap how fast one address can call.
+// This lives in the memory of one warm function instance: it stops a runaway
+// loop or a casual scraper, not a distributed attacker. The origin allowlist
+// and the pinned cheap model remain the real spend controls.
+const RATE_WINDOW_MS = 5 * 60 * 1000;
+const RATE_MAX_REQUESTS = Math.max(1, Number(process.env.MENTOR_RATE_MAX) || 30);
+const rateBuckets = new Map();
+
+function clientAddress(event) {
+  const headers = event.headers || {};
+  const forwarded = String(headers["x-forwarded-for"] || headers["X-Forwarded-For"] || "").split(",")[0].trim();
+  return String(headers["x-nf-client-connection-ip"] || headers["client-ip"] || forwarded || "unknown");
+}
+
+function rateLimitRetryAfter(event, now = Date.now()) {
+  const key = clientAddress(event);
+  const recent = (rateBuckets.get(key) || []).filter((stamp) => now - stamp < RATE_WINDOW_MS);
+  if (recent.length >= RATE_MAX_REQUESTS) {
+    rateBuckets.set(key, recent);
+    return Math.max(1, Math.ceil((RATE_WINDOW_MS - (now - recent[0])) / 1000));
+  }
+  recent.push(now);
+  rateBuckets.set(key, recent);
+  if (rateBuckets.size > 2000) {
+    for (const [bucketKey, stamps] of rateBuckets) {
+      if (!stamps.length || now - stamps[stamps.length - 1] >= RATE_WINDOW_MS) rateBuckets.delete(bucketKey);
+    }
+  }
+  return 0;
+}
+
+// What each coach mode actually asks the model to do. Previously the mode
+// reached the prompt as a bare word ("Mode: scout") and the three buttons
+// produced the same behaviour.
+const MODE_DIRECTIVES = {
+  scout: "SCOUT. Explore before committing. Lay out two or three genuinely different directions this concept could take, say plainly which one you would pick and why the others are riskier. Stay at the level of concept and ingredient roles; do not give batch quantities unless the user asks for them.",
+  pushback: "PUSHBACK. Challenge the concept as it stands. Find the weakest structural decision in it and say exactly what goes wrong in the glass because of it: what is redundant, what is fighting what, what is missing (acid, tannin, lift, a finish). Do not open new directions. Fix it or cut it. Be blunt.",
+  forge: "FORGE. Stop exploring and convert the concept into a brewable build. Commit to one lane and give concrete numbers scaled to the stated batch size: every fermentable with its weight, the expected OG, the yeast, and every structure addition with amount, unit and when it goes in (primary, secondary, or bench trial). State each amount as a plain number with a unit next to the ingredient name, for example \"7.5 lb orange blossom honey\", so it transfers cleanly to the Build tab. If something essential is still undecided, decide it and say you did."
+};
+
+function modeDirective(mode) {
+  return MODE_DIRECTIVES[String(mode || "").toLowerCase()] || MODE_DIRECTIVES.scout;
+}
 
 function pinModel(requested) {
   return ALLOWED_MODELS.has(requested) ? requested : DEFAULT_MODEL;
@@ -526,7 +578,10 @@ function buildCollaboratorContext(userMessage, guidanceNote, knowledgePromptBloc
     "Current mead project state:",
     contextSummary || "No project summary provided.",
     "",
-    `Mode: ${userMessage.mode || "scout"}`,
+    `Coach mode — ${modeDirective(userMessage.mode)}`,
+    userMessage.blunt === false
+      ? "Tone: the user asked for a gentler delivery. Keep every criticism, but frame it constructively and skip the bluntness."
+      : "Tone: blunt. Say what is weak without cushioning it.",
     `User need: ${snapshot.userNeed || "continue_thread"}`,
     "",
     STYLE_EXAMPLES,
@@ -714,17 +769,18 @@ function buildPacketDrivenReply(userMessage) {
 }
 
 
-async function callOpenAI({ apiKey, model, temperature, responseFormat, messages }) {
+async function callOpenAI({ apiKey, model, temperature, responseFormat, messages, maxTokens, timeoutMs }) {
   const body = {
     model,
     temperature,
     messages,
-    max_tokens: MAX_COMPLETION_TOKENS
+    max_tokens: Math.min(MAX_COMPLETION_TOKENS, maxTokens || MAX_COMPLETION_TOKENS)
   };
   if (responseFormat) body.response_format = responseFormat;
 
+  const upstreamTimeout = Math.min(UPSTREAM_TIMEOUT_MS, timeoutMs || UPSTREAM_TIMEOUT_MS);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), upstreamTimeout);
   let res;
   try {
     res = await fetch(OPENAI_URL, {
@@ -737,7 +793,7 @@ async function callOpenAI({ apiKey, model, temperature, responseFormat, messages
       signal: controller.signal
     });
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error(`OpenAI request timed out after ${UPSTREAM_TIMEOUT_MS}ms`);
+    if (error?.name === "AbortError") throw new Error(`OpenAI request timed out after ${upstreamTimeout}ms`);
     throw error;
   } finally {
     clearTimeout(timer);
@@ -905,6 +961,151 @@ function extractStructuredFromProse(prose, userMessage) {
   };
 }
 
+// ---- Structured extraction -------------------------------------------------
+// The reply is prose by design. Everything that reaches the Build tab used to be
+// scraped out of that prose with regexes against a fixed ingredient whitelist,
+// which is where the wrong-amount / missing-ingredient / doubled-honey bugs came
+// from. This asks the model to read its own reply back as JSON instead.
+//
+// The model's JSON is NOT trusted. Every item is checked against the reply text
+// (groundExtraction) and anything the reply does not literally say is dropped,
+// so the worst case is "extracted less", never "invented a quantity". If the
+// call fails, times out or returns junk, the regex result is used unchanged.
+const EXTRACTION_SYSTEM_PROMPT = `You extract recipe data from a meadmaking mentor's reply. Return ONLY a JSON object of this exact shape:
+{"yeast":"","source_bill":[{"name":"","type":"Honey","amount":"","unit":"lb"}],"adjuncts":[{"ingredient":"","amount":"","unit":"g","phase":"secondary"}]}
+
+Rules:
+- Copy only what the reply itself states. Never add, estimate or round anything.
+- source_bill is for fermentables, things yeast consume: honey, fruit, juice, sugar, syrup. "type" is one of Honey, Fruit, Juice, Sugar, Other.
+- adjuncts is for non-fermentable flavour and structure additions: spice, herb, zest, peel, oak, tea, acid, tannin, extract, salt. "phase" is one of primary, secondary, bench trial.
+- "unit" is one of lb, oz, kg, g, gal, L, mL, tsp, tbsp, each. "amount" is a plain number as a string.
+- If the reply gives one total weight and splits it across several honeys, give each honey its own share. Never assign the total to more than one item.
+- If an amount is a range, use the lower number.
+- If the reply names an ingredient without an amount, include it with "amount":"".
+- Ignore per-gallon rates unless the reply also states the total for the batch.
+- If the reply presents several alternative directions, extract only the one it recommends.
+- "yeast" is one of 71B, D47, QA23, EC-1118, or "" if the reply does not choose one.`;
+
+const EXTRACTION_UNITS = new Set(["lb", "oz", "kg", "g", "gal", "l", "ml", "tsp", "tbsp", "each"]);
+const EXTRACTION_TYPES = ["Honey", "Fruit", "Juice", "Sugar", "Other"];
+const EXTRACTION_PHASES = ["primary", "secondary", "bench trial"];
+
+function replyHasBuildDetail(reply) {
+  return /\d\s*(?:lb|lbs|pounds?|oz|ounces?|kg|g|grams?|tsp|tbsp|ml)\b/i.test(String(reply || ""));
+}
+
+function nameIsGrounded(name, replyLower) {
+  const clean = String(name || "").toLowerCase().trim();
+  if (!clean || clean.length > 60) return false;
+  if (replyLower.includes(clean)) return true;
+  // Allow harmless re-ordering ("honey, orange blossom"), but every meaningful
+  // word must still be in the reply.
+  const words = clean.split(/[^a-z0-9]+/).filter((word) => word.length > 2);
+  return words.length > 0 && words.every((word) => replyLower.includes(word));
+}
+
+function groundedAmount(value, replyLower) {
+  const text = String(value ?? "").trim();
+  if (!text || !/^\d+(?:\.\d+)?$/.test(text)) return "";
+  const number = Number(text);
+  if (!Number.isFinite(number) || number <= 0 || number > 2000) return "";
+  // The figure has to be one the reply actually wrote. Accept trailing-zero
+  // variants (7.5 / 7.50) and a leading-zero-less decimal (.5 for 0.5).
+  const variants = new Set([text, String(number), number.toFixed(1), number.toFixed(2)]);
+  if (number < 1) variants.add(String(number).replace(/^0/, ""));
+  for (const variant of variants) {
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(^|[^\\d.])${escaped}(?![\\d]|\\.\\d)`).test(replyLower)) return String(number);
+  }
+  return "";
+}
+
+function groundExtraction(parsed, reply, avoidText = "") {
+  const replyLower = String(reply || "").toLowerCase();
+  const avoid = String(avoidText || "").toLowerCase();
+  const out = { yeast: "", source_bill_candidates: [], adjunct_candidates: [] };
+  if (!isPlainObject(parsed)) return out;
+
+  const yeast = KNOWN_YEAST_NAMES.find((name) => name.toLowerCase() === String(parsed.yeast || "").toLowerCase().trim());
+  if (yeast && replyLower.includes(yeast.toLowerCase())) out.yeast = yeast;
+
+  const seen = new Set();
+  const unitOf = (value, fallback) => {
+    const unit = String(value || "").trim().toLowerCase();
+    if (!EXTRACTION_UNITS.has(unit)) return fallback;
+    return unit === "l" ? "L" : unit === "ml" ? "mL" : unit;
+  };
+
+  (Array.isArray(parsed.source_bill) ? parsed.source_bill : []).slice(0, 8).forEach((item) => {
+    if (!isPlainObject(item)) return;
+    const name = String(item.name || "").trim();
+    const key = name.toLowerCase();
+    if (!nameIsGrounded(name, replyLower) || seen.has(key) || (avoid && avoid.includes(key))) return;
+    seen.add(key);
+    const amount = groundedAmount(item.amount, replyLower);
+    out.source_bill_candidates.push({
+      name,
+      type: EXTRACTION_TYPES.find((type) => type.toLowerCase() === String(item.type || "").toLowerCase()) || "Other",
+      amount,
+      unit: amount ? unitOf(item.unit, "lb") : "lb"
+    });
+  });
+
+  (Array.isArray(parsed.adjuncts) ? parsed.adjuncts : []).slice(0, 10).forEach((item) => {
+    if (!isPlainObject(item)) return;
+    const name = String(item.ingredient || item.name || "").trim();
+    const key = name.toLowerCase();
+    if (!nameIsGrounded(name, replyLower) || seen.has(key) || (avoid && avoid.includes(key))) return;
+    seen.add(key);
+    const amount = groundedAmount(item.amount, replyLower);
+    const phase = String(item.phase || "").toLowerCase().trim();
+    out.adjunct_candidates.push({
+      ingredient: name,
+      amount,
+      unit: amount ? unitOf(item.unit, "g") : "g",
+      phase: EXTRACTION_PHASES.includes(phase) ? phase : "secondary",
+      category: /oak|tannin|tea/.test(key) ? "structure" : /honey|sugar|agave|maple/.test(key) ? "fermentable" : "botanical",
+      purpose: "",
+      notes: ""
+    });
+  });
+
+  return out;
+}
+
+async function extractStructuredWithModel({ apiKey, model, reply, userMessage, timeoutMs }) {
+  const inputs = userMessage.inputs || {};
+  const snapshot = userMessage.concept_snapshot || {};
+  const content = await callOpenAI({
+    apiKey,
+    model,
+    temperature: 0,
+    responseFormat: { type: "json_object" },
+    maxTokens: EXTRACTION_MAX_TOKENS,
+    timeoutMs,
+    messages: [
+      { role: "system", content: EXTRACTION_SYSTEM_PROMPT },
+      { role: "user", content: `Mentor reply to extract from:\n\n${String(reply).slice(0, MAX_TURN_CHARS)}` }
+    ]
+  });
+  let parsed;
+  try { parsed = JSON.parse(content); } catch { return null; }
+  const avoidText = `${inputs.avoidSimple || ""} ${Array.isArray(snapshot.avoid) ? snapshot.avoid.join(" ") : ""}`;
+  return groundExtraction(parsed, reply, avoidText);
+}
+
+// Model-read fields replace the regex result only where the model produced
+// something that survived grounding; everything else stays as the regex left it.
+function mergeExtraction(regexExtracted, modelExtracted) {
+  if (!modelExtracted) return { extracted: regexExtracted, method: "pattern" };
+  const build = { ...(regexExtracted.build_mapping || {}) };
+  let used = false;
+  if (modelExtracted.yeast) { build.yeast = modelExtracted.yeast; used = true; }
+  if (modelExtracted.source_bill_candidates.length) { build.source_bill_candidates = modelExtracted.source_bill_candidates; used = true; }
+  if (modelExtracted.adjunct_candidates.length) { build.adjunct_candidates = modelExtracted.adjunct_candidates; used = true; }
+  return { extracted: { ...regexExtracted, build_mapping: build }, method: used ? "model" : "pattern" };
+}
+
 function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
   const packet = isPlainObject(userMessage.fallback_packet) ? userMessage.fallback_packet : {};
   const strongestDirection = isPlainObject(packet.strongestDirection) ? packet.strongestDirection : {};
@@ -964,6 +1165,7 @@ function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
 }
 
 export async function handler(event) {
+  const startedAt = Date.now();
   activeRequestOrigin = resolveAllowedOrigin(event);
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders(), body: "" };
@@ -973,6 +1175,13 @@ export async function handler(event) {
   }
   if (!originAllowed(event)) {
     return respond(403, { error: "Origin not allowed" });
+  }
+
+  const retryAfter = rateLimitRetryAfter(event);
+  if (retryAfter) {
+    const limited = respond(429, { error: `Too many mentor requests. Try again in about ${Math.ceil(retryAfter / 60)} minute(s).` });
+    limited.headers = { ...limited.headers, "Retry-After": String(retryAfter) };
+    return limited;
   }
 
   const rawBody = event.body || "{}";
@@ -1018,11 +1227,16 @@ export async function handler(event) {
   const knowledgePromptBlock = knowledgeContext.promptBlock;
 
   try {
+    // Where the words came from. The UI used to announce "GPT response received"
+    // for every reply, including the ones below that never touch the model.
+    let source = "template";
     let collaboratorReply = buildPacketDrivenReply(userMessage);
     if (!collaboratorReply) {
       collaboratorReply = buildEvidenceDrivenReply(userMessage, knowledgeContext);
+      if (collaboratorReply) source = "knowledge";
     }
     if (!collaboratorReply) {
+      source = "model";
       collaboratorReply = await generateCollaboratorReply({
         apiKey,
         model,
@@ -1036,12 +1250,31 @@ export async function handler(event) {
       ];
       if (violations.length) {
         const evidenceReply = buildEvidenceDrivenReply(userMessage, knowledgeContext);
-        if (evidenceReply) collaboratorReply = evidenceReply;
+        if (evidenceReply) { collaboratorReply = evidenceReply; source = "knowledge"; }
       }
     }
 
-    const extracted = extractStructuredFromProse(collaboratorReply, userMessage);
-    return respond(200, buildFallbackResponse(userMessage, collaboratorReply, extracted));
+    let extracted = extractStructuredFromProse(collaboratorReply, userMessage);
+    let extraction = "pattern";
+    const remainingMs = FUNCTION_BUDGET_MS - (Date.now() - startedAt) - 500;
+    const wantsExtraction = process.env.MENTOR_STRUCTURED_EXTRACT !== "off"
+      && source === "model"
+      && (String(userMessage.mode).toLowerCase() === "forge" || replyHasBuildDetail(collaboratorReply));
+    if (wantsExtraction && remainingMs >= EXTRACTION_MIN_MS) {
+      try {
+        const modelExtracted = await extractStructuredWithModel({ apiKey, model, reply: collaboratorReply, userMessage, timeoutMs: remainingMs });
+        const merged = mergeExtraction(extracted, modelExtracted);
+        extracted = merged.extracted;
+        extraction = merged.method;
+      } catch (error) {
+        // The reply is already in hand; a failed extraction only costs precision.
+        console.warn("Structured extraction failed, using pattern extraction:", error?.message || error);
+      }
+    }
+
+    const body = buildFallbackResponse(userMessage, collaboratorReply, extracted);
+    body.provenance = { source, model: source === "model" ? model : "", extraction, mode: String(userMessage.mode || "scout") };
+    return respond(200, body);
   } catch (err) {
     console.error("Mentor function error:", err);
     return respond(502, { error: "Mentor backend error. Try again." });

@@ -37,6 +37,7 @@ jobs:
           node scripts/dev-server.mjs > dev-server.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8910/ > /dev/null && exit 0; sleep 1; done
           cat dev-server.log; exit 1
+      - run: npm run test:mentor
       - run: npm run test:regressions
       - run: npm run test:sync
       - run: node tests/user-journey.mjs

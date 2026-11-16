@@ -1615,6 +1615,18 @@ option{background:#140e1a;color:var(--cream)}
   border:1px solid rgba(244,230,208,.08);
   color:var(--cream);
 }
+.mentor-turn-source{
+  margin-left:auto;
+  font-size:.68rem;
+  font-weight:700;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  padding:2px 7px;
+  border-radius:999px;
+  border:1px solid rgba(244,230,208,.16);
+  color:rgba(244,230,208,.78);
+}
+.mentor-turn-source.is-model{border-color:rgba(141,189,73,.45);color:#b9dc85}
 .mentor-turn-mode{
   font-size:.72rem;
   color:rgba(244,230,208,.68);
