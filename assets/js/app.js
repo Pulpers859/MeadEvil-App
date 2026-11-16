@@ -9,6 +9,7 @@
     calcABV,
     sgToBrix,
     brixToSg,
+    refractometerFg,
     calcOneThirdBreak,
     estimateHoneyForTargetOG,
     estimateOGFromHoney,
@@ -1196,7 +1197,14 @@
       rating: "",
       tags: "",
       wouldMakeAgain: false,
-      additions: [defaultCellarAddition()]
+      additions: [defaultCellarAddition()],
+      // What is actually in the vessel. Every Finish calculation (stabilizer,
+      // backsweetening, bench-trial scaling, bottle count) is linear in volume,
+      // and until this existed they all ran on the size the recipe was DESIGNED
+      // at. A 3 gal fruit mead that racks down to 2.6 gal was told to add ~15%
+      // too much honey and sulfite.
+      currentGallons: "",
+      volumeLog: []
     };
   }
 
@@ -1213,6 +1221,8 @@
       breakOg: "",
       sgInput: "",
       brixInput: "",
+      refOriginalBrix: "",
+      refCurrentBrix: "",
       recipeBatch: "",
       recipeAbv: "",
       recipeSweetness: "Dry",
@@ -1918,6 +1928,31 @@
     return Math.round((b - a) / 86400000);
   }
 
+  const VOLUME_UNCONFIRMED_WARNING = "Volume not confirmed. The doses below assume the original batch size; measure what is in the vessel now and enter it under Volume now.";
+
+  // The volume Finish math should run on: what was last measured, else the
+  // size the batch was built at.
+  function effectiveBatchGallons(){
+    return Number(data.cellar.currentGallons) || Number(data.currentBatch.batchGallons) || null;
+  }
+
+  // Finish has three volume inputs of its own (backsweeten, bench trial,
+  // packaging), each seeded from the recipe size when the batch starts. When
+  // the measured volume changes, carry it into any of them still holding the
+  // previous volume — but leave alone one the user deliberately set to
+  // something else (sweetening only half the batch, say).
+  function applyMeasuredVolume(nextValue){
+    const c = data.cellar;
+    const previous = effectiveBatchGallons();
+    c.currentGallons = nextValue;
+    const next = Number(nextValue);
+    if (!(next > 0)) return;
+    ["backsweetenVolume", "benchBatchGallons", "cellarGallons"].forEach((key) => {
+      const held = Number(c[key]);
+      if (!held || (previous && Math.abs(held - previous) < 0.0001)) c[key] = String(next);
+    });
+  }
+
   function cellarAnalysis(){
     const c = data.cellar;
     const latest = latestGravityLog();
@@ -1949,6 +1984,9 @@
     if (Number(c.backsweetenTargetSg) > Number(c.backsweetenCurrentSg || 0) && !c.benchAddition){
       warnings.push("Run a bench trial before scaling a sweeter finish.");
     }
+    if (gateReady && batchHasData() && !Number(c.currentGallons)){
+      warnings.push(VOLUME_UNCONFIRMED_WARNING);
+    }
     if (c.currentPh) greenlights.push(`Current pH recorded at ${c.currentPh}. Re-check after any significant sweetening or acid shift.`);
     if (c.finishPath === "Oak / spice aging") greenlights.push("Oak / spice aging selected. Bench trials matter even more here than in fruit-forward batches.");
     // Rank by danger, not by the order the checks happen to run in. Only the first
@@ -1959,6 +1997,7 @@
       "Bottle-conditioning conflicts with a stabilized backsweetened finish.",
       "Record both k-meta and sorbate before backsweetening.",
       "Run a bench trial before scaling a sweeter finish.",
+      VOLUME_UNCONFIRMED_WARNING,
       "Need two stable SG readings at least a week apart before stabilization.",
       "One post-fermentation addition is missing a note."
     ];
@@ -2781,8 +2820,40 @@
     `).join("");
   }
 
+  function renderVolumeNow(){
+    const c = data.cellar;
+    const hint = $("cellarVolumeHint");
+    const host = $("cellarVolumeLog");
+    if (!hint || !host) return;
+    const built = Number(data.currentBatch.batchGallons) || 0;
+    const now = Number(c.currentGallons) || 0;
+    if (now && built){
+      const lossPct = ((built - now) / built) * 100;
+      hint.textContent = Math.abs(lossPct) < 0.5
+        ? `Matches the ${round(built, 2)} gal the batch was built at. Finish math uses ${round(now, 2)} gal.`
+        : lossPct > 0
+          ? `${round(lossPct, 0)}% below the ${round(built, 2)} gal the batch was built at. Finish math now uses ${round(now, 2)} gal.`
+          : `${round(-lossPct, 0)}% above the ${round(built, 2)} gal the batch was built at (top-up or additions). Finish math now uses ${round(now, 2)} gal.`;
+    } else if (now){
+      hint.textContent = `Finish math uses ${round(now, 2)} gal.`;
+    } else if (built){
+      hint.textContent = `Not measured yet. Finish math is assuming the original ${round(built, 2)} gal; racking, fruit and sediment usually take 5-15% of that.`;
+    } else {
+      hint.textContent = "";
+    }
+    const log = Array.isArray(c.volumeLog) ? c.volumeLog : [];
+    host.innerHTML = log.length
+      ? log.slice().reverse().map((entry) => `
+          <div class="volume-log-row">
+            <span><strong>${escapeHTML(String(entry.gallons))} gal</strong> · ${escapeHTML(formatDate(entry.date))}${entry.note ? ` · ${escapeHTML(entry.note)}` : ""}</span>
+            <button class="mini-btn utility-danger" type="button" data-volume-log-delete="${escapeHTML(entry.id)}" aria-label="Remove volume entry from ${escapeHTML(formatDate(entry.date))}">Remove</button>
+          </div>`).join("")
+      : "";
+  }
+
   function renderCellar(){
     renderCellarChecklist();
+    renderVolumeNow();
     const c = data.cellar;
     const back = calculateBacksweetening({
       volumeGallons: c.backsweetenVolume,
@@ -2843,7 +2914,9 @@
     const greenlightHtml = analysis.greenlights.length
       ? `<div class="cellar-status-line">${analysis.greenlights.map(escapeHTML).join("</div><div class=\"cellar-status-line\">")}</div>`
       : "";
-    const stabVolume = Number(c.backsweetenVolume) || Number(c.cellarGallons) || Number(data.currentBatch.batchGallons) || null;
+    // Stabilizer is dosed on the whole vessel, not on whatever portion is being
+    // sweetened or packaged — so measured volume first.
+    const stabVolume = Number(c.currentGallons) || Number(c.backsweetenVolume) || Number(c.cellarGallons) || Number(data.currentBatch.batchGallons) || null;
     const stabOg = fermentationOg();
     const stabLatestSg = analysis.latest ? Number(analysis.latest.gravity) : null;
     const measuredAbv = (stabOg && stabLatestSg) ? calcABV(stabOg, stabLatestSg) : null;
@@ -3007,6 +3080,17 @@
     $("calcSgResult").innerHTML = sg
       ? `<strong>${round(sg, 3)}</strong> SG`
       : `Need Brix.`;
+
+    if ($("calcRefResult")){
+      const ob = Number(data.calcs.refOriginalBrix);
+      const cb = Number(data.calcs.refCurrentBrix);
+      const corrected = refractometerFg ? refractometerFg({ originalBrix: ob, currentBrix: cb }) : null;
+      $("calcRefResult").innerHTML = corrected
+        ? `<strong>${round(corrected.sg, 3)}</strong> SG${corrected.abv ? ` · about ${round(corrected.abv, 1)}% ABV so far` : ""}<br><span class="muted">Started at ${round(corrected.og, 3)}. Uncorrected, this reading would have shown ${round(corrected.uncorrectedSg, 3)}.${corrected.outsideFit ? " Above 32 °Bx the correction is less reliable — confirm with a hydrometer." : ""}</span>`
+        : (ob > 0 && cb > ob)
+          ? `Current Brix is higher than the starting Brix. Check which reading is which.`
+          : `Need the Brix before pitching and the Brix now.`;
+    }
 
     const targetRecipe = estimateRecipeTargets({
       batchGallons: data.calcs.recipeBatch,
@@ -3456,6 +3540,7 @@
     $("stableDateB").value = fieldValue(c.stableDateB);
     $("cellarCurrentPh").value = fieldValue(c.currentPh);
     $("cellarCurrentTemp").value = fieldValue(c.currentTemp);
+    if ($("cellarCurrentGallons")) $("cellarCurrentGallons").value = fieldValue(c.currentGallons);
     $("kmetaAmount").value = fieldValue(c.kmetaAmount);
     $("sorbateAmount").value = fieldValue(c.sorbateAmount);
     $("backsweetenVolume").value = fieldValue(c.backsweetenVolume);
@@ -3496,6 +3581,8 @@
     $("calcBreakOg").value = fieldValue(c.breakOg);
     $("calcSgInput").value = fieldValue(c.sgInput);
     $("calcBrixInput").value = fieldValue(c.brixInput);
+    if ($("calcRefOriginalBrix")) $("calcRefOriginalBrix").value = fieldValue(c.refOriginalBrix);
+    if ($("calcRefCurrentBrix")) $("calcRefCurrentBrix").value = fieldValue(c.refCurrentBrix);
     $("calcRecipeBatch").value = fieldValue(c.recipeBatch);
     $("calcRecipeAbv").value = fieldValue(c.recipeAbv);
     $("calcRecipeSweetness").value = fieldValue(c.recipeSweetness, "Dry");
@@ -4286,6 +4373,46 @@
       el.addEventListener("input", handler);
       el.addEventListener("change", handler);
     });
+    const volumeInput = $("cellarCurrentGallons");
+    if (volumeInput){
+      const onVolume = () => {
+        applyMeasuredVolume(volumeInput.value);
+        persistData();
+        // The three dependent inputs may have just changed underneath the user.
+        $("backsweetenVolume").value = fieldValue(data.cellar.backsweetenVolume);
+        $("benchBatchGallons").value = fieldValue(data.cellar.benchBatchGallons);
+        $("cellarGallons").value = fieldValue(data.cellar.cellarGallons);
+        renderCellar();
+      };
+      volumeInput.addEventListener("input", onVolume);
+      volumeInput.addEventListener("change", onVolume);
+    }
+    $("logVolumeBtn")?.addEventListener("click", () => {
+      const gallons = Number(data.cellar.currentGallons);
+      if (!(gallons > 0)){
+        showToast("Enter the volume in the vessel first.", "warn");
+        $("cellarCurrentGallons")?.focus();
+        return;
+      }
+      if (!Array.isArray(data.cellar.volumeLog)) data.cellar.volumeLog = [];
+      data.cellar.volumeLog.push({
+        id: makeId("vol"),
+        date: new Date().toISOString(),
+        gallons: String(round(gallons, 2)),
+        note: String($("cellarVolumeNote")?.value || "").trim().slice(0, 80)
+      });
+      if ($("cellarVolumeNote")) $("cellarVolumeNote").value = "";
+      persistData();
+      renderCellar();
+      showToast(`Logged ${round(gallons, 2)} gal.`);
+    });
+    $("cellarVolumeLog")?.addEventListener("click", (event) => {
+      const id = event.target.dataset.volumeLogDelete;
+      if (!id) return;
+      data.cellar.volumeLog = (data.cellar.volumeLog || []).filter((entry) => entry.id !== id);
+      persistData();
+      renderCellar();
+    });
     $("wouldMakeAgain").addEventListener("change", () => {
       data.cellar.wouldMakeAgain = $("wouldMakeAgain").checked;
       persistData();
@@ -4465,6 +4592,8 @@
       calcBreakOg: "breakOg",
       calcSgInput: "sgInput",
       calcBrixInput: "brixInput",
+      calcRefOriginalBrix: "refOriginalBrix",
+      calcRefCurrentBrix: "refCurrentBrix",
       calcRecipeBatch: "recipeBatch",
       calcRecipeAbv: "recipeAbv",
       calcRecipeSweetness: "recipeSweetness",

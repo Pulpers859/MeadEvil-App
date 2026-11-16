@@ -19,6 +19,9 @@
  *  16. A batch started from an unsaved draft stays identity-linked to that draft
  *  17. RAPT import must not pull the previous batch's telemetry
  *  18. Exports must download with filesystem-safe filenames
+ *  19. Finish math must follow the measured volume
+ *  20. Refractometer readings must be alcohol-corrected with a formula that
+ *      behaves at mead gravities
  */
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
@@ -468,6 +471,92 @@ async function testStabilizerMath(context) {
   await page.close();
 }
 
+async function testMeasuredVolume(context) {
+  console.log("\n[19] Finish math follows the measured volume, not the recipe size");
+  const page = await freshPage(context);
+  await buildAndSaveRecipe(page, { name: "Volume Pin" });
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+  await clickTab(page, "cellar");
+  await setVal(page, "#cellarCurrentPh", "3.4");
+  await setVal(page, "#stableSgA", "0.998");
+  await setVal(page, "#stableDateA", "2026-06-01");
+  await setVal(page, "#stableSgB", "0.998");
+  await setVal(page, "#stableDateB", "2026-06-10");
+  await delay(400);
+  const read = () => page.$eval("#cellarSmartSummary", el => el.textContent);
+  const kmetaOf = (text) => Number((text.match(/([\d.]+)\s*g\s*k-meta/i) || [])[1]);
+  const before = await read();
+  check("unconfirmed volume is called out once the gate is clear", /Volume not confirmed/i.test(before), before.slice(0, 240));
+  check("dose starts from the 3 gal recipe size", /for 3 gal/.test(before), before.slice(0, 240));
+  const hintBefore = await page.$eval("#cellarVolumeHint", el => el.textContent);
+  check("hint says the volume is assumed", /Not measured yet/i.test(hintBefore) && /3 gal/.test(hintBefore), hintBefore);
+
+  await setVal(page, "#cellarCurrentGallons", "2.55");
+  await delay(400);
+  const after = await read();
+  check("warning clears once a volume is entered", !/Volume not confirmed/i.test(after), after.slice(0, 240));
+  check("stabilizer is sized for the measured volume", /for 2\.55 gal/.test(after), after.slice(0, 240));
+  const ratio = kmetaOf(after) / kmetaOf(before);
+  check("k-meta dose shrinks with the volume", ratio > 0.7 && ratio < 0.95, `${kmetaOf(before)} -> ${kmetaOf(after)}`);
+  const fields = await page.evaluate(() => ["backsweetenVolume", "benchBatchGallons", "cellarGallons"].map((id) => document.getElementById(id).value));
+  check("backsweeten, bench and packaging volumes follow", fields.every((v) => v === "2.55"), fields.join(","));
+  check("hint reports the loss", /15% below/.test(await page.$eval("#cellarVolumeHint", el => el.textContent)), await page.$eval("#cellarVolumeHint", el => el.textContent));
+
+  // A volume the user set on purpose must not be dragged along.
+  await setVal(page, "#backsweetenVolume", "1");
+  await setVal(page, "#cellarCurrentGallons", "2.4");
+  await delay(300);
+  const fields2 = await page.evaluate(() => ["backsweetenVolume", "benchBatchGallons", "cellarGallons"].map((id) => document.getElementById(id).value));
+  check("a deliberately different backsweeten volume is left alone", fields2[0] === "1" && fields2[1] === "2.4" && fields2[2] === "2.4", fields2.join(","));
+  check("stabilizer still doses the whole vessel, not the sweetened portion", /for 2\.4 gal/.test(await read()), (await read()).slice(0, 200));
+
+  await setVal(page, "#cellarVolumeNote", "Racked <b>off</b> fruit");
+  await page.$eval("#logVolumeBtn", (b) => b.click());
+  await delay(300);
+  const logged = (await state(page)).cellar.volumeLog;
+  check("volume log entry stored with its note", logged.length === 1 && logged[0].gallons === "2.4" && /Racked/.test(logged[0].note), JSON.stringify(logged));
+  check("log renders the note as text, not markup", await page.$eval("#cellarVolumeLog", (el) => el.querySelector("b") === null && /Racked <b>off<\/b> fruit/.test(el.textContent)));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(700);
+  await clickTab(page, "cellar");
+  check("measured volume survives a reload", (await page.$eval("#cellarCurrentGallons", el => el.value)) === "2.4");
+  await page.$eval("#cellarVolumeLog [data-volume-log-delete]", (b) => b.click());
+  await delay(300);
+  check("log entry can be removed", (await state(page)).cellar.volumeLog.length === 0);
+  await page.close();
+}
+
+async function testRefractometerCorrection(context) {
+  console.log("\n[20] Refractometer readings are corrected for alcohol");
+  const page = await freshPage(context);
+  const math = await page.evaluate(() => {
+    const m = window.MeadLogic || Object.values(window).find((v) => v && typeof v.refractometerFg === "function");
+    const f = (o, c) => m.refractometerFg({ originalBrix: o, currentBrix: c });
+    let monotonic = true; let anchored = true;
+    for (let o = 15; o <= 35; o += 1) {
+      let prev = Infinity;
+      for (let c = o; c >= 4; c -= 0.5) { const r = f(o, c); if (!(r.sg <= prev + 1e-9)) monotonic = false; prev = r.sg; }
+      const top = f(o, o); if (Math.abs(top.sg - top.og) > 0.004) anchored = false;
+    }
+    return { dry: f(24, 9), mid: f(24, 14), backwards: f(24, 25), blank: f("", 9), monotonic, anchored };
+  });
+  check("24 -> 9 Brix reads as a dry mead, not 1.036", math.dry.sg > 0.990 && math.dry.sg < 1.002 && math.dry.uncorrectedSg > 1.03, JSON.stringify(math.dry));
+  check("mid-ferment reading sits between start and finish", math.mid.sg > math.dry.sg && math.mid.sg < math.mid.og);
+  check("gravity never rises as Brix falls, 15-35 Brix", math.monotonic);
+  check("no fermentation returns the starting gravity", math.anchored);
+  check("a current reading above the original is rejected", math.backwards === null && math.blank === null);
+  await clickTab(page, "recipes");
+  await setVal(page, "#calcRefOriginalBrix", "24");
+  await setVal(page, "#calcRefCurrentBrix", "9");
+  await delay(200);
+  const shown = await page.$eval("#calcRefResult", el => el.textContent);
+  check("the tool shows corrected SG, ABV and the uncorrected figure", /0\.99\d SG/.test(shown) && /% ABV/.test(shown) && /1\.03\d/.test(shown), shown);
+  await setVal(page, "#calcRefCurrentBrix", "30");
+  await delay(200);
+  check("swapped readings get a plain explanation", /higher than the starting Brix/.test(await page.$eval("#calcRefResult", el => el.textContent)));
+  await page.close();
+}
+
 async function testGravityCsvImport(context) {
   console.log("\n[12] Hydrometer CSV import");
   const page = await freshPage(context);
@@ -720,6 +809,8 @@ async function main() {
   await testDraftBatchIdentityLink(context);
   await testRaptStaleReadingsRejected(context);
   await testExportFilenames(context);
+  await testMeasuredVolume(context);
+  await testRefractometerCorrection(context);
 
   await context.close();
   await browser.close();

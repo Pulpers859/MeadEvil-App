@@ -52,6 +52,46 @@
     return (n / (258.6 - ((n / 258.2) * 227.1))) + 1;
   }
 
+  // Refractometer reading taken AFTER fermentation has started. Alcohol bends
+  // light more than water does, so a plain Brix->SG conversion reads far too
+  // sweet once there is ethanol in the sample (a dry 0.998 mead shows ~1.032).
+  // The correction needs the pair of readings: Brix before pitching, Brix now.
+  //
+  // This is the long-standing "standard" cubic (Bonham / BYO). Sean Terrill's
+  // newer cubic is more accurate for beer but was tried here and rejected: it
+  // was fitted to worts under ~1.080 and falls apart at mead gravities (24 -> 20
+  // Brix came back ABOVE the starting gravity; 30 -> 10 came back as 0.971).
+  // The standard cubic is monotonic and returns the starting gravity when
+  // nothing has fermented, across 15-35 Brix.
+  //
+  // Still an estimate: about +/-0.005 SG, tending low on very strong, very dry
+  // batches. A hydrometer remains the tool of record for the stability gate.
+  function refractometerFg({ originalBrix, currentBrix, correctionFactor }){
+    const ob = num(originalBrix);
+    const cb = num(currentBrix);
+    const wcf = num(correctionFactor) > 0 ? num(correctionFactor) : 1;
+    if (!(ob > 0) || !(cb > 0) || cb > ob) return null;
+    const ri = ob / wcf;
+    const rf = cb / wcf;
+    const fg = 1.001843
+      - 0.002318474 * ri - 0.000007775 * ri * ri - 0.000000034 * ri * ri * ri
+      + 0.00574 * rf + 0.00003344 * rf * rf + 0.000000086 * rf * rf * rf;
+    const og = brixToSg(ri);
+    if (!Number.isFinite(fg) || !og) return null;
+    // Before any sugar is gone there is no alcohol to correct for; the cubic
+    // slightly overshoots there, so never report more gravity than was started with.
+    const correctedSg = Math.min(fg, og);
+    return {
+      originalBrix: ob,
+      currentBrix: cb,
+      og,
+      sg: correctedSg,
+      uncorrectedSg: brixToSg(rf),
+      abv: calcABV(og, correctedSg),
+      outsideFit: ob > 32
+    };
+  }
+
   // ABV.
   //
   // The familiar (OG - FG) * 131.25 is calibrated for BEER gravities (OG <= ~1.070)
@@ -605,6 +645,7 @@
     pointsToSg,
     sgToBrix,
     brixToSg,
+    refractometerFg,
     calcABV,
     calcABVSimple,
     ogForTargetAbv,

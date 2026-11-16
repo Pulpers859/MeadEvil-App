@@ -195,6 +195,11 @@
         mentor: { ...defaultMentor(), ...((input.mentor) || {}) },
         mentorKnowledge: normalizeMentorKnowledge(input.mentorKnowledge)
       };
+      // Ids here are rendered into data-* attributes; same rule as every other id.
+      merged.cellar.volumeLog = Array.isArray(merged.cellar.volumeLog)
+        ? dedupeIds(merged.cellar.volumeLog.filter((entry) => entry && typeof entry === "object" && Number(entry.gallons) > 0)
+            .map((entry) => ({ id: entry.id, date: String(entry.date || ""), gallons: String(entry.gallons), note: String(entry.note || "").slice(0, 80) })), "vol")
+        : [];
       merged.recipeDraft.additions = Array.isArray(merged.recipeDraft.additions) && merged.recipeDraft.additions.length
         ? dedupeIds(merged.recipeDraft.additions.map((row) => ({ ...defaultAdditionRow(), ...row })), "src")
         : [defaultAdditionRow()];

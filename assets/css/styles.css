@@ -1967,3 +1967,12 @@ input[readonly]{opacity:.90}
   color:#ffd3a8;
   line-height:1.4;
 }
+
+/* Finish: measured volume */
+.volume-now-row{margin-top:var(--sp-sm);align-items:end}
+.volume-now-action{display:flex;align-items:flex-end}
+.volume-now-action .mini-btn{width:100%;min-height:44px}
+.volume-now-hint{margin-top:6px;color:var(--cream-2)}
+.volume-log{display:grid;gap:6px;margin-top:6px}
+.volume-log:empty{display:none}
+.volume-log-row{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-sm);padding:6px 10px;border:1px solid rgba(244,230,208,.08);border-radius:10px;font-size:.86rem}

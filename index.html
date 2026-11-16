@@ -299,7 +299,7 @@
             <details class="card accord-card quick-math-card utility-panel">
               <summary class="accord-summary">
                 <span class="accord-title">Quick math</span>
-                <span class="small">7 fast tools</span>
+                <span class="small">8 fast tools</span>
               </summary>
               <div class="accord-body">
                 <div class="calc-stack">
@@ -387,7 +387,7 @@
                     <summary class="calc-cluster-summary">
                       <span class="calc-cluster-kicker">Convert</span>
                       <span class="calc-cluster-title">SG / Brix</span>
-                      <span class="calc-cluster-meta">2 tools</span>
+                      <span class="calc-cluster-meta">3 tools</span>
                     </summary>
                     <div class="calc-cluster-body">
                     <div class="calc-grid">
@@ -406,7 +406,19 @@
                         </div>
                         <div class="field"><label for="calcBrixInput">Brix</label><input id="calcBrixInput" type="number" step="0.1" /></div>
                         <div class="result calc-result" id="calcSgResult"></div>
-                        <p class="small warn-copy">Pre-fermentation only. Ethanol distorts refractometer readings, so once the yeast is working this conversion reads far too sweet — a dry 0.998 mead can show as 1.032. Use a hydrometer after pitching.</p>
+                        <p class="small warn-copy">Pre-fermentation only. Once the yeast is working, alcohol makes this read far too sweet — use the corrected tool beside it.</p>
+                      </article>
+                      <article class="calc-cell calc-tool">
+                        <div class="calc-tool-head">
+                          <div class="calc-label">Refractometer during or after fermentation</div>
+                          <h4 class="calc-tool-title">Alcohol-corrected SG</h4>
+                        </div>
+                        <div class="form-grid-2">
+                          <div class="field"><label for="calcRefOriginalBrix">Brix before pitching</label><input id="calcRefOriginalBrix" type="number" step="0.1" min="0" inputmode="decimal" /></div>
+                          <div class="field"><label for="calcRefCurrentBrix">Brix now</label><input id="calcRefCurrentBrix" type="number" step="0.1" min="0" inputmode="decimal" /></div>
+                        </div>
+                        <div class="result calc-result" id="calcRefResult"></div>
+                        <p class="small warn-copy">An estimate (about ±0.005 SG). Use a hydrometer for the two stability readings.</p>
                       </article>
                     </div>
                     </div>
@@ -720,6 +732,13 @@
                 <div class="field"><label for="stableSgB">Stable SG #2</label><input id="stableSgB" type="number" step="0.001" /></div>
                 <div class="field"><label for="stableDateB">Date #2</label><input id="stableDateB" type="date" /></div>
               </div>
+              <div class="form-grid-3 volume-now-row">
+                <div class="field"><label for="cellarCurrentGallons">Volume now (gal)</label><input id="cellarCurrentGallons" type="number" step="0.05" min="0" inputmode="decimal" placeholder="Measure after racking" /></div>
+                <div class="field"><label for="cellarVolumeNote">What changed</label><input id="cellarVolumeNote" type="text" maxlength="80" placeholder="Racked off fruit" /></div>
+                <div class="field volume-now-action"><button class="mini-btn" id="logVolumeBtn" type="button">Log volume</button></div>
+              </div>
+              <div class="small volume-now-hint" id="cellarVolumeHint" aria-live="polite"></div>
+              <div class="volume-log" id="cellarVolumeLog"></div>
               <details class="recipe-extras-fold setup-fold">
                 <summary class="recipe-extras-summary">
                   <span class="small">Stabilization chemistry</span>
