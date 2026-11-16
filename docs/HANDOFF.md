@@ -416,18 +416,20 @@ If backsweetening:
 
 ## 14) Current implementation reality
 
-Be honest about what is real and what is still a bridge.
-
 What is real right now:
-- the frontend mentor shell exists
-- Brainstorm is meant to be more guided and beginner-friendly
-- structure additions are a defined concept direction
-- the app is intended to keep Build as recipe truth
-- the app is intended to keep the mentor safe and server-side
+- the mentor backend (`netlify/functions/meadevil-mentor.mjs`) is live: template, knowledge-base and model replies, each labelled in the UI with where it came from
+- coach modes change the model's instructions, not just the label
+- amounts for Send to Build are read by a second JSON-mode call and kept only when the reply states amount, unit and ingredient together; otherwise pattern extraction is used
+- Source Bill drives gravity math; measured readings outrank both the bill and the design target
+- Cellar has a volume / racking log and the calculators include refractometer alcohol correction
+- cloud sync is a three-way merge with a recovery path (see `docs/SETUP.md`)
+- the app shell opens offline through `sw.js`
+- automated suites cover regressions, sync, mentor backend and offline (`npm test`, `npm run test:sync`, `test:mentor`, `test:offline`)
 
-What may still be incomplete:
-- the live mentor backend may not yet be fully implemented or wired correctly
-- if the UI shows a fallback message, treat that as a sign the endpoint is missing or not returning clean JSON
+What is still a bridge:
+- one active batch at a time
+- one world-shared sync document under anonymous auth
+- the brainstorm thread itself does not sync between devices
 
 ## 15) Guardrails for future work
 
@@ -452,11 +454,11 @@ Do:
 ## 16) Highest-value future improvements
 
 If work continues, the best next improvements are:
-1. improve fruit / juice / concentrate contribution logic
-2. make backsweetening and finishing math more explicit about estimates versus exact values
+1. multiple active batches
+2. real sign-in and per-user sync documents with Firestore rules
 3. expand bench-trial support for acid and tannin stock-solution workflows
-4. continue tightening mobile spacing and condensed layouts where rows still feel wasteful
-5. finish the real live mentor backend if it is still only a shell
+4. make backsweetening and finishing math more explicit about estimates versus exact values
+5. continue tightening mobile spacing, especially the Finish tab
 
 ## 17) Final status judgment
 
