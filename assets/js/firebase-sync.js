@@ -355,14 +355,15 @@
   // Rows with ids (checklist tasks, source-bill rows, step-feed entries, finish
   // additions) merge row by row. Treating the whole list as one value meant a
   // honey feed logged on one device erased one logged on another.
-  function mergeIdLists(base, local, cloud){
+  function mergeIdLists(base, local, cloud, wholeLists){
     const baseMap = new Map(base.map((item) => [item.id, item]));
     const localMap = new Map(local.map((item) => [item.id, item]));
     const cloudMap = new Map(cloud.map((item) => [item.id, item]));
     // Both sides threw the old list away and built a new one (each archived the
     // batch, or loaded a different recipe): those are two documents, not rows
     // to union. Unioning doubled checklists and mixed two recipes' honey.
-    if (base.length && local.length && cloud.length
+    const realRows = (rows) => rows.filter((row) => !("ingredient" in row && isBlankAdjunctRow(row)));
+    if (wholeLists && base.length && realRows(local).length && realRows(cloud).length
       && !local.some((item) => baseMap.has(item.id) || cloudMap.has(item.id))
       && !cloud.some((item) => baseMap.has(item.id))){
       return clone(local);
@@ -391,7 +392,7 @@
   // Without an ancestor there is no evidence this device changed anything, so
   // the cloud wins every disagreement, except that an empty value never beats
   // a real one.
-  function threeWay(base, local, cloud, hasBase, localNewer){
+  function threeWay(base, local, cloud, hasBase, wholeLists){
     if (same(local, cloud)) return clone(local);
     if (local === undefined) return clone(cloud);
     if (cloud === undefined) return clone(local);
@@ -403,18 +404,19 @@
       const ancestor = isPlain(base) ? base : null;
       const out = {};
       new Set(Object.keys(local).concat(Object.keys(cloud))).forEach((key) => {
-        const value = threeWay(ancestor ? ancestor[key] : undefined, local[key], cloud[key], hasBase, localNewer);
+        const value = threeWay(ancestor ? ancestor[key] : undefined, local[key], cloud[key], hasBase, wholeLists);
         if (value !== undefined) out[key] = value;
       });
       return out;
     }
     if (hasBase && isIdList(local) && isIdList(cloud) && isIdList(base)){
-      return mergeIdLists(base, local, cloud);
+      return mergeIdLists(base, local, cloud, wholeLists);
     }
     if (hasBase) return clone(local);
-    // An empty cloud value may be a deliberate clear made after this device
-    // last saved; only a device that saved more recently may refill it.
-    return clone(isEmptyish(cloud) && localNewer !== false ? local : cloud);
+    // (Clocks cannot settle whether that empty value is a deliberate clear:
+    // the app re-saves on load, so every device looks "just saved". Keeping the
+    // real value can undo a clear; the alternative silently loses data.)
+    return clone(isEmptyish(cloud) ? local : cloud);
   }
 
   // ---- collection merge -----------------------------------------------------
@@ -594,8 +596,11 @@
 
   function draftsDiverged(base, local, cloud){
     if (!isPlain(local) || !isPlain(cloud)) return false;
-    const ident = (draft) => isPlain(draft) ? [draft.id || "", String(draft.name || "").trim()].join("|") : "|";
-    return ident(local) !== ident(cloud) && ident(local) !== ident(base) && ident(cloud) !== ident(base);
+    // Two different saved recipes, by id. A rename of the same draft is an
+    // ordinary field edit and merges field by field.
+    const ident = (draft) => isPlain(draft) ? String(draft.id || "") : "";
+    return Boolean(ident(local)) && Boolean(ident(cloud))
+      && ident(local) !== ident(cloud) && ident(local) !== ident(base) && ident(cloud) !== ident(base);
   }
 
   // Is this side's batch already sitting in the Vault (archived by another device)?
@@ -611,12 +616,13 @@
   // Same batch (start time + recipe) already in the Vault, with every reading
   // this side holds. Looser than archiveCovers: tolerates fields the other
   // device has since edited or normalised.
-  function archivedByIdentity(archive, side){
+  function archivedByIdentity(archive, side, ignoreReadings){
     const id = batchIdentity(side);
     if (!side.currentBatch || !side.currentBatch.loadedAt) return false;
     const keys = list(side.fermentationLogs).map(logKey);
     return list(archive).some((entry) => {
       if (batchIdentity({ currentBatch: entry.batch }) !== id) return false;
+      if (ignoreReadings) return true;
       const entryLogs = new Set(list(entry.fermentationLogs).map(logKey));
       return keys.every((key) => entryLogs.has(key));
     });
@@ -633,9 +639,6 @@
     const cloud = cloudEnv.data || {};
     const baseSections = base && isPlain(base.sections) ? base.sections : null;
     const hasBase = Boolean(baseSections);
-    const localSavedAt = toTimestamp(localEnv.schema && localEnv.schema.savedAt);
-    const cloudSavedAt = toTimestamp(cloudUpdatedAt || (cloudEnv.schema && cloudEnv.schema.savedAt));
-    const localNewer = !(localSavedAt && cloudSavedAt) || localSavedAt >= cloudSavedAt;
 
     const mergedData = {};
     const sectionKeys = new Set(Object.keys(local).concat(Object.keys(cloud)));
@@ -660,7 +663,7 @@
         // A stale device with no ancestor must not resurrect a batch the
         // cloud already archived (or cleared on purpose).
         localWins = batchIsReal(local) && !batchIsReal(cloud)
-          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive), local);
+          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive), local, true);
       }
       winner = localWins ? local : cloud;
       loser = localWins ? cloud : local;
@@ -676,7 +679,12 @@
         // Each device loaded a different recipe: never blend two recipes.
         value = clone(local[key]);
       } else {
-        value = threeWay(baseSections ? baseSections[key] : undefined, local[key], cloud[key], hasBase, localNewer);
+        // Both devices left the agreed batch (each archived or reset it) and
+        // ended on the same identity: their fresh checklists and rows are two
+        // copies of one document, not rows to union.
+        const wholeLists = hasBase && BATCH_GROUP_KEYS.includes(key)
+          && localBatchId !== batchIdentity(baseSections) && cloudBatchId !== batchIdentity(baseSections);
+        value = threeWay(baseSections ? baseSections[key] : undefined, local[key], cloud[key], hasBase, wholeLists);
       }
       if (value !== undefined) mergedData[key] = value;
     });
@@ -726,7 +734,10 @@
       // No ancestor and the same batch on both sides: the cloud won every
       // disagreement, so anything this device changed that the cloud never saw
       // would vanish without a trace. Park this device's version in the Vault.
-      if (!hasBase && batchIsReal(local) && !same(batchGroupOf(local), batchGroupOf(mergedData))
+      const alreadyParked = archive.some((entry) => String(entry.id || "").startsWith("arch-recovered-")
+        && String(entry.batch && entry.batch.loadedAt || "") === String(local.currentBatch && local.currentBatch.loadedAt || "")
+        && String(entry.batch && entry.batch.recipeId || "") === String(local.currentBatch && local.currentBatch.recipeId || ""));
+      if (!hasBase && batchIsReal(local) && !alreadyParked && !same(batchGroupOf(local), batchGroupOf(mergedData))
         && !archiveCovers(archive, local, list(local.fermentationLogs))){
         const rescued = rescueEntry(local, list(local.fermentationLogs));
         if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);
@@ -897,6 +908,23 @@
     return Date.now() < autoPausedUntil;
   }
 
+  // Second net: a loop in which each device re-saves what it receives changes
+  // local storage before every write, so none of them looks corrective. No
+  // person makes this many remote-triggered uploads in a minute.
+  const REMOTE_WRITE_LIMIT = 30;
+  let remoteWriteTimes = [];
+
+  function noteRemoteWrite(){
+    const now = Date.now();
+    remoteWriteTimes = remoteWriteTimes.filter((stamp) => now - stamp < AUTO_WRITE_WINDOW_MS);
+    remoteWriteTimes.push(now);
+    if (remoteWriteTimes.length >= REMOTE_WRITE_LIMIT){
+      remoteWriteTimes = [];
+      autoWriteTimes = new Array(AUTO_WRITE_LIMIT - 1).fill(now);
+      noteAutoWrite();
+    }
+  }
+
   function noteAutoWrite(){
     const now = Date.now();
     autoWriteTimes = autoWriteTimes.filter((stamp) => now - stamp < AUTO_WRITE_WINDOW_MS);
@@ -932,6 +960,7 @@
           syncQueued = false;
           const wrote = await syncOnce(reason);
           if (wrote && lastWriteWasCorrective && reason !== "manual" && reason !== "boot") noteAutoWrite();
+          else if (wrote && reason === "remote") noteRemoteWrite();
           rounds += 1;
         } while (syncQueued && rounds < 5);
         retryDelayMs = 0;

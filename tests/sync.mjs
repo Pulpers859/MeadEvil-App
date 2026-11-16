@@ -538,7 +538,34 @@ async function main() {
       env({ currentBatch: { loadedAt: "2026-01-01T00:00:00Z", recipeId: "r1", name: "X (recovered copy)", notes: "mine" }, archive: [] }, "2026-03-01T00:00:00Z"),
       env({ currentBatch: { loadedAt: "2026-02-01T00:00:00Z", recipeId: "r2", name: "Other" }, archive: [] }, "2026-03-02T00:00:00Z"),
       null, null).data;
+    const s4 = merge(
+      env({ recipeDraft: { structureAdditions: [{ id: "blank-xyz", ingredient: "", amount: "", purpose: "", notes: "" }] } }, "2026-03-03T00:00:00Z"),
+      env({ recipeDraft: { structureAdditions: [{ id: "b", ingredient: "vanilla" }] } }, "2026-03-02T00:00:00Z"),
+      null, { sections: { recipeDraft: { structureAdditions: [{ id: "a", ingredient: "oak" }] } }, logIds: [] }).data;
+    const s5 = merge(
+      env({ recipeDraft: { additions: [{ id: "w", name: "wildflower" }] } }, "2026-03-03T00:00:00Z"),
+      env({ recipeDraft: { additions: [{ id: "c", name: "cherry" }] } }, "2026-03-02T00:00:00Z"),
+      null, { sections: { recipeDraft: { additions: [{ id: "k", name: "clover" }] } }, logIds: [] }).data;
+    const s6 = merge(
+      env({ recipeDraft: { id: "", name: "Trad v2", batchGallons: "5" } }, "2026-03-03T00:00:00Z"),
+      env({ recipeDraft: { id: "", name: "Traditional", batchGallons: "6" } }, "2026-03-02T00:00:00Z"),
+      null, { sections: { recipeDraft: { id: "", name: "Trad", batchGallons: "5" } }, logIds: [] }).data;
+    const l1 = { id: "l1", date: "2026-01-02", gravity: "1.100" };
+    const l2 = { id: "l2", date: "2026-01-09", gravity: "1.050" };
+    const s10 = merge(
+      env({ currentBatch: batch, fermentationLogs: [l1, l2], archive: [] }, "2026-03-01T00:00:00Z"),
+      env({ currentBatch: empty, fermentationLogs: [], archive: [{ id: "arch1", archivedAt: "2026-03-02T00:00:00Z", batch, cellar: {}, fermentationLogs: [l1] }] }, "2026-03-02T00:00:00Z"),
+      null, null).data;
+    // Baseline can never be stored: each new local edit must not add another copy.
+    const cloudSide = env({ currentBatch: batch, cellar: { currentPh: "3.3" }, archive: [] }, "2026-03-02T00:00:00Z");
+    const first = merge(env({ currentBatch: batch, cellar: { currentPh: "3.5" }, archive: [] }, "2026-03-01T00:00:00Z"), cloudSide, null, null);
+    const second = merge(env({ ...first.data, cellar: { currentPh: "3.7" } }, "2026-03-03T00:00:00Z"), env({ ...first.data }, "2026-03-02T00:00:00Z"), null, null).data;
     return {
+      s4: s4.recipeDraft.structureAdditions.map((r) => r.ingredient).filter(Boolean).join(","),
+      s5: s5.recipeDraft.additions.map((r) => r.name).join(","),
+      s6Name: s6.recipeDraft.name, s6Gal: s6.recipeDraft.batchGallons,
+      s10Active: s10.currentBatch.name || "", s10Parked: s10.archive.filter((e) => /recovered/.test(e.batch.name)).length,
+      s9: second.archive.filter((e) => /recovered/.test(e.batch.name)).length,
       a2Tick: a2.fermentChecklist[0].done, a2Parked: a2.archive.length, a2ParkedTick: a2.archive[0] && a2.archive[0].fermentChecklist[0].done,
       a2bParked: a2b.archive.length,
       a1cNote: a1c.cellar.note, a1cName: a1c.recipeDraft.name,
@@ -550,7 +577,12 @@ async function main() {
   check("no baseline, same batch: cloud value wins", r15.a2Tick === false);
   check("...but this device's differing version is parked in the Vault", r15.a2Parked === 1 && r15.a2ParkedTick === true, `${r15.a2Parked}/${r15.a2ParkedTick}`);
   check("...and nothing is parked when both sides agree", r15.a2bParked === 0, String(r15.a2bParked));
-  check("no baseline: an older device cannot refill fields the cloud cleared", r15.a1cNote === "" && r15.a1cName === "", `${r15.a1cNote}/${r15.a1cName}`);
+  check("no baseline: a real local value is kept over an empty cloud one, whatever the clocks say", r15.a1cNote === "old note" && r15.a1cName === "Old draft", `${r15.a1cNote}/${r15.a1cName}`);
+  check("a blank placeholder row does not erase the other device's adjunct", r15.s4 === "vanilla", r15.s4);
+  check("two devices each replacing a source-bill row keep both rows", r15.s5 === "cherry,wildflower" || r15.s5 === "wildflower,cherry", r15.s5);
+  check("two renames of the same draft merge field by field", r15.s6Name === "Trad v2" && r15.s6Gal === "6", `${r15.s6Name}/${r15.s6Gal}`);
+  check("a stale device with extra readings does not revive an archived batch", r15.s10Active === "" && r15.s10Parked === 1, `${r15.s10Active}/${r15.s10Parked}`);
+  check("repeat syncs without a baseline park one copy per batch, not one per edit", r15.s9 === 1, String(r15.s9));
   check("both devices rebuilt a checklist: one list, not a doubled one", r15.a4Tasks === "L0,L1" && r15.a4Adds === "La", `${r15.a4Tasks} | ${r15.a4Adds}`);
   check("two different recipes loaded apart are never blended", r15.a4bName === "Cyser" && r15.a4bGal === "1" && r15.a4bNotes === "" && r15.a4bRows === "Cider", JSON.stringify(r15));
   check("recovered-copy suffix does not stack", r15.a8Name === "X (recovered copy)", r15.a8Name);

@@ -1473,9 +1473,16 @@
   const TOMBSTONE_LIMIT = 5000;
 
   function recordTombstones(collection, ids){
-    const stamp = new Date().toISOString();
+    const now = Date.now();
     (Array.isArray(ids) ? ids : [ids]).filter(Boolean).forEach((id) => {
-      data.tombstones.push({ collection, id: String(id), deletedAt: stamp });
+      // Strictly after any earlier revival of this id, even on a slow clock.
+      let latest = 0;
+      data.tombstones.forEach((entry) => {
+        if (entry.collection === collection && String(entry.id) === String(id)){
+          latest = Math.max(latest, Date.parse(entry.deletedAt) || 0, Date.parse(entry.revivedAt) || 0);
+        }
+      });
+      data.tombstones.push({ collection, id: String(id), deletedAt: new Date(Math.max(now, latest + 1)).toISOString() });
     });
     if (data.tombstones.length > TOMBSTONE_LIMIT){
       data.tombstones = data.tombstones.slice(-TOMBSTONE_LIMIT);
@@ -1492,7 +1499,7 @@
   // A marker is written even when this device holds no tombstone for the id,
   // because another device may. The sync layer keeps whichever of
   // deletedAt/revivedAt is newer, so deleting the record again later still works.
-  function clearTombstones(collection, ids){
+  function clearTombstones(collection, ids, options = {}){
     const revive = new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String));
     if (!revive.size) return;
     const now = Date.now();
@@ -1504,6 +1511,9 @@
       const stamp = Math.max(Date.parse(entry.deletedAt) || 0, Date.parse(entry.revivedAt) || 0);
       deletedStamps.set(String(entry.id), Math.max(stamp, deletedStamps.get(String(entry.id)) || 0));
     });
+    // A backup restore must also beat a deletion made on another device that
+    // this one has not heard about yet, so it marks every restored id.
+    if (options.always) revive.forEach((id) => { if (!deletedStamps.has(id)) deletedStamps.set(id, 0); });
     if (!deletedStamps.size) return;
     data.tombstones = data.tombstones.filter(
       (entry) => !(entry.collection === collection && revive.has(String(entry.id)))
@@ -5261,7 +5271,7 @@
           // record you deleted, then recovered from a backup, reappeared in the UI
           // and was stripped straight back out by the next cloud merge, because the
           // stale tombstone still outranked it.
-          clearTombstones(collection, [...importedIds]);
+          clearTombstones(collection, [...importedIds], { always: true });
         });
         populateRecipeForm();
         populateNutrientForm();
