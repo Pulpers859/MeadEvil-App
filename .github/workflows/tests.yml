@@ -1,0 +1,46 @@
+name: Tests
+
+# The app has no build step, so these browser suites are the only thing standing
+# between a commit to main and a broken deploy. They previously ran only when
+# someone remembered to, and two suites sat failing unnoticed for months.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-suites:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Syntax-check every script the browser and Netlify load
+        run: |
+          for f in assets/js/*.js sw.js; do [ -f "$f" ] && node --check "$f"; done
+          for f in netlify/functions/*.mjs scripts/*.mjs tests/*.mjs; do node --check "$f"; done
+      - name: Start dev server
+        run: |
+          node scripts/dev-server.mjs > dev-server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8910/ > /dev/null && exit 0; sleep 1; done
+          cat dev-server.log; exit 1
+      - run: npm run test:regressions
+      - run: npm run test:sync
+      - run: node tests/user-journey.mjs
+      - run: npm run test:e2e
+      - name: Dev server log
+        if: failure()
+        run: cat dev-server.log

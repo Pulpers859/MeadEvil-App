@@ -34,7 +34,7 @@
 - Read this file first, then only the one repo skill and files needed for the task.
 - Do not load all docs or large app files by default.
 - Prefer targeted searches and small file reads over broad repo sweeps.
-- Use `.Codex/skills/meadevil-context-compact` when reviving old work or preparing a handoff.
+- Use `.agents/skills/meadevil-context-compact` when reviving old work or preparing a handoff.
 - Use `repomix` only for external full-repo handoffs, not normal local work.
 
 ## Skill-First Workflow
