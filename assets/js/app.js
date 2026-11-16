@@ -1495,12 +1495,24 @@
   function clearTombstones(collection, ids){
     const revive = new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String));
     if (!revive.size) return;
-    const stamp = new Date().toISOString();
+    const now = Date.now();
+    // Only ids that were actually deleted need a revival marker; writing one
+    // for every id would crowd real deletions out of the capped list.
+    const deletedStamps = new Map();
+    data.tombstones.forEach((entry) => {
+      if (entry.collection !== collection || !revive.has(String(entry.id))) return;
+      const stamp = Math.max(Date.parse(entry.deletedAt) || 0, Date.parse(entry.revivedAt) || 0);
+      deletedStamps.set(String(entry.id), Math.max(stamp, deletedStamps.get(String(entry.id)) || 0));
+    });
+    if (!deletedStamps.size) return;
     data.tombstones = data.tombstones.filter(
       (entry) => !(entry.collection === collection && revive.has(String(entry.id)))
     );
-    revive.forEach((id) => {
-      data.tombstones.push({ collection, id, deletedAt: "", revivedAt: stamp });
+    deletedStamps.forEach((deletedAt, id) => {
+      // Strictly after the deletion even when this device's clock runs behind
+      // the one that deleted it, or sync would re-apply the deletion.
+      const revivedAt = new Date(Math.max(now, deletedAt + 1)).toISOString();
+      data.tombstones.push({ collection, id, deletedAt: "", revivedAt });
     });
     if (data.tombstones.length > TOMBSTONE_LIMIT){
       data.tombstones = data.tombstones.slice(-TOMBSTONE_LIMIT);

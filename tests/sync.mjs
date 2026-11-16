@@ -491,6 +491,99 @@ async function main() {
   check("status is an error that names the size limit", big.mode === "error" && /too large to sync/.test(big.lastError || ""), `${big.mode}: ${String(big.lastError).slice(0, 80)}`);
   check("the oversized state was not written", !JSON.stringify(cloudData()).includes("xxxxxxxxxx"));
   check("the data is still on the device", (await appData(lap)).recipeDraft.notes.length > 1000000);
+  await clickTab(pho, "recipes");
+  await setVal(pho, "#recipeName", "Sent to the oversized device");
+  await settleAfterTyping();
+  await delay(1500);
+  check("an oversized device still receives other devices' changes", (await appData(lap)).recipeDraft.name === "Sent to the oversized device", (await appData(lap)).recipeDraft.name);
+  check("...and keeps its own oversized data and the warning", (await appData(lap)).recipeDraft.notes.length > 1000000 && (await syncStatus(lap)).mode === "error");
+
+  console.log("\n[15] Second-audit merge rules");
+  const pure = await device(browser, "pure", { localOnly: true });
+  const r15 = await pure.evaluate(() => {
+    const merge = window.MeadevilSync.buildMergedAppData;
+    const env = (data, savedAt) => ({ _schema: { savedAt }, data });
+    const task = (id, done) => ({ id, text: id, done });
+    const batch = { loadedAt: "2026-01-01T00:00:00Z", recipeId: "r1", name: "Shared batch" };
+    // No baseline, same batch, a tick made only on this device.
+    const a2 = merge(
+      env({ currentBatch: batch, fermentChecklist: [task("t0", true)], archive: [] }, "2026-03-01T00:00:00Z"),
+      env({ currentBatch: batch, fermentChecklist: [task("t0", false)], archive: [] }, "2026-03-02T00:00:00Z"),
+      null, null).data;
+    // ...and nothing parked when the two sides already agree.
+    const a2b = merge(
+      env({ currentBatch: batch, fermentChecklist: [task("t0", true)], archive: [] }, "2026-03-01T00:00:00Z"),
+      env({ currentBatch: batch, fermentChecklist: [task("t0", true)], archive: [] }, "2026-03-02T00:00:00Z"),
+      null, null).data;
+    // No baseline: a stale device must not refill a field the cloud cleared later.
+    const a1c = merge(
+      env({ cellar: { note: "old note" }, recipeDraft: { name: "Old draft" } }, "2026-03-01T00:00:00Z"),
+      env({ cellar: { note: "" }, recipeDraft: { name: "" } }, "2026-03-05T00:00:00Z"),
+      null, null).data;
+    // Both devices archived the batch apart: each got fresh default rows.
+    const empty = { name: "", loadedAt: null, recipeId: "" };
+    const a4 = merge(
+      env({ currentBatch: empty, fermentChecklist: [task("L0", false), task("L1", false)], cellar: { additions: [{ id: "La", note: "" }] } }, "2026-03-03T00:00:00Z"),
+      env({ currentBatch: empty, fermentChecklist: [task("C0", false), task("C1", false)], cellar: { additions: [{ id: "Ca", note: "" }] } }, "2026-03-02T00:00:00Z"),
+      null,
+      { sections: { currentBatch: batch, fermentChecklist: [task("B0", true), task("B1", true)], cellar: { additions: [{ id: "Ba", note: "x" }] } }, logIds: [] }).data;
+    // Each device loaded a different recipe into the Build draft.
+    const a4b = merge(
+      env({ recipeDraft: { id: "rc", name: "Cyser", batchGallons: "1", notes: "", additions: [{ id: "c1", name: "Cider" }] } }, "2026-03-03T00:00:00Z"),
+      env({ recipeDraft: { id: "rt", name: "Trad", batchGallons: "5", notes: "trad notes", additions: [{ id: "t1", name: "Orange blossom", amount: "15" }] } }, "2026-03-02T00:00:00Z"),
+      null,
+      { sections: { recipeDraft: { id: "", name: "", batchGallons: "1", notes: "", additions: [{ id: "b1", name: "" }] } }, logIds: [] }).data;
+    // Recovered-copy suffix never stacks.
+    const a8 = merge(
+      env({ currentBatch: { loadedAt: "2026-01-01T00:00:00Z", recipeId: "r1", name: "X (recovered copy)", notes: "mine" }, archive: [] }, "2026-03-01T00:00:00Z"),
+      env({ currentBatch: { loadedAt: "2026-02-01T00:00:00Z", recipeId: "r2", name: "Other" }, archive: [] }, "2026-03-02T00:00:00Z"),
+      null, null).data;
+    return {
+      a2Tick: a2.fermentChecklist[0].done, a2Parked: a2.archive.length, a2ParkedTick: a2.archive[0] && a2.archive[0].fermentChecklist[0].done,
+      a2bParked: a2b.archive.length,
+      a1cNote: a1c.cellar.note, a1cName: a1c.recipeDraft.name,
+      a4Tasks: a4.fermentChecklist.map((t) => t.id).join(","), a4Adds: a4.cellar.additions.map((t) => t.id).join(","),
+      a4bName: a4b.recipeDraft.name, a4bGal: a4b.recipeDraft.batchGallons, a4bNotes: a4b.recipeDraft.notes, a4bRows: a4b.recipeDraft.additions.map((r) => r.name).join(","),
+      a8Name: a8.archive[0] && a8.archive[0].batch.name
+    };
+  });
+  check("no baseline, same batch: cloud value wins", r15.a2Tick === false);
+  check("...but this device's differing version is parked in the Vault", r15.a2Parked === 1 && r15.a2ParkedTick === true, `${r15.a2Parked}/${r15.a2ParkedTick}`);
+  check("...and nothing is parked when both sides agree", r15.a2bParked === 0, String(r15.a2bParked));
+  check("no baseline: an older device cannot refill fields the cloud cleared", r15.a1cNote === "" && r15.a1cName === "", `${r15.a1cNote}/${r15.a1cName}`);
+  check("both devices rebuilt a checklist: one list, not a doubled one", r15.a4Tasks === "L0,L1" && r15.a4Adds === "La", `${r15.a4Tasks} | ${r15.a4Adds}`);
+  check("two different recipes loaded apart are never blended", r15.a4bName === "Cyser" && r15.a4bGal === "1" && r15.a4bNotes === "" && r15.a4bRows === "Cider", JSON.stringify(r15));
+  check("recovered-copy suffix does not stack", r15.a8Name === "X (recovered copy)", r15.a8Name);
+
+  // Resuming on a device whose clock runs behind the one that archived.
+  const future = new Date(Date.now() + 5 * 60000).toISOString();
+  const slowEnv = stateWith((d) => {
+    d.archive = [{ id: "arch-slow", archivedAt: future, batch: { ...d.currentBatch, name: "Slow clock", loadedAt: "2026-05-01T00:00:00.000Z" }, nutrients: d.nutrients, cellar: d.cellar, fermentChecklist: d.fermentChecklist, cellarChecklist: d.cellarChecklist, fermentationLogs: [logRow(1, 5), logRow(2, 5)] }];
+    d.tombstones = [{ collection: "fermentationLogs", id: "log-1", deletedAt: future }, { collection: "fermentationLogs", id: "log-2", deletedAt: future }];
+  }, "2026-05-10T00:00:00.000Z");
+  const slow = await device(browser, "slow-clock", { localOnly: true, seed: { [STORAGE_KEY]: JSON.stringify(slowEnv) } });
+  await clickTab(slow, "archive");
+  const resumeBtn = await slow.$("[data-archive-load]");
+  if (resumeBtn) {
+    await resumeBtn.click();
+    await delay(300);
+    const ok = await slow.$('.modal-actions button:has-text("Resume batch")');
+    if (ok) await ok.click();
+    await delay(500);
+  }
+  const slowData = await appData(slow);
+  const marks = (slowData.tombstones || []).filter((t) => t.collection === "fermentationLogs");
+  check("resume found and restored the readings", Boolean(resumeBtn) && slowData.fermentationLogs.length === 2, `${Boolean(resumeBtn)}/${slowData.fermentationLogs.length}`);
+  check("revival is stamped after the deletion despite the slow clock", marks.length === 2 && marks.every((t) => Date.parse(t.revivedAt) > Date.parse(future)), JSON.stringify(marks));
+  const mergedSlow = await slow.evaluate(({ k, future }) => {
+    const local = JSON.parse(localStorage.getItem(k));
+    const cloudEnv = JSON.parse(JSON.stringify(local));
+    cloudEnv.data.fermentationLogs = [];
+    cloudEnv.data.tombstones = [{ collection: "fermentationLogs", id: "log-1", deletedAt: future }, { collection: "fermentationLogs", id: "log-2", deletedAt: future }];
+    return window.MeadevilSync.buildMergedAppData(local, cloudEnv, null, null).data.fermentationLogs.length;
+  }, { k: STORAGE_KEY, future });
+  check("...so a sync does not strip the resumed readings", mergedSlow === 2, String(mergedSlow));
+  await closeAll();
 
   console.log("\n[14] A stale device without a v2 baseline must not resurrect an archived batch");
   await closeAll();

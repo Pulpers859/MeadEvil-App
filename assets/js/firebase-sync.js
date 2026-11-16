@@ -56,6 +56,9 @@
   let retryDelayMs = 0;
   let unsubscribeSnapshot = null;
   let lastWrittenStamp = "";
+  let autoPausedUntil = 0;
+  let rawAtLastSync = null;
+  let lastWriteWasCorrective = false;
 
   function log(...args){
     console.log("[Meadevil Firebase Sync]", ...args);
@@ -67,6 +70,11 @@
 
   function setStatus(patch){
     Object.assign(status, patch || {});
+    // A successful save-triggered sync must not hide that live sync is paused.
+    if (Date.now() < autoPausedUntil && status.mode === "cloud"){
+      status.mode = "error";
+      status.lastError = PAUSED_MESSAGE;
+    }
     updateSyncPill();
   }
 
@@ -351,6 +359,14 @@
     const baseMap = new Map(base.map((item) => [item.id, item]));
     const localMap = new Map(local.map((item) => [item.id, item]));
     const cloudMap = new Map(cloud.map((item) => [item.id, item]));
+    // Both sides threw the old list away and built a new one (each archived the
+    // batch, or loaded a different recipe): those are two documents, not rows
+    // to union. Unioning doubled checklists and mixed two recipes' honey.
+    if (base.length && local.length && cloud.length
+      && !local.some((item) => baseMap.has(item.id) || cloudMap.has(item.id))
+      && !cloud.some((item) => baseMap.has(item.id))){
+      return clone(local);
+    }
     const order = local.map((item) => item.id).concat(cloud.map((item) => item.id).filter((id) => !localMap.has(id)));
     const out = [];
     order.forEach((id) => {
@@ -375,7 +391,7 @@
   // Without an ancestor there is no evidence this device changed anything, so
   // the cloud wins every disagreement, except that an empty value never beats
   // a real one.
-  function threeWay(base, local, cloud, hasBase){
+  function threeWay(base, local, cloud, hasBase, localNewer){
     if (same(local, cloud)) return clone(local);
     if (local === undefined) return clone(cloud);
     if (cloud === undefined) return clone(local);
@@ -387,7 +403,7 @@
       const ancestor = isPlain(base) ? base : null;
       const out = {};
       new Set(Object.keys(local).concat(Object.keys(cloud))).forEach((key) => {
-        const value = threeWay(ancestor ? ancestor[key] : undefined, local[key], cloud[key], hasBase);
+        const value = threeWay(ancestor ? ancestor[key] : undefined, local[key], cloud[key], hasBase, localNewer);
         if (value !== undefined) out[key] = value;
       });
       return out;
@@ -396,7 +412,9 @@
       return mergeIdLists(base, local, cloud);
     }
     if (hasBase) return clone(local);
-    return clone(isEmptyish(cloud) ? local : cloud);
+    // An empty cloud value may be a deliberate clear made after this device
+    // last saved; only a device that saved more recently may refill it.
+    return clone(isEmptyish(cloud) && localNewer !== false ? local : cloud);
   }
 
   // ---- collection merge -----------------------------------------------------
@@ -557,7 +575,8 @@
     const group = batchGroupOf(loser);
     const id = "arch-recovered-" + hashString(stableStringify([group, logs.map(logKey)]));
     const batch = clone(loser.currentBatch) || {};
-    batch.name = `${String(batch.name || "Unnamed batch").trim()} (recovered copy)`;
+    const baseName = String(batch.name || "Unnamed batch").replace(/(\s*\(recovered copy\))+$/i, "").trim();
+    batch.name = `${baseName} (recovered copy)`;
     return {
       id,
       archivedAt: new Date().toISOString(),
@@ -572,6 +591,12 @@
   }
 
   // ---- the merge ------------------------------------------------------------
+
+  function draftsDiverged(base, local, cloud){
+    if (!isPlain(local) || !isPlain(cloud)) return false;
+    const ident = (draft) => isPlain(draft) ? [draft.id || "", String(draft.name || "").trim()].join("|") : "|";
+    return ident(local) !== ident(cloud) && ident(local) !== ident(base) && ident(cloud) !== ident(base);
+  }
 
   // Is this side's batch already sitting in the Vault (archived by another device)?
   function archiveCovers(archive, side, logs){
@@ -608,6 +633,9 @@
     const cloud = cloudEnv.data || {};
     const baseSections = base && isPlain(base.sections) ? base.sections : null;
     const hasBase = Boolean(baseSections);
+    const localSavedAt = toTimestamp(localEnv.schema && localEnv.schema.savedAt);
+    const cloudSavedAt = toTimestamp(cloudUpdatedAt || (cloudEnv.schema && cloudEnv.schema.savedAt));
+    const localNewer = !(localSavedAt && cloudSavedAt) || localSavedAt >= cloudSavedAt;
 
     const mergedData = {};
     const sectionKeys = new Set(Object.keys(local).concat(Object.keys(cloud)));
@@ -644,8 +672,11 @@
         value = local[key] !== undefined ? clone(local[key]) : clone(cloud[key]);
       } else if (winner && BATCH_GROUP_KEYS.includes(key)){
         value = clone(winner[key] !== undefined ? winner[key] : loser[key]);
+      } else if (key === "recipeDraft" && hasBase && draftsDiverged(baseSections[key], local[key], cloud[key])){
+        // Each device loaded a different recipe: never blend two recipes.
+        value = clone(local[key]);
       } else {
-        value = threeWay(baseSections ? baseSections[key] : undefined, local[key], cloud[key], hasBase);
+        value = threeWay(baseSections ? baseSections[key] : undefined, local[key], cloud[key], hasBase, localNewer);
       }
       if (value !== undefined) mergedData[key] = value;
     });
@@ -692,6 +723,14 @@
       });
     } else {
       liveLogs = stripTombstoned(mergeFermentationLogs(local.fermentationLogs, cloud.fermentationLogs), deadLogs);
+      // No ancestor and the same batch on both sides: the cloud won every
+      // disagreement, so anything this device changed that the cloud never saw
+      // would vanish without a trace. Park this device's version in the Vault.
+      if (!hasBase && batchIsReal(local) && !same(batchGroupOf(local), batchGroupOf(mergedData))
+        && !archiveCovers(archive, local, list(local.fermentationLogs))){
+        const rescued = rescueEntry(local, list(local.fermentationLogs));
+        if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);
+      }
     }
 
     mergedData.tombstones = mergedTombstones;
@@ -762,7 +801,11 @@
     let merged = null;
     let wroteCloud = false;
     let writtenStamp = "";
+    // A write made while this device had nothing new to say is a "corrective"
+    // write: the only kind that can form a loop between devices.
+    const localChangedSinceSync = localRawBefore !== rawAtLastSync;
 
+    try{
     await db.runTransaction(async (tx) => {
       // The body can run more than once; reset per attempt.
       merged = null;
@@ -791,8 +834,21 @@
       wroteCloud = true;
       writtenStamp = updatedAt;
     });
+    } catch (error){
+      // Too big to upload is no reason to stop RECEIVING: bring the other
+      // devices' changes onto this one, keep the baseline where it was (the
+      // cloud still lacks this device's data) and report the size problem.
+      if (error && error.code === "meadevil/too-large" && merged && local
+        && getLocalRaw() === localRawBefore && !sameAppData(merged, local)
+        && !(userRecentlyTyped() && reason !== "boot" && reason !== "manual")){
+        setLocalData(merged);
+        rawAtLastSync = getLocalRaw();
+      }
+      throw error;
+    }
 
     lastSyncAt = Date.now();
+    lastWriteWasCorrective = wroteCloud && !localChangedSinceSync && Boolean(local);
     if (wroteCloud) lastWrittenStamp = writtenStamp;
     if (!merged){
       setStatus({ lastPullAt: Date.now(), mode: "cloud", lastError: null });
@@ -818,6 +874,7 @@
       log(local ? "Applied changes from another device" : "Restored cloud data to this device");
     }
     saveBase(merged);
+    rawAtLastSync = getLocalRaw();
     const patch = { lastPullAt: Date.now(), mode: "cloud", lastError: null };
     if (wroteCloud) patch.lastPushAt = Date.now();
     setStatus(patch);
@@ -834,7 +891,11 @@
   const AUTO_WRITE_LIMIT = 8;
   const AUTO_COOLDOWN_MS = 5 * 60000;
   let autoWriteTimes = [];
-  let autoPausedUntil = 0;
+  var PAUSED_MESSAGE = "Live sync paused for 5 minutes: two devices kept overwriting each other. Your saves still upload. Reload both devices if this repeats.";
+
+  function autoPaused(){
+    return Date.now() < autoPausedUntil;
+  }
 
   function noteAutoWrite(){
     const now = Date.now();
@@ -844,7 +905,9 @@
       autoPausedUntil = now + AUTO_COOLDOWN_MS;
       autoWriteTimes = [];
       warn("Devices are repeatedly rewriting each other's data; pausing live sync for 5 minutes.");
-      setStatus({ mode: "error", lastError: "Live sync paused for 5 minutes: two devices kept overwriting each other. Your saves still upload. Reload both devices if this repeats." });
+      setStatus({ mode: "error", lastError: PAUSED_MESSAGE });
+      // Catch up on whatever arrived during the pause.
+      setTimeout(() => { setStatus({ mode: "cloud", lastError: null }); syncNow("resume"); }, AUTO_COOLDOWN_MS + 500);
     }
   }
 
@@ -868,7 +931,7 @@
         do {
           syncQueued = false;
           const wrote = await syncOnce(reason);
-          if (wrote && reason === "remote") noteAutoWrite();
+          if (wrote && lastWriteWasCorrective && reason !== "manual" && reason !== "boot") noteAutoWrite();
           rounds += 1;
         } while (syncQueued && rounds < 5);
         retryDelayMs = 0;
