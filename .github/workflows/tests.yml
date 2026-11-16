@@ -40,6 +40,7 @@ jobs:
       - run: npm run test:mentor
       - run: npm run test:regressions
       - run: npm run test:sync
+      - run: npm run test:offline
       - run: node tests/user-journey.mjs
       - run: npm run test:e2e
       - name: Dev server log

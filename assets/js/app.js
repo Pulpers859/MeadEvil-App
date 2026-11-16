@@ -5415,6 +5415,23 @@
     renderAll();
   });
 
+  // Offline shell (see sw.js). Service workers need a secure origin; localhost
+  // counts. Skipped under browser automation so the test suites keep talking to
+  // the dev server directly — `?sw=1` opts back in for the offline test itself.
+  function registerServiceWorker(){
+    if (!("serviceWorker" in navigator)) return;
+    const secure = window.location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    if (!secure) return;
+    const forced = new URLSearchParams(window.location.search).get("sw") === "1";
+    if (navigator.webdriver && !forced) return;
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((error) => {
+        console.warn("Offline support could not be enabled:", error);
+      });
+    });
+  }
+  registerServiceWorker();
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);
   } else {

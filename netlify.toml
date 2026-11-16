@@ -18,6 +18,19 @@
 # removing 'unsafe-inline' here would silently break those bars.
 #
 # connect-src must keep the Google hosts or Firestore sync stops working.
+# The service worker must never be served stale, or a fixed worker cannot
+# replace a broken one. index.html likewise: it is the only file that names the
+# others.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -27,7 +40,11 @@
     # transport — which can upgrade to a WebSocket, and `wss:` needs its own entry
     # because a `https://` source does NOT authorise a wss:// connection. Omitting
     # wss://*.googleapis.com would let sync work on some networks and fail on others.
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.googleapis.com wss://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.cloudfunctions.net; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    # The service worker (sw.js) re-fetches the Firebase bundles and the fonts in
+    # order to cache them for offline use. Requests made from inside a worker are
+    # checked against connect-src, not script-src/font-src, so those two hosts
+    # are listed there as well (fonts.googleapis.com is covered by *.googleapis.com).
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://www.gstatic.com https://fonts.gstatic.com https://*.googleapis.com wss://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.cloudfunctions.net; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Frame-Options = "DENY"
