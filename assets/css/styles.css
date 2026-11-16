@@ -302,6 +302,10 @@ option{background:#140e1a;color:var(--cream)}
   color:var(--cream-2);
 }
 .sync-dot{width:8px;height:8px;border-radius:2px;background:linear-gradient(135deg,var(--toxic),var(--purple))}
+.sync-pill{cursor:pointer;font:inherit;font-size:.72rem;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.sync-pill[data-mode="local"] .sync-dot,.sync-pill:not([data-mode]) .sync-dot{background:rgba(244,230,208,.35)}
+.sync-pill[data-mode="error"] .sync-dot{background:var(--crimson, #c0314f)}
+.sync-pill[data-mode="offline"] .sync-dot{background:#d9a441}
 .pill.gold{background:linear-gradient(180deg, rgba(163,38,73,.18), rgba(107,59,164,.12));color:var(--cream);border-color:rgba(244,230,208,.14);font-variant-numeric:tabular-nums}
 
 /* ─── Buttons ─── */
