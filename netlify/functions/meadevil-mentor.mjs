@@ -37,16 +37,20 @@ const RATE_WINDOW_MS = 5 * 60 * 1000;
 const RATE_MAX_REQUESTS = Math.max(1, Number(process.env.MENTOR_RATE_MAX) || 30);
 const rateBuckets = new Map();
 
+// Only the header the platform itself sets is trusted. X-Forwarded-For is
+// caller-supplied: keying on it let anyone dodge the limit by rotating it.
 function clientAddress(event) {
   const headers = event.headers || {};
-  const forwarded = String(headers["x-forwarded-for"] || headers["X-Forwarded-For"] || "").split(",")[0].trim();
-  return String(headers["x-nf-client-connection-ip"] || headers["client-ip"] || forwarded || "unknown");
+  return String(headers["x-nf-client-connection-ip"] || "unknown");
 }
 
 function rateLimitRetryAfter(event, now = Date.now()) {
   const key = clientAddress(event);
   const recent = (rateBuckets.get(key) || []).filter((stamp) => now - stamp < RATE_WINDOW_MS);
-  if (recent.length >= RATE_MAX_REQUESTS) {
+  // No platform header means local dev (or a host that is not Netlify), where
+  // every caller shares one bucket: keep a ceiling, but a roomier one.
+  const limit = key === "unknown" ? RATE_MAX_REQUESTS * 10 : RATE_MAX_REQUESTS;
+  if (recent.length >= limit) {
     rateBuckets.set(key, recent);
     return Math.max(1, Math.ceil((RATE_WINDOW_MS - (now - recent[0])) / 1000));
   }
@@ -782,6 +786,7 @@ async function callOpenAI({ apiKey, model, temperature, responseFormat, messages
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), upstreamTimeout);
   let res;
+  let json;
   try {
     res = await fetch(OPENAI_URL, {
       method: "POST",
@@ -792,19 +797,20 @@ async function callOpenAI({ apiKey, model, temperature, responseFormat, messages
       body: JSON.stringify(body),
       signal: controller.signal
     });
+    // The timer stays armed through the body read: headers can arrive
+    // promptly and the body still stall past the function's time limit.
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`OpenAI returned ${res.status}: ${text.slice(0, 300)}`);
+    }
+    json = await res.json();
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error(`OpenAI request timed out after ${upstreamTimeout}ms`);
+    if (error?.name === "AbortError" || controller.signal.aborted) throw new Error(`OpenAI request timed out after ${upstreamTimeout}ms`);
     throw error;
   } finally {
     clearTimeout(timer);
   }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`OpenAI returned ${res.status}: ${text.slice(0, 300)}`);
-  }
-
-  const json = await res.json();
   const content = json?.choices?.[0]?.message?.content;
   if (!content) {
     throw new Error("OpenAI returned an empty message");
@@ -1001,68 +1007,157 @@ function nameIsGrounded(name, replyLower) {
   // Allow harmless re-ordering ("honey, orange blossom"), but every meaningful
   // word must still be in the reply.
   const words = clean.split(/[^a-z0-9]+/).filter((word) => word.length > 2);
-  return words.length > 0 && words.every((word) => replyLower.includes(word));
+  return words.length > 0 && words.every((word) => new RegExp(`\\b${escapeRegExp(word)}`).test(replyLower));
 }
 
-function groundedAmount(value, replyLower) {
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const UNIT_ALIASES = {
+  lb: "lbs?|pounds?", oz: "oz|ounces?", kg: "kg|kilograms?|kilos?", g: "g|grams?",
+  gal: "gal|gallons?", l: "l|liters?|litres?", ml: "ml|milliliters?|millilitres?",
+  tsp: "tsp|teaspoons?", tbsp: "tbsp|tablespoons?", each: "each|whole|sticks?|pods?|beans?|cubes?|spirals?"
+};
+const NEGATION = /\b(?:skip|avoid|omit|without|not|no|never|don't|dont|do not|instead of|rather than|leave out|hold off on|drop)\b/;
+
+// "1,200 g" is one number, and a clause is the unit of grounding: an amount,
+// its unit and the ingredient have to be stated together, in one clause, for
+// the amount to count. Checking them independently let "12.5 lb orange blossom,
+// 2.5 lb wildflower" come back with the two amounts swapped and still "grounded".
+function replyClauses(reply) {
+  const text = String(reply || "").toLowerCase().replace(/(\d),(?=\d{3}\b)/g, "$1");
+  return text
+    .split(/(?<=[.!?;:])\s+|\n+|,\s+|\s+(?:and|plus|with|but|then)\s+|\s+[-–—]\s+|[()]/)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+}
+
+function nameInClause(name, clause) {
+  if (!nameIsGrounded(name, clause)) return false;
+  // "skip the buckwheat honey", "do not add lactose", "not EC-1118".
+  const words = String(name).toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2);
+  const first = Math.min(...words.map((word) => clause.search(new RegExp(`\\b${escapeRegExp(word)}`))).filter((index) => index >= 0));
+  return !NEGATION.test(clause.slice(0, Number.isFinite(first) ? first : 0));
+}
+
+function amountInClause(value, unit, clause) {
   const text = String(value ?? "").trim();
   if (!text || !/^\d+(?:\.\d+)?$/.test(text)) return "";
   const number = Number(text);
-  if (!Number.isFinite(number) || number <= 0 || number > 2000) return "";
-  // The figure has to be one the reply actually wrote. Accept trailing-zero
-  // variants (7.5 / 7.50) and a leading-zero-less decimal (.5 for 0.5).
+  if (!Number.isFinite(number) || number <= 0 || number > 5000) return "";
+  const alias = UNIT_ALIASES[String(unit || "").toLowerCase()];
+  if (!alias) return "";
   const variants = new Set([text, String(number), number.toFixed(1), number.toFixed(2)]);
   if (number < 1) variants.add(String(number).replace(/^0/, ""));
   for (const variant of variants) {
-    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`(^|[^\\d.])${escaped}(?![\\d]|\\.\\d)`).test(replyLower)) return String(number);
+    // The figure, optionally the low end of a range ("12 to 15 lb"), then the unit.
+    const pattern = new RegExp(`(?<!\\d\\s*(?:to|-|–)\\s*)(^|[^\\d.])${escapeRegExp(variant)}(?:\\s*(?:to|-|–)\\s*\\d+(?:\\.\\d+)?)?\\s*-?\\s*(?:${alias})\\b`);
+    if (pattern.test(clause)) return String(number);
   }
   return "";
 }
 
+// A flavour or structure addition that the model filed under fermentables.
+const NOT_FERMENTABLE = /\b(?:oak|zest|peel|tea|tannin|vanilla|cinnamon|clove|ginger|spice|herb|hops?|pepper|nibs?|coffee|acid|lactose|salt|extract|flowers?|hibiscus|lavender)\b/;
+// The Build tab's source types (assets/js/app.js SOURCE_PRESETS).
+const APP_SOURCE_TYPES = { honey: "Honey", fruit: "Fruit / Puree", juice: "Juice (single strength)", sugar: "Table Sugar", other: "Custom" };
+
+// The source bill works in lb or kg only; anything else is converted, or the
+// amount is dropped rather than seeded in a unit the gravity math ignores.
+function toSourceBillUnit(amount, unit) {
+  const value = Number(amount);
+  if (!amount || !Number.isFinite(value)) return { amount: "", unit: "lb" };
+  const round = (n) => String(Math.round(n * 100) / 100);
+  switch (String(unit).toLowerCase()) {
+    case "lb": return { amount: round(value), unit: "lb" };
+    case "kg": return { amount: round(value), unit: "kg" };
+    case "oz": return { amount: round(value / 16), unit: "lb" };
+    case "g": return { amount: round(value / 1000), unit: "kg" };
+    // Juice by volume: about 8.7 lb per US gallon at single strength.
+    case "gal": return { amount: round(value * 8.7), unit: "lb" };
+    case "l": return { amount: round(value * 1.04), unit: "kg" };
+    default: return { amount: "", unit: "lb" };
+  }
+}
+
+function avoidMentions(name, avoidLower) {
+  const clean = String(name || "").toLowerCase().trim();
+  return Boolean(clean) && new RegExp(`\\b${escapeRegExp(clean)}\\b`).test(avoidLower);
+}
+
+function nameTokens(name) {
+  return String(name || "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2);
+}
+
 function groundExtraction(parsed, reply, avoidText = "") {
-  const replyLower = String(reply || "").toLowerCase();
+  const clauses = replyClauses(reply);
   const avoid = String(avoidText || "").toLowerCase();
   const out = { yeast: "", source_bill_candidates: [], adjunct_candidates: [] };
   if (!isPlainObject(parsed)) return out;
 
   const yeast = KNOWN_YEAST_NAMES.find((name) => name.toLowerCase() === String(parsed.yeast || "").toLowerCase().trim());
-  if (yeast && replyLower.includes(yeast.toLowerCase())) out.yeast = yeast;
+  if (yeast) {
+    const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(yeast.toLowerCase())}(?![a-z0-9])`);
+    const chosen = clauses.some((clause) => {
+      const match = pattern.exec(clause);
+      return match && !NEGATION.test(clause.slice(0, match.index));
+    });
+    if (chosen) out.yeast = yeast;
+  }
 
-  const seen = new Set();
-  const unitOf = (value, fallback) => {
+  const kept = [];
+  const isDuplicate = (name) => {
+    const tokens = nameTokens(name);
+    return kept.some((other) => tokens.every((token) => other.includes(token)) || other.every((token) => tokens.includes(token)));
+  };
+  const unitOf = (value) => {
     const unit = String(value || "").trim().toLowerCase();
-    if (!EXTRACTION_UNITS.has(unit)) return fallback;
-    return unit === "l" ? "L" : unit === "ml" ? "mL" : unit;
+    return EXTRACTION_UNITS.has(unit) ? unit : "";
+  };
+  // Ground one item: the clause that names it (un-negated) and, if the model
+  // gave an amount, states that amount with that unit.
+  const ground = (name, amount, unit) => {
+    const named = clauses.filter((clause) => nameInClause(name, clause));
+    if (!named.length) return null;
+    for (const clause of named) {
+      const found = amountInClause(amount, unit, clause);
+      if (found) return { amount: found, unit };
+    }
+    return { amount: "", unit: "" };
   };
 
-  (Array.isArray(parsed.source_bill) ? parsed.source_bill : []).slice(0, 8).forEach((item) => {
-    if (!isPlainObject(item)) return;
+  // Longest names first, so "orange blossom honey" is kept over "orange blossom".
+  const byNameLength = (a, b) => String(b.name || b.ingredient || "").length - String(a.name || a.ingredient || "").length;
+
+  (Array.isArray(parsed.source_bill) ? parsed.source_bill.filter(isPlainObject) : []).slice(0, 8).sort(byNameLength).forEach((item) => {
     const name = String(item.name || "").trim();
-    const key = name.toLowerCase();
-    if (!nameIsGrounded(name, replyLower) || seen.has(key) || (avoid && avoid.includes(key))) return;
-    seen.add(key);
-    const amount = groundedAmount(item.amount, replyLower);
+    if (!name || NOT_FERMENTABLE.test(name.toLowerCase()) || avoidMentions(name, avoid) || isDuplicate(name)) return;
+    const grounded = ground(name, item.amount, unitOf(item.unit));
+    if (!grounded) return;
+    kept.push(nameTokens(name));
+    const converted = toSourceBillUnit(grounded.amount, grounded.unit);
     out.source_bill_candidates.push({
       name,
-      type: EXTRACTION_TYPES.find((type) => type.toLowerCase() === String(item.type || "").toLowerCase()) || "Other",
-      amount,
-      unit: amount ? unitOf(item.unit, "lb") : "lb"
+      type: APP_SOURCE_TYPES[String(item.type || "").toLowerCase()] || "Custom",
+      amount: converted.amount,
+      unit: converted.unit
     });
   });
 
-  (Array.isArray(parsed.adjuncts) ? parsed.adjuncts : []).slice(0, 10).forEach((item) => {
-    if (!isPlainObject(item)) return;
+  (Array.isArray(parsed.adjuncts) ? parsed.adjuncts.filter(isPlainObject) : []).slice(0, 10).sort(byNameLength).forEach((item) => {
     const name = String(item.ingredient || item.name || "").trim();
     const key = name.toLowerCase();
-    if (!nameIsGrounded(name, replyLower) || seen.has(key) || (avoid && avoid.includes(key))) return;
-    seen.add(key);
-    const amount = groundedAmount(item.amount, replyLower);
+    if (!name || avoidMentions(name, avoid) || isDuplicate(name)) return;
+    const unit = unitOf(item.unit);
+    const grounded = ground(name, item.amount, unit);
+    if (!grounded) return;
+    kept.push(nameTokens(name));
     const phase = String(item.phase || "").toLowerCase().trim();
     out.adjunct_candidates.push({
       ingredient: name,
-      amount,
-      unit: amount ? unitOf(item.unit, "g") : "g",
+      amount: grounded.amount,
+      unit: grounded.amount ? (unit === "l" ? "L" : unit === "ml" ? "mL" : unit) : "g",
       phase: EXTRACTION_PHASES.includes(phase) ? phase : "secondary",
       category: /oak|tannin|tea/.test(key) ? "structure" : /honey|sugar|agave|maple/.test(key) ? "fermentable" : "botanical",
       purpose: "",
@@ -1090,6 +1185,8 @@ async function extractStructuredWithModel({ apiKey, model, reply, userMessage, t
   });
   let parsed;
   try { parsed = JSON.parse(content); } catch { return null; }
+  // Only a well-formed answer may overrule the pattern extraction.
+  if (!isPlainObject(parsed) || !Array.isArray(parsed.source_bill) || !Array.isArray(parsed.adjuncts)) return null;
   const avoidText = `${inputs.avoidSimple || ""} ${Array.isArray(snapshot.avoid) ? snapshot.avoid.join(" ") : ""}`;
   return groundExtraction(parsed, reply, avoidText);
 }
@@ -1099,11 +1196,12 @@ async function extractStructuredWithModel({ apiKey, model, reply, userMessage, t
 function mergeExtraction(regexExtracted, modelExtracted) {
   if (!modelExtracted) return { extracted: regexExtracted, method: "pattern" };
   const build = { ...(regexExtracted.build_mapping || {}) };
-  let used = false;
-  if (modelExtracted.yeast) { build.yeast = modelExtracted.yeast; used = true; }
-  if (modelExtracted.source_bill_candidates.length) { build.source_bill_candidates = modelExtracted.source_bill_candidates; used = true; }
-  if (modelExtracted.adjunct_candidates.length) { build.adjunct_candidates = modelExtracted.adjunct_candidates; used = true; }
-  return { extracted: { ...regexExtracted, build_mapping: build }, method: used ? "model" : "pattern" };
+  // The model read the whole reply, so an EMPTY list is an answer too ("no
+  // adjuncts were recommended"): it replaces whatever the patterns scraped.
+  if (modelExtracted.yeast) build.yeast = modelExtracted.yeast;
+  build.source_bill_candidates = modelExtracted.source_bill_candidates;
+  build.adjunct_candidates = modelExtracted.adjunct_candidates;
+  return { extracted: { ...regexExtracted, build_mapping: build }, method: "model" };
 }
 
 function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
@@ -1177,13 +1275,6 @@ export async function handler(event) {
     return respond(403, { error: "Origin not allowed" });
   }
 
-  const retryAfter = rateLimitRetryAfter(event);
-  if (retryAfter) {
-    const limited = respond(429, { error: `Too many mentor requests. Try again in about ${Math.ceil(retryAfter / 60)} minute(s).` });
-    limited.headers = { ...limited.headers, "Retry-After": String(retryAfter) };
-    return limited;
-  }
-
   const rawBody = event.body || "{}";
   const bodyBytes = event.isBase64Encoded
     ? Math.floor((rawBody.length * 3) / 4)
@@ -1236,6 +1327,14 @@ export async function handler(event) {
       if (collaboratorReply) source = "knowledge";
     }
     if (!collaboratorReply) {
+      // The limit protects the paid model call, so only requests that reach it
+      // count: malformed, template and knowledge-base replies are free.
+      const retryAfter = rateLimitRetryAfter(event);
+      if (retryAfter) {
+        const limited = respond(429, { error: `Too many mentor requests. Try again in about ${Math.ceil(retryAfter / 60)} minute(s).` });
+        limited.headers = { ...limited.headers, "Retry-After": String(retryAfter) };
+        return limited;
+      }
       source = "model";
       collaboratorReply = await generateCollaboratorReply({
         apiKey,
@@ -1259,10 +1358,16 @@ export async function handler(event) {
     const remainingMs = FUNCTION_BUDGET_MS - (Date.now() - startedAt) - 500;
     const wantsExtraction = process.env.MENTOR_STRUCTURED_EXTRACT !== "off"
       && source === "model"
-      && (String(userMessage.mode).toLowerCase() === "forge" || replyHasBuildDetail(collaboratorReply));
+      && replyHasBuildDetail(collaboratorReply);
     if (wantsExtraction && remainingMs >= EXTRACTION_MIN_MS) {
       try {
-        const modelExtracted = await extractStructuredWithModel({ apiKey, model, reply: collaboratorReply, userMessage, timeoutMs: remainingMs });
+        // Belt and braces: even if the upstream ignores the abort, the reply
+        // already in hand goes out before the function's own deadline.
+        let budgetTimer;
+        const modelExtracted = await Promise.race([
+          extractStructuredWithModel({ apiKey, model, reply: collaboratorReply, userMessage, timeoutMs: remainingMs }),
+          new Promise((_, reject) => { budgetTimer = setTimeout(() => reject(new Error("extraction exceeded the time budget")), remainingMs + 100); })
+        ]).finally(() => clearTimeout(budgetTimer));
         const merged = mergeExtraction(extracted, modelExtracted);
         extracted = merged.extracted;
         extraction = merged.method;

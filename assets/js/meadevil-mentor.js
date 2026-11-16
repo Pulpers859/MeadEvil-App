@@ -2028,13 +2028,22 @@
     return $("recipeStyle")?.value || "Traditional";
   }
 
+  // Mirrors SOURCE_PRESETS in app.js. Older responses used short type names.
+  const SOURCE_TYPE_ALIASES = { "Fruit": "Fruit / Puree", "Juice": "Juice (single strength)", "Sugar": "Table Sugar", "Other": "Custom" };
+  const SOURCE_PRESET_PPG = {
+    "Honey": "35", "Maple Syrup": "29.8", "Table Sugar": "46",
+    "Juice (single strength)": "5", "Juice Concentrate": "31",
+    "Fruit / Puree": "5", "Custom": ""
+  };
+
+  function normalizeSourceType(type){
+    const clean = String(type || "").trim();
+    if (Object.prototype.hasOwnProperty.call(SOURCE_PRESET_PPG, clean)) return clean;
+    return SOURCE_TYPE_ALIASES[clean] || "Custom";
+  }
+
   function sourcePresetPpg(type){
-    const presets = {
-      "Honey": "35", "Maple Syrup": "29.8", "Table Sugar": "46",
-      "Juice (single strength)": "5", "Juice Concentrate": "48",
-      "Fruit / Puree": "10", "Custom": ""
-    };
-    return presets[type] || "35";
+    return SOURCE_PRESET_PPG[normalizeSourceType(type)];
   }
 
   function sourcePresetUnit(type){
@@ -2376,19 +2385,21 @@
     // so two honey candidates don't each get the full estimate (doubling the bill
     // and roughly doubling the potential ABV).
     const amountlessHoneyCount = packet.sourceBillCandidates.filter(
-      (c) => (c.type || "Custom") === "Honey" && !c.amount
+      (c) => normalizeSourceType(c.type) === "Honey" && !c.amount
     ).length || 1;
     const perHoneyLb = honeyLb ? honeyLb / amountlessHoneyCount : null;
     let rows = packet.sourceBillCandidates.map((candidate) => {
-      const type = candidate.type || "Custom";
-      const amount = candidate.amount
+      const type = normalizeSourceType(candidate.type);
+      // The source bill only understands lb and kg.
+      const unitOk = !candidate.unit || candidate.unit === "lb" || candidate.unit === "kg";
+      const amount = (unitOk && candidate.amount)
         || (type === "Honey" && perHoneyLb ? String(Math.round(perHoneyLb * 100) / 100) : "");
       return {
         id: makeId("src"),
         sourceType: type,
         description: candidate.name || "",
         amount: amount,
-        unit: candidate.unit || sourcePresetUnit(type),
+        unit: (unitOk && candidate.unit) || sourcePresetUnit(type),
         ppg: sourcePresetPpg(type)
       };
     });

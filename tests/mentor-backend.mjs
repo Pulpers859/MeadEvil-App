@@ -34,7 +34,10 @@ globalThis.fetch = async (_url, init) => {
   if (!next) throw new Error("unscripted OpenAI call");
   if (next.delayMs) await new Promise((r) => setTimeout(r, next.delayMs));
   if (next.fail) return { ok: false, status: 500, text: async () => "boom", json: async () => ({}) };
-  return { ok: true, status: 200, text: async () => "", json: async () => ({ choices: [{ message: { content: next.content } }] }) };
+  return { ok: true, status: 200, text: async () => "", json: async () => {
+    if (next.bodyDelayMs) await new Promise((r) => setTimeout(r, next.bodyDelayMs));
+    return { choices: [{ message: { content: next.content } }] };
+  } };
 };
 
 let ipCounter = 0;
@@ -147,15 +150,91 @@ r = await ask({ current_user_turn: DESIGN_TURN, mode: "forge" });
 check("a slow first call skips extraction instead of risking the timeout", r.status === 200 && calls.length === 1, `${calls.length} calls`);
 
 console.log("\n[5] Rate limiting");
-script = [];
+const MODEL_LINE = "My instinct is to keep this lean and bright, with citrus as lift.";
 let last;
-for (let i = 0; i < 6; i += 1) last = await ask({ current_user_turn: "hi" }, { ip: "203.0.113.9" });
-check("requests under the limit succeed", last.status === 200, String(last.status));
-last = await ask({ current_user_turn: "hi" }, { ip: "203.0.113.9" });
-check("the next one is refused with 429", last.status === 429, String(last.status));
+for (let i = 0; i < 6; i += 1) { script = [{ content: MODEL_LINE }]; last = await ask({ current_user_turn: DESIGN_TURN }, { ip: "203.0.113.9" }); }
+check("model requests under the limit succeed", last.status === 200, String(last.status));
+script = [{ content: MODEL_LINE }];
+last = await ask({ current_user_turn: DESIGN_TURN }, { ip: "203.0.113.9" });
+check("the next model request is refused with 429", last.status === 429 && calls.length === 0, `${last.status}/${calls.length}`);
 check("429 carries Retry-After", Number(last.headers["Retry-After"]) > 0);
-last = await ask({ current_user_turn: "hi" }, { ip: "203.0.113.10" });
+script = [];
+last = await ask({ current_user_turn: "hi" }, { ip: "203.0.113.9" });
+check("a template reply costs no quota and still answers", last.status === 200, String(last.status));
+script = [{ content: MODEL_LINE }];
+last = await ask({ current_user_turn: DESIGN_TURN }, { ip: "203.0.113.10" });
 check("a different address is unaffected", last.status === 200);
+// Rotating a caller-supplied header must not mint fresh quota.
+let spoofed = 0;
+for (let i = 0; i < 70; i += 1) {
+  script = [{ content: MODEL_LINE }];
+  const res = await handler({ httpMethod: "POST", headers: { "x-forwarded-for": `198.51.100.${i}`, origin: "http://localhost" },
+    body: JSON.stringify({ model: "gpt-4o-mini", beginner_inputs: { batchSize: "5" }, current_user_turn: DESIGN_TURN }) });
+  if (res.statusCode === 429) spoofed += 1;
+}
+check("rotating X-Forwarded-For does not escape the limit", spoofed === 10, String(spoofed));
+
+console.log("\n[6] Second-audit grounding cases");
+const extract = async (reply, json, extra = {}) => {
+  script = [{ content: reply }, { content: JSON.stringify(json) }];
+  const res = await ask({ current_user_turn: DESIGN_TURN, mode: "forge", ...extra });
+  return res.body.build_mapping;
+};
+const amt = (list, re) => { const hit = list.find((x) => re.test(x.name || x.ingredient)); return hit ? `${hit.amount}${hit.amount ? hit.unit : ""}` : "absent"; };
+let m = await extract(FORGE_REPLY, { yeast: "71B",
+  source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "2.5", unit: "lb" }, { name: "wildflower honey", type: "Honey", amount: "12.5", unit: "lb" }],
+  adjuncts: [{ ingredient: "lemon zest", amount: "0.5", unit: "oz", phase: "secondary" }, { ingredient: "french oak", amount: "14", unit: "oz", phase: "primary" }] });
+check("swapped honey amounts are not accepted", amt(m.source_bill_candidates, /orange/) === "" && amt(m.source_bill_candidates, /wildflower/) === "", JSON.stringify(m.source_bill_candidates));
+check("swapped adjunct amounts and units are not accepted", amt(m.adjunct_candidates, /zest/) === "" && amt(m.adjunct_candidates, /oak/) === "", JSON.stringify(m.adjunct_candidates));
+
+m = await extract("Plan a 5 gallon batch with 14 lb clover honey. Ferment at 62 F. In secondary add 30 g toasted coconut.", { yeast: "",
+  source_bill: [{ name: "clover honey", type: "Honey", amount: "5", unit: "lb" }],
+  adjuncts: [{ ingredient: "toasted coconut", amount: "30", unit: "lb", phase: "secondary" }, { ingredient: "coconut", amount: "62", unit: "g", phase: "secondary" }] });
+check("batch size is not read as honey weight", amt(m.source_bill_candidates, /clover/) === "", JSON.stringify(m.source_bill_candidates));
+check("a right number with the wrong unit is rejected; temperature is not an amount", m.adjunct_candidates.every((a) => a.amount === ""), JSON.stringify(m.adjunct_candidates));
+check("coconut is listed once", m.adjunct_candidates.length === 1, JSON.stringify(m.adjunct_candidates));
+
+m = await extract("Use 12 lb orange blossom honey. Skip the buckwheat honey. Do not add lactose. Pitch 71B, not EC-1118.", { yeast: "EC-1118",
+  source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "12", unit: "lb" }, { name: "buckwheat honey", type: "Honey", amount: "12", unit: "lb" }],
+  adjuncts: [{ ingredient: "lactose", amount: "12", unit: "oz", phase: "secondary" }] });
+check("ingredients the reply says to skip are dropped", m.source_bill_candidates.length === 1 && m.adjunct_candidates.length === 0, JSON.stringify(m));
+check("a yeast the reply rules out is not chosen", m.yeast !== "EC-1118", m.yeast);
+
+m = await extract("Go with 12 to 15 lb wildflower honey and 1,200 g blueberries in secondary.", { yeast: "",
+  source_bill: [{ name: "wildflower honey", type: "Honey", amount: "15", unit: "lb" }, { name: "blueberries", type: "Fruit", amount: "200", unit: "g" }], adjuncts: [] });
+check("the top of a range and a comma-split number are rejected", amt(m.source_bill_candidates, /wildflower/) === "" && amt(m.source_bill_candidates, /blueberr/) === "", JSON.stringify(m.source_bill_candidates));
+m = await extract("Go with 12 to 15 lb wildflower honey and 1,200 g blueberries in secondary.", { yeast: "",
+  source_bill: [{ name: "wildflower honey", type: "Honey", amount: "12", unit: "lb" }, { name: "blueberries", type: "Fruit", amount: "1200", unit: "g" }], adjuncts: [] });
+check("the low end of a range is accepted", amt(m.source_bill_candidates, /wildflower/) === "12lb", JSON.stringify(m.source_bill_candidates));
+check("1,200 g is one number, converted for the source bill", amt(m.source_bill_candidates, /blueberr/) === "1.2kg", JSON.stringify(m.source_bill_candidates));
+check("fruit is typed as the app's Fruit / Puree", m.source_bill_candidates.find((b) => /blueberr/.test(b.name))?.type === "Fruit / Puree");
+
+m = await extract("Use 15 lb of orange blossom honey; the honey should be raw.", { yeast: "",
+  source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "15", unit: "lb" }, { name: "Orange Blossom", type: "Honey", amount: "15", unit: "lb" }], adjuncts: [] });
+check("the same honey under two names is one row", m.source_bill_candidates.length === 1 && m.source_bill_candidates[0].amount === "15", JSON.stringify(m.source_bill_candidates));
+
+m = await extract("Add 6 lb tart cherries and 1 gal apple juice up front, 8 oz lactose at the end, plus 1 oz medium toast oak cubes.", { yeast: "",
+  source_bill: [{ name: "oak cubes", type: "Sugar", amount: "6", unit: "lb" }, { name: "tart cherries", type: "Fruit", amount: "6", unit: "lb" }, { name: "apple juice", type: "Juice", amount: "1", unit: "gal" }],
+  adjuncts: [{ ingredient: "oak cubes", amount: "1", unit: "oz", phase: "secondary" }] });
+check("oak never lands in the fermentable bill", !m.source_bill_candidates.some((b) => /oak/.test(b.name)), JSON.stringify(m.source_bill_candidates));
+check("juice by the gallon becomes pounds the gravity math can use", amt(m.source_bill_candidates, /juice/) === "8.7lb" && m.source_bill_candidates.find((b) => /juice/.test(b.name)).type === "Juice (single strength)", JSON.stringify(m.source_bill_candidates));
+check("oak keeps its own amount as an adjunct", amt(m.adjunct_candidates, /oak/) === "1oz", JSON.stringify(m.adjunct_candidates));
+
+m = await extract("Use 12 lb orange blossom honey. Keep it clean: no zest, no spice.", { yeast: "", source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [] });
+check("an empty adjunct list from the model overrides pattern guesses", m.adjunct_candidates.length === 0, JSON.stringify(m.adjunct_candidates));
+m = await extract("Use 12 lb orange blossom honey and 20 g lime zest in secondary.", { yeast: "", source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [{ ingredient: "lime zest", amount: "20", unit: "g", phase: "secondary" }] },
+  { beginner_inputs: { avoidSimple: "sublime zesty soda", batchSize: "5" } });
+check("the avoid list matches whole phrases, not substrings", amt(m.adjunct_candidates, /lime zest/) === "20g", JSON.stringify(m.adjunct_candidates));
+
+console.log("\n[7] Time budget");
+script = [{ content: "Keep it lean and bright; honey forward, nothing sweet." }];
+r = await ask({ current_user_turn: DESIGN_TURN, mode: "forge" });
+check("Forge with nothing to extract makes one call, not two", r.status === 200 && calls.length === 1, `${calls.length} calls`);
+script = [{ content: FORGE_REPLY, delayMs: 5000 }, { content: "{}", bodyDelayMs: 9000 }];
+let t0 = Date.now();
+r = await ask({ current_user_turn: DESIGN_TURN, mode: "forge" });
+check("a stalled extraction body cannot run past the budget", r.status === 200 && Date.now() - t0 < 9500, `${Date.now() - t0} ms`);
+check("...and the reply still goes out", r.body.mentor_reply.conversation_reply.includes("12.5 lb"));
 
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));
