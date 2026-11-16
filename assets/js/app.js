@@ -1438,12 +1438,26 @@
   // Revive records whose ids are being brought back into an active collection
   // (e.g. resuming an archived batch reintroduces its old log ids). Without this
   // the cloud-sync union would strip them right back out on the next merge.
+  //
+  // The tombstone is MARKED revived, not removed. Removing it only fixed this
+  // device: any other device still holding the tombstone could not tell
+  // "revived" from "not seen yet" and re-applied the deletion on its next sync.
+  // A marker is written even when this device holds no tombstone for the id,
+  // because another device may. The sync layer keeps whichever of
+  // deletedAt/revivedAt is newer, so deleting the record again later still works.
   function clearTombstones(collection, ids){
     const revive = new Set((Array.isArray(ids) ? ids : [ids]).filter(Boolean).map(String));
     if (!revive.size) return;
+    const stamp = new Date().toISOString();
     data.tombstones = data.tombstones.filter(
       (entry) => !(entry.collection === collection && revive.has(String(entry.id)))
     );
+    revive.forEach((id) => {
+      data.tombstones.push({ collection, id, deletedAt: "", revivedAt: stamp });
+    });
+    if (data.tombstones.length > TOMBSTONE_LIMIT){
+      data.tombstones = data.tombstones.slice(-TOMBSTONE_LIMIT);
+    }
   }
 
   function normalizeIsoDate(value){
@@ -5170,7 +5184,8 @@
     data.currentBatch.structureAdditions = clone(readEnhancementStructureAdditions("currentBatch"));
   });
 
-  window.addEventListener("meadevil-cloud-restore", () => {
+  window.addEventListener("meadevil-cloud-restore", (event) => {
+    const fromCloud = Boolean(event && event.detail && event.detail.source === "cloud");
     data = loadStoredData();
     // The mentor keeps brainstorm structure additions (adjuncts) in its own
     // enhancement key and only syncs them into the main state through events.
@@ -5179,13 +5194,20 @@
     // recipeDraft before this restore fires). Re-overlay them, but only when the
     // enhancement actually has them so a genuine cloud restore with an empty
     // enhancement can't wipe adjuncts that were restored from storage.
-    const draftAdjuncts = readEnhancementStructureAdditions("recipeDraft");
-    if (Array.isArray(draftAdjuncts) && draftAdjuncts.length) {
-      data.recipeDraft.structureAdditions = clone(draftAdjuncts);
-    }
-    const batchAdjuncts = readEnhancementStructureAdditions("currentBatch");
-    if (Array.isArray(batchAdjuncts) && batchAdjuncts.length) {
-      data.currentBatch.structureAdditions = clone(batchAdjuncts);
+    //
+    // NOT when the reload is cloud sync delivering another device's state: the
+    // sync layer has already written the incoming adjuncts into the enhancement
+    // key, and overlaying this device's old copy on top is what made two
+    // devices overwrite each other's adjunct list on every save.
+    if (!fromCloud){
+      const draftAdjuncts = readEnhancementStructureAdditions("recipeDraft");
+      if (Array.isArray(draftAdjuncts) && draftAdjuncts.length) {
+        data.recipeDraft.structureAdditions = clone(draftAdjuncts);
+      }
+      const batchAdjuncts = readEnhancementStructureAdditions("currentBatch");
+      if (Array.isArray(batchAdjuncts) && batchAdjuncts.length) {
+        data.currentBatch.structureAdditions = clone(batchAdjuncts);
+      }
     }
     populateRecipeForm();
     populateNutrientForm();

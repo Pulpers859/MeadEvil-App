@@ -491,9 +491,12 @@
       mentor: normalizeMentorState(parsed.mentor)
     };
     merged.recipeDraft.structureAdditions = normalizeStructureAdditions(merged.recipeDraft.structureAdditions, { ensureOne: true });
-    if (!Array.isArray(merged.currentBatch.structureAdditions) || !merged.currentBatch.structureAdditions.length){
-      merged.currentBatch.structureAdditions = clone(merged.recipeDraft.structureAdditions);
-    }
+    // A batch with no structure additions used to inherit whatever the Build
+    // draft currently held, on every load. So an empty batch slot — or a live
+    // batch that genuinely has none — silently took on the adjuncts of an
+    // unrelated recipe being sketched. Starting a batch copies them explicitly
+    // (applyRecipeToBatch in app.js); nothing should arrive here by default.
+    if (!Array.isArray(merged.currentBatch.structureAdditions)) merged.currentBatch.structureAdditions = [];
     merged.currentBatch.structureAdditions = normalizeStructureAdditions(merged.currentBatch.structureAdditions, { ensureOne: true });
     Object.keys(merged.recipes).forEach((id) => {
       const entry = merged.recipes[id] || {};
@@ -663,6 +666,11 @@
     if (typeof updateEnhancementFn === "function") updateEnhancementFn(enhancement);
     saveEnhancement(enhancement);
     const main = getMainState();
+    // Nothing stored yet (first run), or app.js could not read what was there
+    // and is holding the original for recovery. Either way there is no state to
+    // merge into — and writing a stub here both destroyed the unreadable blob
+    // app.js had just preserved and gave cloud sync an "empty" state to upload.
+    if (!Object.keys(main).length) return;
     const merged = mergeEnhancementIntoMain(main, enhancement);
     originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify(merged));
     notifyStructureSync();
@@ -2757,6 +2765,11 @@
     saveMergedMain(() => {});
     bindEvents();
     renderAll();
+    // Cloud sync just replaced the stored state (and this module's adjunct
+    // copy) with another device's; redraw the mentor-owned panels to match.
+    window.addEventListener("meadevil-cloud-restore", (event) => {
+      if (event && event.detail && event.detail.source === "cloud") setTimeout(renderAll, 30);
+    });
     window.addEventListener("storage", (event) => {
       if (event.key === STORAGE_KEY || event.key === ENHANCEMENT_KEY){
         renderAll();

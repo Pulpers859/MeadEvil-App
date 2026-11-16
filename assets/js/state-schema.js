@@ -269,6 +269,15 @@
         // fact on a well-known flag as well and let boot drain it.
         const detail = { backedUp, backupKey: `${storageKey}-corrupt-backup` };
         try{ window.__meadevilStorageCorrupt = detail; } catch(_){ /* non-browser host */ }
+        // Cloud sync keeps a "last agreed state" baseline describing the data
+        // that just failed to load. Left in place, the blank state returned
+        // below would read as "the user deliberately emptied every section" and
+        // sync would erase the cloud copy to match. Without a baseline the sync
+        // layer defers to the cloud instead, which is exactly the recovery
+        // wanted here. The second flag is never cleared, so later-booting
+        // scripts can still tell this session started from unreadable storage.
+        try{ localStorage.removeItem("meadevil-sync-base-v2"); } catch(_){ /* best effort */ }
+        try{ window.__meadevilStorageWasCorrupt = true; } catch(_){ /* non-browser host */ }
         try{
           window.dispatchEvent(new CustomEvent("meadevil-storage-corrupt", { detail }));
         } catch(_){ /* environments without CustomEvent */ }
