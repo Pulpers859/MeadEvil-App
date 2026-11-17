@@ -2599,11 +2599,15 @@
           }))
         : enh.recipeDraft.structureAdditions;
       enh.recipeDraft.structureAdditions = adjunctRows.length ? adjunctRows : [defaultAdjunctRow()];
-      // Send to Build replaces the draft: a new draftId tells sync not to blend
-      // it with a different plan sent on another device.
-      enh.recipeDraft.draftId = `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     });
 
+    // Send to Build replaces the draft: a new draftId tells sync not to blend it
+    // with a different plan sent on another device. It goes into the app's own
+    // stored state (the restore below reloads from it), not the mentor's key.
+    writeMainData((data) => {
+      data.recipeDraft = data.recipeDraft || {};
+      data.recipeDraft.draftId = `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    });
     window.dispatchEvent(new Event("meadevil-cloud-restore"));
     document.querySelector('[data-tab="recipes"]')?.click();
     setTimeout(() => {

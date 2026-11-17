@@ -673,12 +673,15 @@
         const baseBatchId = batchIdentity(baseSections);
         if (localBatchId === baseBatchId) localWins = false;
         else if (cloudBatchId === baseBatchId) localWins = true;
-        else localWins = true;
+        // Both moved (one set a batch aside or archived it, the other made a
+        // different one active): a real batch beats an empty slot.
+        else localWins = batchIsReal(local) || !batchIsReal(cloud);
       } else {
         // A stale device with no ancestor must not resurrect a batch the
         // cloud already archived (or cleared on purpose).
         localWins = batchIsReal(local) && !batchIsReal(cloud)
-          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive).concat(mergeShelf(local.shelf, cloud.shelf)), local, true);
+          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive).concat(
+            stripTombstoned(mergeShelf(local.shelf, cloud.shelf), tombstonedIdSet(mergeTombstones(local.tombstones, cloud.tombstones), "shelf"))), local, true);
       }
       winner = localWins ? local : cloud;
       loser = localWins ? cloud : local;
@@ -716,7 +719,7 @@
     const mergedTombstones = mergeTombstones(local.tombstones, cloud.tombstones);
     const deadLogs = tombstonedIdSet(mergedTombstones, "fermentationLogs");
     let archive = mergeArchive(local.archive, cloud.archive);
-    const shelf = stripTombstoned(mergeShelf(local.shelf, cloud.shelf), tombstonedIdSet(mergedTombstones, "shelf"));
+    let shelf = stripTombstoned(mergeShelf(local.shelf, cloud.shelf), tombstonedIdSet(mergedTombstones, "shelf"));
     // A batch that sits in the Vault OR on the shelf is accounted for.
     const accounted = () => archive.concat(shelf);
     let liveLogs;
@@ -739,7 +742,27 @@
       // baseline, where field-level differences may be mere normalisation. With
       // one, a changed group is real unsynced work and must be parked.
       const alreadyArchived = archiveCovers(accounted(), loser, loserLogs) || ((!hasBase || Boolean(base && base.migrated)) && archivedByIdentity(accounted(), loser));
-      if (batchIsReal(loser) && (groupChanged || unseenLogs) && !alreadyArchived){
+      // The other device set this very batch aside: fold this device's unsynced
+      // work into that shelf entry, so switching it back in brings it along,
+      // instead of a second copy of the batch in the Vault.
+      const shelved = batchIsReal(loser) && (groupChanged || unseenLogs) && !alreadyArchived
+        ? shelf.find((entry) => batchIdentity({ currentBatch: entry.batch }) === batchIdentity(loser))
+        : null;
+      if (shelved){
+        const ancestor = hasBase ? baseSections : {};
+        const fold = (key, entryKey) => threeWay(ancestor[key], loser[key], shelved[entryKey], hasBase);
+        const updated = {
+          ...shelved,
+          batch: fold("currentBatch", "batch"),
+          cellar: fold("cellar", "cellar"),
+          nutrients: fold("nutrients", "nutrients"),
+          fermentChecklist: fold("fermentChecklist", "fermentChecklist"),
+          cellarChecklist: fold("cellarChecklist", "cellarChecklist"),
+          fermentationLogs: sortLogs(mergeFermentationLogs(shelved.fermentationLogs, loserLogs)),
+          shelvedAt: new Date(Math.max(Date.now(), shelfStamp(shelved) + 1)).toISOString()
+        };
+        if (!same(updated, shelved)) shelf = shelf.map((entry) => entry === shelved ? updated : entry);
+      } else if (batchIsReal(loser) && (groupChanged || unseenLogs) && !alreadyArchived){
         const rescued = rescueEntry(loser, loserLogs);
         if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);
       }
@@ -780,7 +803,10 @@
       tombstonedIdSet(mergedTombstones, "recipes")
     );
     mergedData.archive = stripTombstoned(archive, tombstonedIdSet(mergedTombstones, "archive"));
-    mergedData.shelf = shelf;
+    // The active batch cannot also be on the shelf (two devices each switched
+    // the same entry in, or one set it aside while the other kept it active).
+    const activeId = batchIdentity(mergedData);
+    mergedData.shelf = batchIsReal(mergedData) ? shelf.filter((entry) => batchIdentity({ currentBatch: entry.batch }) !== activeId) : shelf;
 
     const mergedSchema = {
       ...(localEnv.schema || cloudEnv.schema || {}),

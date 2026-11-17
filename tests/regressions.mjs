@@ -941,6 +941,62 @@ async function testBatchAdjunctsSurvive(context) {
   await page.close();
 }
 
+async function testShelfRaptAndAdjuncts(context) {
+  console.log("\n[24] Setting a batch aside: RAPT and structure additions stay with the right batch");
+  const page = await freshPage(context);
+  const past = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  await page.route("**/rapt-bridge**", (route) => route.fulfill({ status: 200, contentType: "application/json",
+    body: JSON.stringify({ readings: [1.09, 1.08, 1.07].map((g, i) => ({ gravity: g, temperature: 68, telemetryAt: past(30 - i * 6), readingId: `r${i}`, deviceId: "d1", deviceName: "Pill" })) }) }));
+  await clickTab(page, "recipes");
+  await setVal(page, "#recipeName", "Oaked A");
+  await setVal(page, "#recipeBatchGallons", "3");
+  await setVal(page, '#recipeAdjunctList [data-adjunct-field="ingredient"]', "French oak");
+  await page.$eval("#saveRecipeBtn", (b) => b.click());
+  await delay(300);
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+  // Let A take the pill's readings (its floor is its start, so backdate it).
+  await page.evaluate((k) => { const raw = JSON.parse(localStorage.getItem(k)); raw.data.rapt.telemetrySince = new Date(Date.now() - 48 * 3600000).toISOString(); localStorage.setItem(k, JSON.stringify(raw)); }, STORAGE_KEY);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(800);
+  await clickTab(page, "ferment");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await delay(1500);
+  const aLogs = (await state(page)).fermentationLogs.length;
+  await page.$eval("#shelveBatchBtn", (b) => b.click());
+  await delay(300);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await delay(1500);
+  let s = await state(page);
+  check("with the slot empty, a RAPT refresh creates no phantom batch", !s.currentBatch.name && s.fermentationLogs.length === 0, `${s.currentBatch.name}/${s.fermentationLogs.length} (A had ${aLogs})`);
+  // A second batch with no adjuncts, then switch back and forth.
+  await clickTab(page, "recipes");
+  await clickAndAnswer(page, "#clearRecipeBtn");
+  await setVal(page, "#recipeName", "Plain B");
+  await setVal(page, "#recipeBatchGallons", "3");
+  await page.$eval("#saveRecipeBtn", (b) => b.click());
+  await delay(300);
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+  await clickTab(page, "ferment");
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await delay(1500);
+  s = await state(page);
+  check("the new batch does not inherit the old batch's pill readings", s.currentBatch.name === "Plain B" && s.fermentationLogs.length === 0, `${s.currentBatch.name}/${s.fermentationLogs.length}`);
+  await page.$eval("[data-shelf-switch]", (b) => b.click());
+  await delay(300);
+  await page.$eval("[data-shelf-switch]", (b) => b.click());
+  await delay(300);
+  await page.evaluate(() => window.dispatchEvent(new Event("meadevil-cloud-restore")));
+  await delay(300);
+  await setVal(page, "#batchFermentNotes", "touch");
+  await delay(300);
+  s = await state(page);
+  const adds = (s.currentBatch.structureAdditions || []).map((r) => r.ingredient).filter(Boolean).join(",");
+  check("switching batches does not paste the other batch's oak in", s.currentBatch.name === "Plain B" && adds === "", `${s.currentBatch.name}: ${adds}`);
+  const shelfA = s.shelf.find((e) => e.batch.name === "Oaked A");
+  check("...and the oak stays with its own batch", (shelfA?.batch.structureAdditions || []).some((r) => r.ingredient === "French oak"));
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -968,6 +1024,7 @@ async function main() {
   await testBillDrivesGravityMath(context);
   await testMultipleBatches(context);
   await testBatchAdjunctsSurvive(context);
+  await testShelfRaptAndAdjuncts(context);
 
   await context.close();
   await browser.close();

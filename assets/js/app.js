@@ -1039,7 +1039,7 @@
     // RAPT telemetry and the elapsed clock belong to the batch that just ended.
     // Leaving them attached made a brand-new batch open showing the previous
     // batch's latest gravity/temp and a clock still counting from the old pitch.
-    data.rapt = { ...defaultRaptSync(), deviceId: data.rapt && data.rapt.deviceId ? data.rapt.deviceId : "" };
+    data.rapt = freshRaptLink();
     data.clock = normalizeClock(null);
     return true;
   }
@@ -1048,9 +1048,32 @@
   // One batch is the active one: Ferment, Feed and Finish show it. Others can be
   // set aside on the shelf and switched back in. Nothing is lost either way:
   // a set-aside batch keeps its readings, checklists, timer and RAPT link.
+  // The pill's bridge key and device stay linked, but whatever batch is active
+  // next only takes readings from now on: the pill is one device in one
+  // fermenter, and earlier readings belong to the batch that just left.
+  function freshRaptLink(){
+    return {
+      ...defaultRaptSync(),
+      batchKey: data.rapt && data.rapt.batchKey ? data.rapt.batchKey : "active",
+      deviceId: data.rapt && data.rapt.deviceId ? data.rapt.deviceId : "",
+      telemetrySince: new Date().toISOString()
+    };
+  }
+
   function shelveCurrentBatch(){
     if (!batchHasData()) return null;
+    // Same batch, same id on every device: two devices setting the same batch
+    // aside make one shelf entry, not two.
+    const identity = `${data.currentBatch.loadedAt || ""}|${data.currentBatch.recipeId || ""}`;
+    let hash = 0;
+    for (let i = 0; i < identity.length; i += 1) hash = (hash * 31 + identity.charCodeAt(i)) >>> 0;
+    const id = data.currentBatch.loadedAt ? `shelf-${hash.toString(36)}-${Date.parse(data.currentBatch.loadedAt).toString(36)}` : makeId("shelf");
+    data.shelf = data.shelf.filter((item) => item.id !== id);
+    // It may have been on the shelf before (set aside, made active, set aside
+    // again): the earlier switch-back tombstoned this id.
+    clearTombstones("shelf", [id]);
     const entry = normalizeShelfItem({
+      id,
       shelvedAt: new Date().toISOString(),
       batch: clone(data.currentBatch),
       nutrients: clone(data.nutrients),
@@ -1071,7 +1094,7 @@
     data.nutrients = defaultNutrients();
     data.cellar = defaultCellar();
     data.cellarChecklist = defaultCellarChecklist();
-    data.rapt = { ...defaultRaptSync(), deviceId: data.rapt && data.rapt.deviceId ? data.rapt.deviceId : "" };
+    data.rapt = freshRaptLink();
     data.clock = normalizeClock(null);
     return entry;
   }
@@ -1090,7 +1113,10 @@
     data.nutrients = incoming.nutrients;
     data.cellar = incoming.cellar;
     data.cellarChecklist = incoming.cellarChecklist;
-    if (incoming.rapt) data.rapt = { ...defaultRaptSync(), ...incoming.rapt };
+    // Readings the pill sent while this batch sat on the shelf may have come
+    // from the other fermenter, so it resumes taking readings from now.
+    const link = freshRaptLink();
+    data.rapt = { ...defaultRaptSync(), ...(incoming.rapt || {}), batchKey: link.batchKey, deviceId: link.deviceId, telemetrySince: link.telemetrySince };
     data.clock = normalizeClock(incoming.clock);
     return true;
   }
@@ -1133,7 +1159,7 @@
     if (!batchHasData()) return true;
     const choice = await confirmDialog({
       title: "Replace the active batch?",
-      message: `Starting a new batch from ${sourceLabel} clears the current Ferment, Feed, Finish, and gravity records. Archiving first keeps them in the Vault.`,
+      message: `Starting a new batch from ${sourceLabel} clears the current Ferment, Feed, Finish, and gravity records. Setting it aside keeps all of them, and you can switch back from Ferment.`,
       altLabel: "Set it aside, then start",
       confirmLabel: "Discard and replace",
       cancelLabel: "Cancel",
@@ -1978,6 +2004,9 @@
     if (raptImportPromise) return raptImportPromise;
     const silent = Boolean(options.silent);
     const batchKey = data.rapt.batchKey || "active";
+    // No active batch: there is nothing for readings to belong to. Importing
+    // here created a phantom batch out of the previous one's history.
+    if (!batchHasData()) return { added: 0, total: 0, skipped: "no-batch" };
     raptImportPromise = (async () => {
       data.rapt.lastError = "";
       data.rapt.lastStatus = "Checking bridge...";
@@ -4692,7 +4721,9 @@
         if (!recipe) return;
         // A fresh draftId marks "the Build form was replaced", so sync never
         // blends this recipe with a different one loaded on another device.
-        data.recipeDraft = { ...clone(recipe), draftId: makeId("draft") };
+        // Keyed to the recipe, so two devices opening the SAME recipe still
+        // merge their edits field by field.
+        data.recipeDraft = { ...clone(recipe), draftId: `open-${recipe.id}` };
         data.ui.selectedRecipeId = recipe.id;
         populateRecipeForm();
         persistData();
@@ -4736,12 +4767,7 @@
       if (archiveLoad){
         const item = data.archive.find((entry) => entry.id === archiveLoad);
         if (!item) return;
-        if (batchHasData() && !(await confirmDialog({
-          title: "Resume this archived batch?",
-          message: "This resumes the archived batch as the active batch. The current live batch will be replaced.",
-          confirmLabel: "Resume batch",
-          tone: "danger"
-        }))) return;
+        if (!(await confirmReplaceActiveBatch("the Vault"))) return;
         // Tombstone the outgoing live logs so sync doesn't union them into the
         // resumed batch, then revive the restored batch's own log ids so sync
         // doesn't strip the gravity trail we just brought back (see H2/H3).
@@ -4774,7 +4800,7 @@
         // must not leak into a recipe draft (a stale id would collide with
         // the original recipe on save).
         ["id","createdAt","updatedAt","recipeId","fermentNotes","stepFeedPoints","stepFeedHoneyPpg","stepFeedCount","stepFeedLog","loadedAt","pitchDate","phase"].forEach((key) => { delete draft[key]; });
-        data.recipeDraft = { ...draft, draftId: makeId("draft") };
+        data.recipeDraft = { ...draft, draftId: `clone-${archiveClone}` };
         data.ui.selectedRecipeId = null;
         populateRecipeForm();
         persistData();
@@ -5466,7 +5492,26 @@
     }
   }
 
+  // Older versions kept structure additions only in the mentor's own key. Bring
+  // any such rows into the app's state once, so the app state is the one copy
+  // that the mentor mirrors from then on.
+  function adoptLegacyStructureAdditions(){
+    const filled = (rows) => Array.isArray(rows) && rows.some((row) => row && String(row.ingredient || row.amount || row.purpose || row.notes || "").trim());
+    let changed = false;
+    ["recipeDraft", "currentBatch"].forEach((slot) => {
+      const legacy = readEnhancementStructureAdditions(slot);
+      // An empty batch slot takes nothing: the legacy copy may be the last batch's.
+      if (slot === "currentBatch" && !batchHasData()) return;
+      if (!filled(data[slot].structureAdditions) && filled(legacy)){
+        data[slot].structureAdditions = clone(legacy);
+        changed = true;
+      }
+    });
+    if (changed) persistData();
+  }
+
   function boot(){
+    adoptLegacyStructureAdditions();
     populateYeastSelect();
     populateRecipeForm();
     populateNutrientForm();

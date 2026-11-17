@@ -315,6 +315,30 @@ for (const text of ["EC-1118 is too aggressive here, so 71B is the better pick."
 m = await extract("QA23 is cleaner than D47 at warm temps; use QA23.", { yeast: "", source_bill: [], adjuncts: [] });
 check("fallback yeast follows the reply, not list order", m.yeast === "QA23", m.yeast);
 
+console.log("\n[10] Fifth-audit grounding cases");
+const ob = { yeast: "", source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [] };
+for (const text of ["Replace the clover honey with 12 lb orange blossom honey.", "Swap in 12 lb orange blossom honey.", "Swap to 12 lb orange blossom honey.", "I'd swap the clover for 12 lb orange blossom honey."]) {
+  m = await extract(text, { ...ob, source_bill: ob.source_bill.concat([{ name: "clover honey", type: "Honey", amount: "", unit: "lb" }]) });
+  check(`the replacement is kept: "${text.slice(0, 34)}…"`, amt(m.source_bill_candidates, /orange/) === "12lb" && !m.source_bill_candidates.some((b) => /clover/.test(b.name)), JSON.stringify(m.source_bill_candidates));
+}
+for (const text of ["With a gravity over 1.100 pitch EC-1118.", "Ferment cooler than 65F with EC-1118.", "Step-feed nutrients over the first week for EC-1118."]) {
+  m = await extract(text, { yeast: "EC-1118", source_bill: [], adjuncts: [] });
+  check(`ordinary over/than does not rule out a yeast: "${text.slice(0, 28)}…"`, m.yeast === "EC-1118", m.yeast);
+}
+for (const [text, re, want] of [
+  ["12 lb orange blossom honey is too good to bury under spice.", /orange/, "12lb"],
+  ["The 3 lb tart cherry puree is too early to judge, but add it in secondary.", /cherry/, "3lb"],
+  ["If the 12 lb wildflower honey seems too thin, add a pound.", /wildflower/, "12lb"],
+  ["Use 12 lb wildflower honey out of the jar.", /wildflower/, "12lb"]]) {
+  const name = re.source === "orange" ? "orange blossom honey" : re.source === "cherry" ? "tart cherry puree" : "wildflower honey";
+  m = await extract(text, { yeast: "", source_bill: [{ name, type: re.source === "cherry" ? "Fruit" : "Honey", amount: want.replace("lb", ""), unit: "lb" }], adjuncts: [] });
+  check(`kept: "${text.slice(0, 36)}…"`, amt(m.source_bill_candidates, re) === want, JSON.stringify(m.source_bill_candidates));
+}
+m = await extract("Use 12 lb wildflower honey. 2 oz oak cubes will dominate early but fade; keep them.", { yeast: "", source_bill: [], adjuncts: [{ ingredient: "oak cubes", amount: "2", unit: "oz", phase: "secondary" }] });
+check("'will dominate early but ... keep them' keeps the oak", amt(m.adjunct_candidates, /oak/) === "2oz", JSON.stringify(m.adjunct_candidates));
+m = await extract("71B is too forgiving to pass up here.", { yeast: "71B", source_bill: [], adjuncts: [] });
+check("'too forgiving to pass up' keeps the yeast", m.yeast === "71B", m.yeast);
+
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));
 if (failures.length) { console.log(`MENTOR BACKEND: ${failures.length} FAILURE(S)`); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

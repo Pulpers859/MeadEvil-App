@@ -650,10 +650,33 @@ async function main() {
                    { collection: "fermentationLogs", id: "lx", deletedAt: "", revivedAt: "2026-05-05T00:00:01Z" }] }, "2026-05-05T00:00:00Z");
     const onLaptop = merge(laptop, switched, null, { sections: { currentBatch: Y, cellar: { currentPh: "" } }, logIds: [] }).data;
     const names = (list) => (list || []).map((e) => e.batch.name).join(",");
+    // Both devices made the same shelved batch active (each set Y aside, same id).
+    const bothSwitch = merge(switched, env({ ...JSON.parse(JSON.stringify(switched.data)) }, "2026-05-05T00:00:01Z"), null,
+      { sections: { currentBatch: Y, cellar: { currentPh: "" } }, logIds: [] }).data;
+    // One device made X active while the other still shows X on the shelf.
+    const activeAlsoShelved = merge(switched, env({ ...laptop.data, currentBatch: X, fermentationLogs: [lx] }, "2026-05-05T00:00:02Z"), null,
+      { sections: { currentBatch: X, cellar: { currentPh: "" } }, logIds: ["lx"] }).data;
+    // Laptop set X aside while the phone logged a new reading on X.
+    const ly = { id: "ly", date: "2026-04-20", gravity: "1.050" };
+    const loggingPhone = env({ currentBatch: X, cellar: { currentPh: "" }, fermentationLogs: [lx, ly], shelf: [], archive: [] }, "2026-04-20T00:00:00Z");
+    const folded = merge(loggingPhone, laptop, null, base).data;
+    // Laptop made Mel active from the shelf while the phone, offline, archived X.
+    const M = { loadedAt: "2026-02-01T00:00:00Z", recipeId: "rm", name: "Mel" };
+    const shelfM = { id: "shelf-m", shelvedAt: "2026-04-01T00:00:00Z", batch: M, cellar: {}, fermentationLogs: [] };
+    const lapMel = env({ currentBatch: M, cellar: {}, fermentationLogs: [], archive: [],
+      shelf: [{ ...shelfX, id: "shelf-x2", shelvedAt: "2026-05-06T00:00:00Z" }],
+      tombstones: [{ collection: "shelf", id: "shelf-m", deletedAt: "2026-05-06T00:00:00Z" }] }, "2026-05-06T00:00:00Z");
+    const phoneArch = env({ currentBatch: { name: "", loadedAt: null, recipeId: "" }, cellar: {}, fermentationLogs: [], shelf: [shelfM],
+      archive: [{ id: "arch-x", archivedAt: "2026-05-06T00:00:00Z", batch: X, cellar: {}, fermentationLogs: [lx] }] }, "2026-05-06T00:00:00Z");
+    const melWins = merge(phoneArch, lapMel, null, { sections: { currentBatch: X, cellar: {} }, logIds: ["lx"] }).data;
     return {
+      bothShelf: names(bothSwitch.shelf), bothActive: bothSwitch.currentBatch.name,
+      dupActive: activeAlsoShelved.currentBatch.name, dupShelf: names(activeAlsoShelved.shelf),
+      foldedShelfLogs: (folded.shelf.find((e) => e.batch.name === "Batch X") || {}).fermentationLogs?.map((l) => l.id).join(","), foldedVault: folded.archive.length,
+      melActive: melWins.currentBatch.name, melVault: names(melWins.archive),
       phoneActive: onPhone.currentBatch.name, phoneShelf: names(onPhone.shelf), phoneLogs: onPhone.fermentationLogs.length,
       phoneCopies: onPhone.archive.length, shelfLogs: onPhone.shelf[0] && onPhone.shelf[0].fermentationLogs.length,
-      busyCopies: names(onBusyPhone.archive),
+      busyCopies: names(onBusyPhone.archive), busyShelfPh: (onBusyPhone.shelf.find((e) => e.batch.name === "Batch X") || {}).cellar?.currentPh,
       staleActive: onStalePhone.currentBatch.name, staleCopies: onStalePhone.archive.length,
       laptopActive: onLaptop.currentBatch.name, laptopShelf: names(onLaptop.shelf), laptopLogs: onLaptop.fermentationLogs.map((l) => l.id).join(",")
     };
@@ -661,8 +684,12 @@ async function main() {
   check("the other device follows: Y active, X on the shelf", r16.phoneActive === "Batch Y" && r16.phoneShelf === "Batch X", `${r16.phoneActive} | ${r16.phoneShelf}`);
   check("...X's reading stays with X, not the live log", r16.phoneLogs === 0 && r16.shelfLogs === 1, `${r16.phoneLogs}/${r16.shelfLogs}`);
   check("...and no recovered copy, since X is accounted for", r16.phoneCopies === 0, String(r16.phoneCopies));
-  check("unsynced work on the set-aside batch is still parked, not lost", /Batch X \(recovered copy\)/.test(r16.busyCopies), r16.busyCopies);
+  check("unsynced work on the set-aside batch goes into its shelf entry, not lost", r16.busyShelfPh === "3.4" && !/recovered/.test(r16.busyCopies), `${r16.busyShelfPh} / ${r16.busyCopies}`);
   check("a stale device with no baseline does not revive a shelved batch", r16.staleActive === "Batch Y" && r16.staleCopies === 0, `${r16.staleActive}/${r16.staleCopies}`);
+  check("both devices making the same batch active leave one shelf entry", r16.bothActive === "Batch X" && r16.bothShelf === "Batch Y", `${r16.bothActive} | ${r16.bothShelf}`);
+  check("the active batch is never also on the shelf", !r16.dupShelf.split(",").includes(r16.dupActive), `${r16.dupActive} | ${r16.dupShelf}`);
+  check("a reading logged on a batch the other device set aside joins its shelf entry", r16.foldedShelfLogs === "lx,ly" && r16.foldedVault === 0, `${r16.foldedShelfLogs} / vault ${r16.foldedVault}`);
+  check("making a batch active beats an empty slot from a concurrent archive", r16.melActive === "Mel" && !/recovered/.test(r16.melVault), `${r16.melActive} | ${r16.melVault}`);
   check("switching back on one device: X active, Y shelved, X's reading live", r16.laptopActive === "Batch X" && r16.laptopShelf === "Batch Y" && r16.laptopLogs === "lx", JSON.stringify(r16));
   await closeAll();
 

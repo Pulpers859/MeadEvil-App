@@ -1022,12 +1022,19 @@ const AMOUNT_BEFORE = new RegExp(`${QUANTITY}\\s*(?:\\([^)]*\\)\\s*)?(?:of\\s+)?
 // "wildflower honey: 12 lb", "wildflower honey (12 lb)", "wildflower honey, 12 lb".
 const AMOUNT_AFTER = new RegExp(`^\\s*[:,(–—=-]?\\s*(?:about|roughly|around|approximately|use|at|is)?\\s*${QUANTITY}`);
 const NEGATION = /(?:\b(?:skip|avoid|omit|without|not|no|never|dont|do not|instead of|rather than|leave out|hold off on|drop|ditch|cut|remove|lose|replace|swap)\b|n't\b)/;
-// For a yeast, being compared against also rules it out: "71B over EC-1118",
-// "cleaner than D47", "unlike EC-1118".
-const YEAST_NEGATION = /\b(?:over|than|unlike|versus|vs)\b/;
+// For a yeast, losing a comparison to another yeast rules it out: "71B over
+// EC-1118", "QA23 is cleaner than D47", "unlike EC-1118". Plain "over" and
+// "than" ("a gravity over 1.100", "cooler than 65F") do not.
+const YEAST_NAMES_RE = "(?:71b|d47|qa23|ec-?1118)";
+function yeastLosesComparison(lead) {
+  return new RegExp(`${YEAST_NAMES_RE}\\b[^.;,]{0,30}\\b(?:over|than|versus|vs\\.?)\\s+(?:the\\s+)?$`).test(lead)
+    || /\bunlike\s+(?:the\s+)?$/.test(lead);
+}
 // Said about the ingredient just named: "... would bury the citrus", "... is
 // too sweet", "... is overkill", "leave the buckwheat honey out".
-const NEGATION_AFTER = /^(?:\s+out\b|[^.!?;,]{0,30}?\b(?:(?:is|are|would be|feels?|sounds?|seems?)\s+(?:too\s+[a-z]+|a bad idea|a mistake|overkill|wrong|unnecessary)|(?:would|will|could|might)\s+(?:bury|overpower|swamp|mask|muddy|strip|blow|flatten|clash|dominate)|[;,.]\s*(?:skip|drop|cut|ditch|lose)\s+(?:it|that|them)\b))/;
+const NEGATION_AFTER = /^(?:[^.!?;,]{0,30}?\b(?:(?:is|are|would be|feels?|sounds?)\s+(?:too\s+(?:much|heavy|strong|sweet|harsh|aggressive|hot|bitter|overpowering|dominant|cloying|intense)\b(?!\s+to\b)|a bad idea|a mistake|overkill|wrong|unnecessary)|(?:would|will|could|might)\s+(?:bury|overpower|swamp|mask|muddy|strip|blow out|flatten|clash with|dominate))|[;,.]\s*(?:skip|drop|cut|ditch|lose)\s+(?:it|that|them)\b)/;
+// "... will dominate early but fade; keep them": the reply keeps it after all.
+const KEPT_AFTER = /^[^.!?]*\b(?:but|then|still)\b[^.!?]*\b(?:keep|add|use|include)\b/;
 // Phrases that contain a negation word but do not rule the ingredient out.
 const NOT_A_LIMIT = /\b(?:no|not) more than\b|\bup to\b|\bat most\b|\bat least\b|\bnot too much\b|\bno need to [a-z]+\b|\bno substitute for\b|\b(?:can't|cannot|can not) go wrong with\b|\b(?:don't|do not|never) (?:forget|skip|leave out|drop|cut)\b|\b(?:would|will|should)(?: not|n't) (?:skip|drop|cut|leave out)\b|\bnot only\b|\bno doubt\b|\bwithout (?:heating|boiling|heat)\b/g;
 // A rate or a total, not this item's amount: "3 lb wildflower honey per gallon".
@@ -1064,8 +1071,8 @@ function nameOccurrences(name, sentences) {
   for (const form of forms) {
     const pattern = new RegExp(`(?<![a-z0-9])${form.map(escapeRegExp).join("[\\s-]+")}(?:e?s)?(?![a-z0-9])`, "g");
     const hits = [];
-    sentences.forEach((sentence) => {
-      for (const match of sentence.matchAll(pattern)) hits.push({ sentence, start: match.index, end: match.index + match[0].length });
+    sentences.forEach((sentence, index) => {
+      for (const match of sentence.matchAll(pattern)) hits.push({ sentence, next: sentences[index + 1] || "", start: match.index, end: match.index + match[0].length });
     });
     if (hits.length) return hits;
   }
@@ -1094,8 +1101,14 @@ function adjacentQuantity(hit) {
 function mentionIsNegated(hit, quantity, extra) {
   const anchor = quantity ? Math.min(quantity.start, hit.start) : hit.start;
   const lead = hit.sentence.slice(0, anchor).replace(NOT_A_LIMIT, " ").split(/[,;:]/).pop();
-  const window = lead.trim().split(/\s+/).slice(-5).join(" ");
-  return NEGATION.test(window) || Boolean(extra && extra.test(window)) || NEGATION_AFTER.test(hit.sentence.slice(hit.end));
+  // "replace the clover with X", "swap in X", "swap the clover for X": X is
+  // the one chosen; only what sits between the verb and with/for/to/in is out.
+  const window = lead.trim().split(/\s+/).slice(-5).join(" ").replace(/\b(?:replace|swap)\b.*\b(?:with|for|to|in)\s*$/, " ");
+  const rest = hit.sentence.slice(hit.end);
+  if (/\b(?:leave|keep|take)\b/.test(window) && /^\s+out\b/.test(rest)) return true;
+  // A clause later the reply may keep it after all ("...; keep them").
+  const after = NEGATION_AFTER.test(rest) && !KEPT_AFTER.test(rest) && !/^\s*(?:but\s+)?(?:keep|add|use|include)\s+(?:it|them|that)\b/.test(hit.next || "");
+  return NEGATION.test(window) || Boolean(extra && extra(lead)) || after;
 }
 
 function yeastIsChosen(yeast, sentences) {
@@ -1107,7 +1120,7 @@ function firstChosenAt(name, sentences) {
   const offsets = [];
   let total = 0;
   sentences.forEach((sentence) => { offsets.push(total); total += sentence.length + 1; });
-  const hits = nameOccurrences(name, sentences).filter((hit) => !mentionIsNegated(hit, null, YEAST_NEGATION));
+  const hits = nameOccurrences(name, sentences).filter((hit) => !mentionIsNegated(hit, null, yeastLosesComparison));
   if (!hits.length) return -1;
   return Math.min(...hits.map((hit) => offsets[sentences.indexOf(hit.sentence)] + hit.start));
 }
