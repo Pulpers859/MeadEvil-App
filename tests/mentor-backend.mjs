@@ -282,7 +282,38 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = (url, init) => Promise.race([realFetch(url, init), new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))))]);
 r = await ask({ current_user_turn: DESIGN_TURN });
 globalThis.fetch = realFetch;
-check("a hung main call fails inside the function budget", Date.now() - t0 < 9500 && r.status === 502, `${Date.now() - t0} ms / ${r.status}`);
+check("a hung main call fails inside the function budget", Date.now() - t0 < 9500 && r.status === 504, `${Date.now() - t0} ms / ${r.status}`);
+check("...and says it was a timeout", /too long/.test(r.body.error || ""), r.body.error);
+
+console.log("\n[9] Fourth-audit grounding cases");
+const honeyCherry = { yeast: "71B", source_bill: [{ name: "wildflower honey", type: "Honey", amount: "12", unit: "lb" }, { name: "tart cherry puree", type: "Fruit", amount: "3", unit: "lb" }], adjuncts: [] };
+for (const text of ["No need to heat the 12 lb wildflower honey. Add 3 lb tart cherry puree in secondary and pitch 71B.",
+  "You can't go wrong with 12 lb wildflower honey. Add 3 lb tart cherry puree in secondary.",
+  "Don't forget the 12 lb wildflower honey. Add 3 lb tart cherry puree in secondary.",
+  "There is no substitute for 12 lb wildflower honey here. Add 3 lb tart cherry puree in secondary."]) {
+  m = await extract(text, honeyCherry);
+  check(`not a negation: "${text.slice(0, 28)}…"`, amt(m.source_bill_candidates, /wildflower/) === "12lb", JSON.stringify(m.source_bill_candidates));
+}
+m = await extract("Use 3 lb wildflower honey per gallon (15 lb total).", { yeast: "", source_bill: [{ name: "wildflower honey", type: "Honey", amount: "3", unit: "lb" }], adjuncts: [] });
+check("a per-gallon rate is not taken as the bill", amt(m.source_bill_candidates, /wildflower/) === "", JSON.stringify(m.source_bill_candidates));
+m = await extract("Use 12 lb total of orange blossom and wildflower honey.", two("12", ""));
+check("a shared total is not one honey's amount", amt(m.source_bill_candidates, /orange/) === "", JSON.stringify(m.source_bill_candidates));
+m = await extract("Build it on wildflower honey, 2 lb tart cherry puree in secondary.", { yeast: "", source_bill: [{ name: "wildflower honey", type: "Honey", amount: "2", unit: "lb" }, { name: "tart cherry puree", type: "Fruit", amount: "2", unit: "lb" }], adjuncts: [] });
+check("the next item's amount is not borrowed", amt(m.source_bill_candidates, /wildflower/) === "" && amt(m.source_bill_candidates, /cherry/) === "2lb", JSON.stringify(m.source_bill_candidates));
+for (const text of ["Replace the 3 lb buckwheat honey with 3 lb orange blossom honey.", "Use 3 lb orange blossom honey; 3 lb buckwheat honey would bury the citrus.",
+  "Use 3 lb orange blossom honey. The buckwheat honey you planned is too strong.", "Use 3 lb orange blossom honey and leave the buckwheat honey out.",
+  "Use 3 lb orange blossom honey. Swap the buckwheat honey for something lighter.", "Use 3 lb orange blossom honey. Buckwheat honey is a bad idea here."]) {
+  m = await extract(text, { yeast: "", source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "3", unit: "lb" }, { name: "buckwheat honey", type: "Honey", amount: "3", unit: "lb" }], adjuncts: [] });
+  check(`ruled out: "${text.slice(0, 40)}…"`, !m.source_bill_candidates.some((b) => /buckwheat/.test(b.name)) && amt(m.source_bill_candidates, /orange/) === "3lb", JSON.stringify(m.source_bill_candidates));
+}
+for (const text of ["EC-1118 is too aggressive here, so 71B is the better pick.", "EC-1118 would strip the aromatics; go with 71B.", "EC-1118 is overkill here. Pitch 71B.", "Unlike EC-1118, 71B keeps the fruit.", "Pick 71B over EC-1118."]) {
+  m = await extract(text, { yeast: "EC-1118", source_bill: [], adjuncts: [] });
+  check(`ruled-out yeast rejected: "${text.slice(0, 30)}…"`, m.yeast !== "EC-1118", m.yeast);
+  m = await extract(text, { yeast: "", source_bill: [], adjuncts: [] });
+  check(`...and the fallback picks 71B`, m.yeast === "71B", m.yeast);
+}
+m = await extract("QA23 is cleaner than D47 at warm temps; use QA23.", { yeast: "", source_bill: [], adjuncts: [] });
+check("fallback yeast follows the reply, not list order", m.yeast === "QA23", m.yeast);
 
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));

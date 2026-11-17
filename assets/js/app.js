@@ -4128,7 +4128,7 @@
         message: "This clears the current Build form only. Saved recipes in Vault stay untouched.",
         confirmLabel: "Start new draft"
       }))) return;
-      data.recipeDraft = defaultRecipeDraft();
+      data.recipeDraft = { ...defaultRecipeDraft(), draftId: makeId("draft") };
       data.ui.selectedRecipeId = null;
       syncNutrientsFromRecipe(data.recipeDraft, { force: true });
       populateRecipeForm();
@@ -4690,7 +4690,9 @@
       if (recipeEdit){
         const recipe = data.recipes.find((item) => item.id === recipeEdit);
         if (!recipe) return;
-        data.recipeDraft = clone(recipe);
+        // A fresh draftId marks "the Build form was replaced", so sync never
+        // blends this recipe with a different one loaded on another device.
+        data.recipeDraft = { ...clone(recipe), draftId: makeId("draft") };
         data.ui.selectedRecipeId = recipe.id;
         populateRecipeForm();
         persistData();
@@ -4772,7 +4774,7 @@
         // must not leak into a recipe draft (a stale id would collide with
         // the original recipe on save).
         ["id","createdAt","updatedAt","recipeId","fermentNotes","stepFeedPoints","stepFeedHoneyPpg","stepFeedCount","stepFeedLog","loadedAt","pitchDate","phase"].forEach((key) => { delete draft[key]; });
-        data.recipeDraft = draft;
+        data.recipeDraft = { ...draft, draftId: makeId("draft") };
         data.ui.selectedRecipeId = null;
         populateRecipeForm();
         persistData();

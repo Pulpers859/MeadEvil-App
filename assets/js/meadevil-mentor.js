@@ -1805,12 +1805,14 @@
       ruiners: normalizeStringList(concept.ruiners, localPacket.packet.ruiners),
       styleLane: pickText(concept.style_lane, concept.styleLane, localPacket.packet.styleLane),
       finishDirection: pickText(concept.finish_direction, concept.finishDirection, localPacket.packet.finishDirection),
-      yeastLane: trusted ? pickText(build.yeast, "") : pickText(build.yeast, concept.yeast_lane, concept.yeastLane, localPacket.packet.yeastLane),
+      // A checked reply that named no yeast falls back to the one the user asked
+      // for in Brainstorm (or the local default), never to a stale draft value.
+      yeastLane: trusted ? pickText(build.yeast, localPacket.packet.yeastLane) : pickText(build.yeast, concept.yeast_lane, concept.yeastLane, localPacket.packet.yeastLane),
       // A checked list is used as it stands. Merging the local guesses back in
       // added a generic "Honey" row that took the full estimate and shrank the
       // real rows, and re-added adjuncts the reply had said to leave out.
       sourceBillCandidates: trusted && build.source_bill_candidates.length
-        ? build.source_bill_candidates.filter(isPlainObject).map((item) => ({ ...item }))
+        ? withHoneyBase(build.source_bill_candidates.filter(isPlainObject).map((item) => ({ ...item })), localPacket.packet.sourceBillCandidates)
         : mergeSourceBillCandidates(
             build.source_bill_candidates ?? build.sourceBillCandidates,
             localPacket.packet.sourceBillCandidates
@@ -2297,6 +2299,15 @@
   // wholesale — and the local list is the one that carries fruit, juice, and
   // concentrate. Net effect: a melomel designed in Brainstorm arrived in Build
   // with the honey and no fruit at all.
+  // A checked list that only covers the twist ("add 3 lb cherry puree") still
+  // needs the honey the mead is built on: take the user's honey, amount left for
+  // the estimate to fill.
+  function withHoneyBase(list, localList){
+    if (list.some((item) => normalizeSourceType(item.type) === "Honey")) return list;
+    const honey = (Array.isArray(localList) ? localList : []).filter((item) => isPlainObject(item) && normalizeSourceType(item.type) === "Honey");
+    return list.concat(honey.slice(0, 1).map((item) => ({ ...item, amount: "", unit: "lb" })));
+  }
+
   function mergeSourceBillCandidates(backendList, localList){
     const merged = new Map();
     const upsert = (item) => {
@@ -2313,8 +2324,14 @@
         amount: String(item.amount || prev.amount || "").trim()
       });
     };
-    (Array.isArray(backendList) ? backendList : []).forEach(upsert);
-    (Array.isArray(localList) ? localList : []).forEach(upsert);
+    const backend = Array.isArray(backendList) ? backendList : [];
+    backend.forEach(upsert);
+    // The local generic "Honey" placeholder only stands in when the reply named
+    // no honey; beside named honeys it took the full estimate as an extra row.
+    const backendHasHoney = backend.some((item) => isPlainObject(item) && normalizeSourceType(item.type) === "Honey");
+    (Array.isArray(localList) ? localList : [])
+      .filter((item) => !(backendHasHoney && isPlainObject(item) && normalizeSourceType(item.type) === "Honey" && /^honey$/i.test(String(item.name || "").trim())))
+      .forEach(upsert);
     const out = [...merged.values()];
     return out.length ? out : clone(Array.isArray(localList) ? localList : []);
   }
@@ -2426,7 +2443,10 @@
     if (honeyLb && packet.extraction !== "model") {
       const honeyRows = rows.filter((r) => r.sourceType === "Honey" && parseFloat(r.amount) > 0);
       const honeySum = honeyRows.reduce((sum, r) => sum + parseFloat(r.amount), 0);
-      if (honeyRows.length > 1 && honeySum > honeyLb * 1.15) {
+      // The scraper's signature is the SAME total on every honey row; distinct
+      // amounts were stated per honey and are kept as written.
+      const allSame = honeyRows.every((r) => parseFloat(r.amount) === parseFloat(honeyRows[0].amount));
+      if (honeyRows.length > 1 && allSame && honeySum > honeyLb * 1.15) {
         const scale = honeyLb / honeySum;
         honeyRows.forEach((r) => {
           r.amount = String(Math.round(parseFloat(r.amount) * scale * 100) / 100);
@@ -2563,6 +2583,9 @@
           }))
         : enh.recipeDraft.structureAdditions;
       enh.recipeDraft.structureAdditions = adjunctRows.length ? adjunctRows : [defaultAdjunctRow()];
+      // Send to Build replaces the draft: a new draftId tells sync not to blend
+      // it with a different plan sent on another device.
+      enh.recipeDraft.draftId = `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     });
 
     window.dispatchEvent(new Event("meadevil-cloud-restore"));

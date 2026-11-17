@@ -1017,13 +1017,21 @@ const QUANTITY = `${NUMBER}${RANGE_TAIL}\\s*-?\\s*(${ANY_UNIT})\\b\\.?`;
 // "12 lb [of] [raw] wildflower honey": the amount, then at most three plain
 // describing words, then the name. A joining word in between ("12 lb X over
 // 2 lb Y", "14 g zest to 12 lb honey") means the amount belongs elsewhere.
-const JOINERS = "and|or|to|over|plus|with|instead|rather|than|for|into|per|in|on|by|from|then|but|not|no";
+const JOINERS = "and|or|to|over|plus|with|instead|rather|than|for|into|per|in|on|by|from|then|but|not|no|total|each|combined|more|extra|additional";
 const AMOUNT_BEFORE = new RegExp(`${QUANTITY}\\s*(?:\\([^)]*\\)\\s*)?(?:of\\s+)?(?:(?!(?:${JOINERS})\\b)[a-z'-]+\\s+){0,3}$`);
 // "wildflower honey: 12 lb", "wildflower honey (12 lb)", "wildflower honey, 12 lb".
 const AMOUNT_AFTER = new RegExp(`^\\s*[:,(–—=-]?\\s*(?:about|roughly|around|approximately|use|at|is)?\\s*${QUANTITY}`);
-const NEGATION = /(?:\b(?:skip|avoid|omit|without|not|no|never|dont|do not|instead of|rather than|leave out|hold off on|drop|ditch|cut|remove|lose)\b|n't\b)/;
-const NEGATION_AFTER = /^[^.!?]{0,12}(?:\b(?:is|are|would be|feels?|sounds?)\s+too\s+(?:much|heavy|strong)|[;,.]\s*(?:skip|drop|cut|ditch|lose)\s+(?:it|that|them)\b)/;
-const NOT_A_LIMIT = /\b(?:no|not) more than\b|\bup to\b|\bat most\b|\bat least\b|\bnot too much\b/g;
+const NEGATION = /(?:\b(?:skip|avoid|omit|without|not|no|never|dont|do not|instead of|rather than|leave out|hold off on|drop|ditch|cut|remove|lose|replace|swap)\b|n't\b)/;
+// For a yeast, being compared against also rules it out: "71B over EC-1118",
+// "cleaner than D47", "unlike EC-1118".
+const YEAST_NEGATION = /\b(?:over|than|unlike|versus|vs)\b/;
+// Said about the ingredient just named: "... would bury the citrus", "... is
+// too sweet", "... is overkill", "leave the buckwheat honey out".
+const NEGATION_AFTER = /^(?:\s+out\b|[^.!?;,]{0,30}?\b(?:(?:is|are|would be|feels?|sounds?|seems?)\s+(?:too\s+[a-z]+|a bad idea|a mistake|overkill|wrong|unnecessary)|(?:would|will|could|might)\s+(?:bury|overpower|swamp|mask|muddy|strip|blow|flatten|clash|dominate)|[;,.]\s*(?:skip|drop|cut|ditch|lose)\s+(?:it|that|them)\b))/;
+// Phrases that contain a negation word but do not rule the ingredient out.
+const NOT_A_LIMIT = /\b(?:no|not) more than\b|\bup to\b|\bat most\b|\bat least\b|\bnot too much\b|\bno need to [a-z]+\b|\bno substitute for\b|\b(?:can't|cannot|can not) go wrong with\b|\b(?:don't|do not|never) (?:forget|skip|leave out|drop|cut)\b|\b(?:would|will|should)(?: not|n't) (?:skip|drop|cut|leave out)\b|\bnot only\b|\bno doubt\b|\bwithout (?:heating|boiling|heat)\b/g;
+// A rate or a total, not this item's amount: "3 lb wildflower honey per gallon".
+const RATE_AFTER = /^\s*(?:per|a|\/|each|every)\s*(?:gallon|gal|liter|litre|l)\b/;
 
 function unitKey(text) {
   const clean = String(text || "").toLowerCase().replace(/\.$/, "");
@@ -1066,25 +1074,42 @@ function nameOccurrences(name, sentences) {
 
 // The amount stated directly beside this mention, if any.
 function adjacentQuantity(hit) {
+  const rest = hit.sentence.slice(hit.end);
+  if (RATE_AFTER.test(rest)) return { amount: NaN, unit: "", start: hit.start };
   const before = AMOUNT_BEFORE.exec(hit.sentence.slice(0, hit.start));
   if (before) return { amount: Number(before[1]), unit: unitKey(before[2]), start: before.index };
-  const after = AMOUNT_AFTER.exec(hit.sentence.slice(hit.end));
-  if (after) return { amount: Number(after[1]), unit: unitKey(after[2]), start: hit.start };
+  const after = AMOUNT_AFTER.exec(rest);
+  if (after) {
+    // "wildflower honey, 2 lb tart cherry puree": that amount opens the next item.
+    const following = rest.slice(after.index + after[0].length);
+    if (/^\s+(?:of\s+)?[a-z]/.test(following) && !/^\s+(?:and|or|total|in|for|per|each|is|it|should|will|would|to|of honey)\b/.test(following)
+      && !/^\s*[:(–—=-]/.test(rest)) return null;
+    return { amount: Number(after[1]), unit: unitKey(after[2]), start: hit.start };
+  }
   return null;
 }
 
 // "skip the buckwheat honey", "you shouldn't use 3 lb buckwheat honey",
 // "instead of 15 lb clover honey", "3 lb buckwheat honey is too much; skip it".
-function mentionIsNegated(hit, quantity) {
+function mentionIsNegated(hit, quantity, extra) {
   const anchor = quantity ? Math.min(quantity.start, hit.start) : hit.start;
   const lead = hit.sentence.slice(0, anchor).replace(NOT_A_LIMIT, " ").split(/[,;:]/).pop();
   const window = lead.trim().split(/\s+/).slice(-5).join(" ");
-  return NEGATION.test(window) || NEGATION_AFTER.test(hit.sentence.slice(hit.end));
+  return NEGATION.test(window) || Boolean(extra && extra.test(window)) || NEGATION_AFTER.test(hit.sentence.slice(hit.end));
 }
 
 function yeastIsChosen(yeast, sentences) {
-  const hits = nameOccurrences(yeast, sentences);
-  return hits.some((hit) => !mentionIsNegated(hit, null));
+  return firstChosenAt(yeast, sentences) >= 0;
+}
+
+// Position in the reply of the first un-negated mention, or -1.
+function firstChosenAt(name, sentences) {
+  const offsets = [];
+  let total = 0;
+  sentences.forEach((sentence) => { offsets.push(total); total += sentence.length + 1; });
+  const hits = nameOccurrences(name, sentences).filter((hit) => !mentionIsNegated(hit, null, YEAST_NEGATION));
+  if (!hits.length) return -1;
+  return Math.min(...hits.map((hit) => offsets[sentences.indexOf(hit.sentence)] + hit.start));
 }
 
 // A flavour or structure addition that the model filed under fermentables.
@@ -1229,6 +1254,19 @@ async function extractStructuredWithModel({ apiKey, model, reply, userMessage, t
 
 // Model-read fields replace the regex result only where the model produced
 // something that survived grounding; everything else stays as the regex left it.
+// Settle the yeast against the reply: the model's grounded pick, else the one
+// the reply recommends first (in reply order), never one it rules out.
+function resolveYeast(build, modelYeast, reply) {
+  const sentences = replySentences(reply);
+  if (modelYeast) build.yeast = modelYeast;
+  else if (!build.yeast || !yeastIsChosen(String(build.yeast), sentences)) {
+    const ranked = KNOWN_YEAST_NAMES.map((name) => [name, firstChosenAt(name, sentences)]).filter(([, at]) => at >= 0).sort((a, b) => a[1] - b[1]);
+    build.yeast = ranked.length ? ranked[0][0] : "";
+  }
+  build.yeast_checked = true;
+  return build;
+}
+
 function mergeExtraction(regexExtracted, modelExtracted, reply = "") {
   if (!modelExtracted) return { extracted: regexExtracted, method: "pattern" };
   const build = { ...(regexExtracted.build_mapping || {}) };
@@ -1236,12 +1274,7 @@ function mergeExtraction(regexExtracted, modelExtracted, reply = "") {
   // adjuncts were recommended"): it replaces whatever the patterns scraped.
   // The pattern pass takes the first yeast named anywhere, including one the
   // reply rules out ("skip 71B; pitch EC-1118"): keep it only if it holds up.
-  const sentences = replySentences(reply);
-  if (modelExtracted.yeast) build.yeast = modelExtracted.yeast;
-  else if (!build.yeast || !yeastIsChosen(String(build.yeast), sentences)) {
-    build.yeast = KNOWN_YEAST_NAMES.find((name) => yeastIsChosen(name, sentences)) || "";
-  }
-  build.yeast_checked = true;
+  resolveYeast(build, modelExtracted.yeast, reply);
   build.source_bill_candidates = modelExtracted.source_bill_candidates;
   build.adjunct_candidates = modelExtracted.adjunct_candidates;
   return { extracted: { ...regexExtracted, build_mapping: build }, method: "model" };
@@ -1424,11 +1457,17 @@ export async function handler(event) {
       }
     }
 
+    if (source === "model" && extraction === "pattern") {
+      extracted = { ...extracted, build_mapping: resolveYeast({ ...(extracted.build_mapping || {}) }, "", collaboratorReply) };
+    }
     const body = buildFallbackResponse(userMessage, collaboratorReply, extracted);
     body.provenance = { source, model: source === "model" ? model : "", extraction, mode: String(userMessage.mode || "scout") };
     return respond(200, body);
   } catch (err) {
     console.error("Mentor function error:", err);
+    if (/timed out/i.test(String(err?.message || ""))) {
+      return respond(504, { error: "The model took too long to answer, so the app used its built-in reply. Try again in a moment." });
+    }
     return respond(502, { error: "Mentor backend error. Try again." });
   }
 }

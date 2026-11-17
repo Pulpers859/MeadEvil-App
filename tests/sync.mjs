@@ -560,7 +560,12 @@ async function main() {
     const cloudSide = env({ currentBatch: batch, cellar: { currentPh: "3.3" }, archive: [] }, "2026-03-02T00:00:00Z");
     const first = merge(env({ currentBatch: batch, cellar: { currentPh: "3.5" }, archive: [] }, "2026-03-01T00:00:00Z"), cloudSide, null, null);
     const second = merge(env({ ...first.data, cellar: { currentPh: "3.7" } }, "2026-03-03T00:00:00Z"), env({ ...first.data }, "2026-03-02T00:00:00Z"), null, null).data;
+    const s3 = merge(
+      env({ recipeDraft: { id: "", draftId: "d-cherry", name: "Cherry Melomel", additions: [{ id: "x1", name: "Tart cherries" }], structureAdditions: [{ id: "o1", ingredient: "Oak cubes" }] } }, "2026-03-03T00:00:00Z"),
+      env({ recipeDraft: { id: "", draftId: "d-trad", name: "Orange Blossom Trad", additions: [{ id: "y1", name: "Orange blossom honey" }], structureAdditions: [{ id: "v1", ingredient: "Vanilla bean" }] } }, "2026-03-02T00:00:00Z"),
+      null, { sections: { recipeDraft: { id: "", draftId: "", name: "", additions: [{ id: "b0", name: "" }], structureAdditions: [] } }, logIds: [] }).data;
     return {
+      s3: [s3.recipeDraft.name, s3.recipeDraft.additions.map((r) => r.name).join("+"), s3.recipeDraft.structureAdditions.map((r) => r.ingredient).join("+")].join("|"),
       s4: s4.recipeDraft.structureAdditions.map((r) => r.ingredient).filter(Boolean).join(","),
       s5: s5.recipeDraft.additions.map((r) => r.name).join(","),
       s6Name: s6.recipeDraft.name, s6Gal: s6.recipeDraft.batchGallons,
@@ -580,6 +585,7 @@ async function main() {
   check("no baseline: a real local value is kept over an empty cloud one, whatever the clocks say", r15.a1cNote === "old note" && r15.a1cName === "Old draft", `${r15.a1cNote}/${r15.a1cName}`);
   check("a blank placeholder row does not erase the other device's adjunct", r15.s4 === "vanilla", r15.s4);
   check("two devices each replacing a source-bill row keep both rows", r15.s5 === "cherry,wildflower" || r15.s5 === "wildflower,cherry", r15.s5);
+  check("two plans sent to Build on two devices are never blended", r15.s3 === "Cherry Melomel|Tart cherries|Oak cubes", r15.s3);
   check("two renames of the same draft merge field by field", r15.s6Name === "Trad v2" && r15.s6Gal === "6", `${r15.s6Name}/${r15.s6Gal}`);
   check("a stale device with extra readings does not revive an archived batch", r15.s10Active === "" && r15.s10Parked === 1, `${r15.s10Active}/${r15.s10Parked}`);
   check("repeat syncs without a baseline park one copy per batch, not one per edit", r15.s9 === 1, String(r15.s9));

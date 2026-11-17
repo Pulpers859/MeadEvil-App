@@ -613,7 +613,7 @@
     if (!isPlain(local) || !isPlain(cloud)) return false;
     // Two different saved recipes, by id. A rename of the same draft is an
     // ordinary field edit and merges field by field.
-    const ident = (draft) => isPlain(draft) ? String(draft.id || "") : "";
+    const ident = (draft) => isPlain(draft) ? String(draft.draftId || draft.id || "") : "";
     return Boolean(ident(local)) && Boolean(ident(cloud))
       && ident(local) !== ident(cloud) && ident(local) !== ident(base) && ident(cloud) !== ident(base);
   }
@@ -982,7 +982,10 @@
           syncQueued = false;
           const wrote = await syncOnce(reason);
           if (wrote && lastWriteWasCorrective && reason !== "manual" && reason !== "boot") noteAutoWrite();
-          else if (wrote && reason === "remote") noteRemoteWrite();
+          // While someone is typing, every upload this device makes rides on a
+          // remote-triggered sync (the save debounce never settles): that is
+          // two people working, not a loop.
+          else if (wrote && reason === "remote" && !userRecentlyTyped()) noteRemoteWrite();
           rounds += 1;
         } while (syncQueued && rounds < 5);
         retryDelayMs = 0;
