@@ -236,6 +236,54 @@ r = await ask({ current_user_turn: DESIGN_TURN, mode: "forge" });
 check("a stalled extraction body cannot run past the budget", r.status === 200 && Date.now() - t0 < 9500, `${Date.now() - t0} ms`);
 check("...and the reply still goes out", r.body.mentor_reply.conversation_reply.includes("12.5 lb"));
 
+console.log("\n[8] Third-audit grounding cases");
+const two = (a, b) => ({ yeast: "", source_bill: [{ name: "orange blossom honey", type: "Honey", amount: a, unit: "lb" }, { name: "wildflower honey", type: "Honey", amount: b, unit: "lb" }], adjuncts: [] });
+for (const joiner of ["over", "+", "&", "as well as", "or"]) {
+  m = await extract(`Use 12.5 lb orange blossom honey ${joiner} 2.5 lb wildflower honey.`, two("2.5", "12.5"));
+  check(`swapped amounts rejected across "${joiner}"`, amt(m.source_bill_candidates, /orange/) === "" && amt(m.source_bill_candidates, /wildflower/) === "", JSON.stringify(m.source_bill_candidates));
+}
+m = await extract("Use 12.5 lb orange blossom honey over 2.5 lb wildflower honey.", two("12.5", "2.5"));
+check("...and the right amounts are still accepted", amt(m.source_bill_candidates, /orange/) === "12.5lb" && amt(m.source_bill_candidates, /wildflower/) === "2.5lb", JSON.stringify(m.source_bill_candidates));
+m = await extract("Add 14 g lemon zest to 12 lb wildflower honey.", { yeast: "", source_bill: [{ name: "wildflower honey", type: "Honey", amount: "14", unit: "g" }], adjuncts: [{ ingredient: "lemon zest", amount: "12", unit: "lb", phase: "secondary" }] });
+check("amounts do not cross between an adjunct and a honey", amt(m.source_bill_candidates, /wildflower/) === "" && amt(m.adjunct_candidates, /zest/) === "", JSON.stringify(m));
+for (const text of ["Use 12 lb wildflower honey instead of 15 lb buckwheat honey.", "Use 12 lb wildflower honey rather than 15 lb buckwheat honey.", "Use 12 lb wildflower honey. You shouldn't use 15 lb buckwheat honey.", "Use 12 lb wildflower honey. Don’t add 15 lb buckwheat honey.", "Use 12 lb wildflower honey. Ditch the 15 lb buckwheat honey.", "Use 12 lb wildflower honey. 15 lb buckwheat honey is too much; skip it."]) {
+  m = await extract(text, { yeast: "", source_bill: [{ name: "wildflower honey", type: "Honey", amount: "12", unit: "lb" }, { name: "buckwheat honey", type: "Honey", amount: "15", unit: "lb" }], adjuncts: [] });
+  check(`ruled out: "${text.slice(27, 60)}…"`, m.source_bill_candidates.length === 1 && amt(m.source_bill_candidates, /wildflower/) === "12lb", JSON.stringify(m.source_bill_candidates));
+}
+m = await extract("Instead of 15 lb clover honey use 12 lb wildflower honey.", { yeast: "", source_bill: [{ name: "wildflower honey", type: "Honey", amount: "12", unit: "lb" }, { name: "clover honey", type: "Honey", amount: "15", unit: "lb" }], adjuncts: [] });
+check("the replacement survives an 'instead of X use Y' sentence", m.source_bill_candidates.length === 1 && amt(m.source_bill_candidates, /wildflower/) === "12lb", JSON.stringify(m.source_bill_candidates));
+script = [{ content: "I would skip 71B for this gravity; pitch EC-1118 and use 15 lb clover honey." }, { content: JSON.stringify({ yeast: "", source_bill: [], adjuncts: [] }) }];
+r = await ask({ current_user_turn: DESIGN_TURN, mode: "forge" });
+check("a ruled-out yeast is not picked up by the pattern fallback", r.body.build_mapping.yeast !== "71B", String(r.body.build_mapping.yeast));
+for (const [text, wrong] of [["Add 1/2 oz oak cubes in secondary.", "2"], ["Add 1 1/2 oz oak cubes in secondary.", "2"], ["Add 10-12 oz oak cubes in secondary.", "12"], ["Add 12 or 15 oz oak cubes in secondary.", "15"]]) {
+  m = await extract(text, { yeast: "", source_bill: [], adjuncts: [{ ingredient: "oak cubes", amount: wrong, unit: "oz", phase: "secondary" }] });
+  check(`"${text.slice(4, 12)}" does not ground ${wrong}`, amt(m.adjunct_candidates, /oak/) === "", JSON.stringify(m.adjunct_candidates));
+}
+m = await extract("Use 1,5 kg raspberries.", { yeast: "", source_bill: [{ name: "raspberries", type: "Fruit", amount: "5", unit: "kg" }], adjuncts: [] });
+check("a decimal comma does not ground the digits after it", amt(m.source_bill_candidates, /rasp/) === "", JSON.stringify(m.source_bill_candidates));
+m = await extract("The bill:\n- Wildflower honey: 12 lb\n- Orange blossom honey (2.5 lb)\n- 3 lbs. of tart cherry puree\n- 12 lb (5.4 kg) clover honey", { yeast: "",
+  source_bill: [{ name: "wildflower honey", type: "Honey", amount: "12", unit: "lb" }, { name: "orange blossom honey", type: "Honey", amount: "2.5", unit: "lb" }, { name: "tart cherry puree", type: "Fruit", amount: "3", unit: "lb" }, { name: "clover honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [] });
+check("colon lists, brackets, 'lbs. of' and a metric aside all ground", ["wildflower:12lb", "orange:2.5lb", "cherry:3lb", "clover:12lb"].every((pair) => { const [k, v] = pair.split(":"); return amt(m.source_bill_candidates, new RegExp(k)) === v; }), JSON.stringify(m.source_bill_candidates));
+m = await extract("Use 15 lb wildflower honey for 5 gal, plus 2 lb maple syrup, 1 lb apple juice concentrate, 1 gal apple juice and 4 gal spring water. Add 6 lb lavender honey.", { yeast: "",
+  source_bill: [{ name: "wildflower honey", type: "Honey", amount: "5", unit: "gal" }, { name: "maple syrup", type: "Sugar", amount: "2", unit: "lb" }, { name: "apple juice concentrate", type: "Juice", amount: "1", unit: "lb" }, { name: "spring water", type: "Other", amount: "4", unit: "gal" }, { name: "lavender honey", type: "Honey", amount: "6", unit: "lb" }], adjuncts: [] });
+const typeOf = (re) => m.source_bill_candidates.find((b) => re.test(b.name))?.type;
+check("batch size is not bound to the honey", amt(m.source_bill_candidates, /wildflower/) === "", JSON.stringify(m.source_bill_candidates));
+check("maple and concentrate get their own source types", typeOf(/maple/) === "Maple Syrup" && typeOf(/concentrate/) === "Juice Concentrate", `${typeOf(/maple/)}/${typeOf(/concentrate/)}`);
+check("water is not a fermentable; a honey named after a flower is", !m.source_bill_candidates.some((b) => /water/.test(b.name)) && amt(m.source_bill_candidates, /lavender/) === "6lb", JSON.stringify(m.source_bill_candidates));
+m = await extract("Use 12 lb orange blossom honey, 2 oz french oak cubes, 10 g orange zest and 2 lb raspberries.", { yeast: "",
+  source_bill: [{ name: "orange blossom honey", type: "Honey", amount: "12", unit: "lb" }, { name: "raspberries", type: "Fruit", amount: "2", unit: "lb" }],
+  adjuncts: [{ ingredient: "french oak cubes", amount: "2", unit: "oz", phase: "secondary" }, { ingredient: "orange zest", amount: "10", unit: "g", phase: "secondary" }] },
+  { beginner_inputs: { avoidSimple: "oak, no orange, raspberry", batchSize: "5" } });
+check("avoid terms block by word, plural or not", m.adjunct_candidates.length === 0 && !m.source_bill_candidates.some((b) => /rasp/.test(b.name)), JSON.stringify(m));
+check("...but 'orange' does not veto orange blossom honey", amt(m.source_bill_candidates, /orange blossom/) === "12lb", JSON.stringify(m.source_bill_candidates));
+script = [{ content: MODEL_LINE, delayMs: 12000 }];
+t0 = Date.now();
+const realFetch = globalThis.fetch;
+globalThis.fetch = (url, init) => Promise.race([realFetch(url, init), new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))))]);
+r = await ask({ current_user_turn: DESIGN_TURN });
+globalThis.fetch = realFetch;
+check("a hung main call fails inside the function budget", Date.now() - t0 < 9500 && r.status === 502, `${Date.now() - t0} ms / ${r.status}`);
+
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));
 if (failures.length) { console.log(`MENTOR BACKEND: ${failures.length} FAILURE(S)`); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

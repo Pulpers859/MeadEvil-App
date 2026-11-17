@@ -313,6 +313,9 @@
         liftStructure: normalizeStringList(ingredientRolesRaw.liftStructure ?? ingredientRolesRaw.lift_or_structure, defaults.ingredientRoles.liftStructure),
         dangerNotes: normalizeStringList(ingredientRolesRaw.dangerNotes ?? ingredientRolesRaw.danger_notes, defaults.ingredientRoles.dangerNotes)
       },
+      // "model": the candidate lists were read from the reply by the backend
+      // and checked against it; the app must not re-guess or rescale them.
+      extraction: source.extraction === "model" ? "model" : "",
       decisionStage: String(source.decisionStage || source.decision_stage || "").trim(),
       nextQuestion: String(source.nextQuestion || source.next_question || "").trim(),
       nextStep: String(source.nextStep || source.next_step || "").trim()
@@ -1790,8 +1793,11 @@
       ? (reply.alternate_directions || reply.alternateDirections).filter(isPlainObject).map(normalizeDirectionCard)
       : safeLocalPacket.alternateDirections;
     const ingredientRolesRaw = isPlainObject(reply.ingredient_roles || reply.ingredientRoles) ? (reply.ingredient_roles || reply.ingredientRoles) : {};
+    const trusted = isPlainObject(json.provenance) && json.provenance.extraction === "model"
+      && Array.isArray(build.source_bill_candidates) && Array.isArray(build.adjunct_candidates);
     const mergedPacket = normalizeMentorPacket({
       ...safeLocalPacket,
+      extraction: trusted ? "model" : "",
       leadImpression: pickText(concept.lead_impression, concept.leadImpression, localPacket.packet.leadImpression),
       dominantNotes: normalizeStringList(concept.dominant_notes ?? concept.dominantNotes, localPacket.packet.dominantNotes),
       supportNotes: normalizeStringList(concept.support_notes ?? concept.supportNotes, localPacket.packet.supportNotes),
@@ -1799,12 +1805,19 @@
       ruiners: normalizeStringList(concept.ruiners, localPacket.packet.ruiners),
       styleLane: pickText(concept.style_lane, concept.styleLane, localPacket.packet.styleLane),
       finishDirection: pickText(concept.finish_direction, concept.finishDirection, localPacket.packet.finishDirection),
-      yeastLane: pickText(build.yeast, concept.yeast_lane, concept.yeastLane, localPacket.packet.yeastLane),
-      sourceBillCandidates: mergeSourceBillCandidates(
-        build.source_bill_candidates ?? build.sourceBillCandidates,
-        localPacket.packet.sourceBillCandidates
-      ),
-      adjunctCandidates: objectList(build.adjunct_candidates ?? build.adjunctCandidates, localPacket.packet.adjunctCandidates),
+      yeastLane: trusted ? pickText(build.yeast, "") : pickText(build.yeast, concept.yeast_lane, concept.yeastLane, localPacket.packet.yeastLane),
+      // A checked list is used as it stands. Merging the local guesses back in
+      // added a generic "Honey" row that took the full estimate and shrank the
+      // real rows, and re-added adjuncts the reply had said to leave out.
+      sourceBillCandidates: trusted && build.source_bill_candidates.length
+        ? build.source_bill_candidates.filter(isPlainObject).map((item) => ({ ...item }))
+        : mergeSourceBillCandidates(
+            build.source_bill_candidates ?? build.sourceBillCandidates,
+            localPacket.packet.sourceBillCandidates
+          ),
+      adjunctCandidates: trusted
+        ? build.adjunct_candidates.filter(isPlainObject).map((item) => ({ ...item }))
+        : objectList(build.adjunct_candidates ?? build.adjunctCandidates, localPacket.packet.adjunctCandidates),
       riskControls: normalizeStringList(reply.risk_controls ?? json.risk_controls, localPacket.packet.riskControls),
       productionSequence: normalizeStringList(reply.production_sequence ?? json.production_sequence, localPacket.packet.productionSequence),
       pushback,
@@ -2410,7 +2423,7 @@
     // mostly wildflower with a little linden" arrives as 7.5 + 7.5 = 15 lb, which
     // roughly doubles the projected ABV. Treat a bill that overshoots the computed
     // target by more than 15% as a shared total and rescale it proportionally.
-    if (honeyLb) {
+    if (honeyLb && packet.extraction !== "model") {
       const honeyRows = rows.filter((r) => r.sourceType === "Honey" && parseFloat(r.amount) > 0);
       const honeySum = honeyRows.reduce((sum, r) => sum + parseFloat(r.amount), 0);
       if (honeyRows.length > 1 && honeySum > honeyLb * 1.15) {
@@ -2504,7 +2517,8 @@
       .filter((turn) => turn.role === "mentor" && turn.text)
       .map((turn) => turn.text.replace(/<[^>]+>/g, ""))
       .join("\n");
-    const conversationAdjuncts = extractAdjunctDirectivesFromConversation(
+    const trustedExtraction = output.packet.extraction === "model";
+    const conversationAdjuncts = trustedExtraction ? [] : extractAdjunctDirectivesFromConversation(
       enhancement.mentor.conversation || [],
       output.packet.adjunctCandidates || []
     );
@@ -2514,7 +2528,7 @@
       cleanedPacket.sourceBillCandidates = cleanedPacket.sourceBillCandidates
         .filter((c) => !avoidText || !avoidText.includes(String(c.name || "").toLowerCase()))
         .map((c) => {
-          if (c.amount) return c;
+          if (c.amount || trustedExtraction) return c;
           const extracted = extractAmountFromText(mentorProseText, c.name || "");
           return extracted ? { ...c, amount: extracted.amount, unit: extracted.unit } : c;
         });
@@ -2527,7 +2541,7 @@
       const amount = item.amount || "";
       const unit = amount ? (item.unit || "g") : (item.unit || "");
       let resolved;
-      if (amount) {
+      if (amount || trustedExtraction) {
         resolved = { ...item, amount, unit };
       } else {
         const extracted = extractAmountFromText(mentorProseText, item.ingredient || "");

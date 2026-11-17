@@ -818,7 +818,7 @@ async function callOpenAI({ apiKey, model, temperature, responseFormat, messages
   return content;
 }
 
-async function generateCollaboratorReply({ apiKey, model, userMessage, guidanceNote, knowledgePromptBlock }) {
+async function generateCollaboratorReply({ apiKey, model, userMessage, guidanceNote, knowledgePromptBlock, timeoutMs }) {
   const { priorTurns, currentTurn } = splitConversationForCurrentTurn(
     userMessage.conversation_history,
     userMessage.current_user_turn
@@ -835,7 +835,8 @@ async function generateCollaboratorReply({ apiKey, model, userMessage, guidanceN
     apiKey,
     model,
     temperature: 0.55,
-    messages
+    messages,
+    timeoutMs
   });
   return sanitizeCollaboratorReply(content);
 }
@@ -1000,16 +1001,6 @@ function replyHasBuildDetail(reply) {
   return /\d\s*(?:lb|lbs|pounds?|oz|ounces?|kg|g|grams?|tsp|tbsp|ml)\b/i.test(String(reply || ""));
 }
 
-function nameIsGrounded(name, replyLower) {
-  const clean = String(name || "").toLowerCase().trim();
-  if (!clean || clean.length > 60) return false;
-  if (replyLower.includes(clean)) return true;
-  // Allow harmless re-ordering ("honey, orange blossom"), but every meaningful
-  // word must still be in the reply.
-  const words = clean.split(/[^a-z0-9]+/).filter((word) => word.length > 2);
-  return words.length > 0 && words.every((word) => new RegExp(`\\b${escapeRegExp(word)}`).test(replyLower));
-}
-
 function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1017,114 +1008,162 @@ function escapeRegExp(text) {
 const UNIT_ALIASES = {
   lb: "lbs?|pounds?", oz: "oz|ounces?", kg: "kg|kilograms?|kilos?", g: "g|grams?",
   gal: "gal|gallons?", l: "l|liters?|litres?", ml: "ml|milliliters?|millilitres?",
-  tsp: "tsp|teaspoons?", tbsp: "tbsp|tablespoons?", each: "each|whole|sticks?|pods?|beans?|cubes?|spirals?"
+  tsp: "tsp|teaspoons?", tbsp: "tbsp|tablespoons?"
 };
-const NEGATION = /\b(?:skip|avoid|omit|without|not|no|never|don't|dont|do not|instead of|rather than|leave out|hold off on|drop)\b/;
+const ANY_UNIT = Object.values(UNIT_ALIASES).join("|");
+const NUMBER = "(?<![\\d.,/])(\\d+(?:\\.\\d+)?)(?![\\d/]|[.,]\\d)";
+const RANGE_TAIL = "(?:\\s*(?:to|or|-|–)\\s*\\d+(?:\\.\\d+)?)?";
+const QUANTITY = `${NUMBER}${RANGE_TAIL}\\s*-?\\s*(${ANY_UNIT})\\b\\.?`;
+// "12 lb [of] [raw] wildflower honey": the amount, then at most three plain
+// describing words, then the name. A joining word in between ("12 lb X over
+// 2 lb Y", "14 g zest to 12 lb honey") means the amount belongs elsewhere.
+const JOINERS = "and|or|to|over|plus|with|instead|rather|than|for|into|per|in|on|by|from|then|but|not|no";
+const AMOUNT_BEFORE = new RegExp(`${QUANTITY}\\s*(?:\\([^)]*\\)\\s*)?(?:of\\s+)?(?:(?!(?:${JOINERS})\\b)[a-z'-]+\\s+){0,3}$`);
+// "wildflower honey: 12 lb", "wildflower honey (12 lb)", "wildflower honey, 12 lb".
+const AMOUNT_AFTER = new RegExp(`^\\s*[:,(–—=-]?\\s*(?:about|roughly|around|approximately|use|at|is)?\\s*${QUANTITY}`);
+const NEGATION = /(?:\b(?:skip|avoid|omit|without|not|no|never|dont|do not|instead of|rather than|leave out|hold off on|drop|ditch|cut|remove|lose)\b|n't\b)/;
+const NEGATION_AFTER = /^[^.!?]{0,12}(?:\b(?:is|are|would be|feels?|sounds?)\s+too\s+(?:much|heavy|strong)|[;,.]\s*(?:skip|drop|cut|ditch|lose)\s+(?:it|that|them)\b)/;
+const NOT_A_LIMIT = /\b(?:no|not) more than\b|\bup to\b|\bat most\b|\bat least\b|\bnot too much\b/g;
 
-// "1,200 g" is one number, and a clause is the unit of grounding: an amount,
-// its unit and the ingredient have to be stated together, in one clause, for
-// the amount to count. Checking them independently let "12.5 lb orange blossom,
-// 2.5 lb wildflower" come back with the two amounts swapped and still "grounded".
-function replyClauses(reply) {
-  const text = String(reply || "").toLowerCase().replace(/(\d),(?=\d{3}\b)/g, "$1");
-  return text
-    .split(/(?<=[.!?;:])\s+|\n+|,\s+|\s+(?:and|plus|with|but|then)\s+|\s+[-–—]\s+|[()]/)
-    .map((clause) => clause.trim())
+function unitKey(text) {
+  const clean = String(text || "").toLowerCase().replace(/\.$/, "");
+  return Object.keys(UNIT_ALIASES).find((key) => new RegExp(`^(?:${UNIT_ALIASES[key]})$`).test(clean)) || "";
+}
+
+// "1,200 g" is one number; curly apostrophes are apostrophes.
+function replySentences(reply) {
+  return String(reply || "")
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/(\d),(?=\d{3}\b)/g, "$1")
+    .replace(/\b(lbs?|oz|kg|gal|tsp|tbsp)\.(?=\s+[a-z(])/g, "$1")
+    .split(/(?<=[.!?;])\s+|\n+/)
+    .map((sentence) => sentence.trim())
     .filter(Boolean);
-}
-
-function nameInClause(name, clause) {
-  if (!nameIsGrounded(name, clause)) return false;
-  // "skip the buckwheat honey", "do not add lactose", "not EC-1118".
-  const words = String(name).toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2);
-  const first = Math.min(...words.map((word) => clause.search(new RegExp(`\\b${escapeRegExp(word)}`))).filter((index) => index >= 0));
-  return !NEGATION.test(clause.slice(0, Number.isFinite(first) ? first : 0));
-}
-
-function amountInClause(value, unit, clause) {
-  const text = String(value ?? "").trim();
-  if (!text || !/^\d+(?:\.\d+)?$/.test(text)) return "";
-  const number = Number(text);
-  if (!Number.isFinite(number) || number <= 0 || number > 5000) return "";
-  const alias = UNIT_ALIASES[String(unit || "").toLowerCase()];
-  if (!alias) return "";
-  const variants = new Set([text, String(number), number.toFixed(1), number.toFixed(2)]);
-  if (number < 1) variants.add(String(number).replace(/^0/, ""));
-  for (const variant of variants) {
-    // The figure, optionally the low end of a range ("12 to 15 lb"), then the unit.
-    const pattern = new RegExp(`(?<!\\d\\s*(?:to|-|–)\\s*)(^|[^\\d.])${escapeRegExp(variant)}(?:\\s*(?:to|-|–)\\s*\\d+(?:\\.\\d+)?)?\\s*-?\\s*(?:${alias})\\b`);
-    if (pattern.test(clause)) return String(number);
-  }
-  return "";
-}
-
-// A flavour or structure addition that the model filed under fermentables.
-const NOT_FERMENTABLE = /\b(?:oak|zest|peel|tea|tannin|vanilla|cinnamon|clove|ginger|spice|herb|hops?|pepper|nibs?|coffee|acid|lactose|salt|extract|flowers?|hibiscus|lavender)\b/;
-// The Build tab's source types (assets/js/app.js SOURCE_PRESETS).
-const APP_SOURCE_TYPES = { honey: "Honey", fruit: "Fruit / Puree", juice: "Juice (single strength)", sugar: "Table Sugar", other: "Custom" };
-
-// The source bill works in lb or kg only; anything else is converted, or the
-// amount is dropped rather than seeded in a unit the gravity math ignores.
-function toSourceBillUnit(amount, unit) {
-  const value = Number(amount);
-  if (!amount || !Number.isFinite(value)) return { amount: "", unit: "lb" };
-  const round = (n) => String(Math.round(n * 100) / 100);
-  switch (String(unit).toLowerCase()) {
-    case "lb": return { amount: round(value), unit: "lb" };
-    case "kg": return { amount: round(value), unit: "kg" };
-    case "oz": return { amount: round(value / 16), unit: "lb" };
-    case "g": return { amount: round(value / 1000), unit: "kg" };
-    // Juice by volume: about 8.7 lb per US gallon at single strength.
-    case "gal": return { amount: round(value * 8.7), unit: "lb" };
-    case "l": return { amount: round(value * 1.04), unit: "kg" };
-    default: return { amount: "", unit: "lb" };
-  }
-}
-
-function avoidMentions(name, avoidLower) {
-  const clean = String(name || "").toLowerCase().trim();
-  return Boolean(clean) && new RegExp(`\\b${escapeRegExp(clean)}\\b`).test(avoidLower);
 }
 
 function nameTokens(name) {
   return String(name || "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2);
 }
 
+// Where the ingredient is named. The whole phrase, or the phrase without a
+// trailing generic word, so "wildflower" still anchors "wildflower honey".
+function nameOccurrences(name, sentences) {
+  const words = String(name || "").toLowerCase().trim().split(/[^a-z0-9-]+/).filter(Boolean);
+  if (!words.length || words.join(" ").length > 60) return [];
+  const forms = [words];
+  if (words.length > 1 && /^(?:honey|juice|puree|syrup|sugar)$/.test(words[words.length - 1])) forms.push(words.slice(0, -1));
+  for (const form of forms) {
+    const pattern = new RegExp(`(?<![a-z0-9])${form.map(escapeRegExp).join("[\\s-]+")}(?:e?s)?(?![a-z0-9])`, "g");
+    const hits = [];
+    sentences.forEach((sentence) => {
+      for (const match of sentence.matchAll(pattern)) hits.push({ sentence, start: match.index, end: match.index + match[0].length });
+    });
+    if (hits.length) return hits;
+  }
+  return [];
+}
+
+// The amount stated directly beside this mention, if any.
+function adjacentQuantity(hit) {
+  const before = AMOUNT_BEFORE.exec(hit.sentence.slice(0, hit.start));
+  if (before) return { amount: Number(before[1]), unit: unitKey(before[2]), start: before.index };
+  const after = AMOUNT_AFTER.exec(hit.sentence.slice(hit.end));
+  if (after) return { amount: Number(after[1]), unit: unitKey(after[2]), start: hit.start };
+  return null;
+}
+
+// "skip the buckwheat honey", "you shouldn't use 3 lb buckwheat honey",
+// "instead of 15 lb clover honey", "3 lb buckwheat honey is too much; skip it".
+function mentionIsNegated(hit, quantity) {
+  const anchor = quantity ? Math.min(quantity.start, hit.start) : hit.start;
+  const lead = hit.sentence.slice(0, anchor).replace(NOT_A_LIMIT, " ").split(/[,;:]/).pop();
+  const window = lead.trim().split(/\s+/).slice(-5).join(" ");
+  return NEGATION.test(window) || NEGATION_AFTER.test(hit.sentence.slice(hit.end));
+}
+
+function yeastIsChosen(yeast, sentences) {
+  const hits = nameOccurrences(yeast, sentences);
+  return hits.some((hit) => !mentionIsNegated(hit, null));
+}
+
+// A flavour or structure addition that the model filed under fermentables.
+const NOT_FERMENTABLE = /\b(?:oak|zest|peel|tea|tannin|vanilla|cinnamon|clove|ginger|spice|herb|hops?|pepper|nibs?|coffee|acid|lactose|salt|extract|flowers?|hibiscus|lavender|water)\b/;
+
+// The Build tab's source types (assets/js/app.js SOURCE_PRESETS).
+function appSourceType(name, type) {
+  const lower = String(name || "").toLowerCase();
+  if (/\bmaple\b/.test(lower)) return "Maple Syrup";
+  if (/\bconcentrate\b/.test(lower)) return "Juice Concentrate";
+  if (/\bhoney\b/.test(lower)) return "Honey";
+  return { honey: "Honey", fruit: "Fruit / Puree", juice: "Juice (single strength)", sugar: "Table Sugar", other: "Custom" }[String(type || "").toLowerCase()] || "Custom";
+}
+
+// The source bill works in lb or kg only; anything else is converted, or the
+// amount is dropped rather than seeded in a unit the gravity math ignores.
+function toSourceBillUnit(amount, unit, type) {
+  const value = Number(amount);
+  if (!amount || !Number.isFinite(value)) return { amount: "", unit: "lb" };
+  const round = (n) => String(Math.round(n * 100) / 100);
+  const isJuice = type === "Juice (single strength)";
+  switch (String(unit).toLowerCase()) {
+    case "lb": return { amount: round(value), unit: "lb" };
+    case "kg": return { amount: round(value), unit: "kg" };
+    case "oz": return { amount: round(value / 16), unit: "lb" };
+    case "g": return { amount: round(value / 1000), unit: "kg" };
+    // Volume only converts for single-strength juice (about 8.7 lb per US
+    // gallon); a gallon of honey or concentrate weighs something else.
+    case "gal": return isJuice ? { amount: round(value * 8.7), unit: "lb" } : { amount: "", unit: "lb" };
+    case "l": return isJuice ? { amount: round(value * 1.04), unit: "kg" } : { amount: "", unit: "lb" };
+    default: return { amount: "", unit: "lb" };
+  }
+}
+
+function stem(word) {
+  return word.replace(/ies$/, "y").replace(/(?:es|s)$/, "");
+}
+
+// "oak" blocks "french oak cubes"; "raspberry" blocks "raspberries";
+// "sublime zesty soda" does not block "lime zest".
+function avoidMentions(name, avoidLower) {
+  const item = new Set(nameTokens(name).map(stem));
+  if (!item.size) return false;
+  return String(avoidLower || "").split(/[,;\n]|\band\b|\bor\b/).some((term) => {
+    const words = nameTokens(term.replace(/^\s*(?:no|not|avoid|skip)\s+/, "")).map(stem);
+    if (!words.length) return false;
+    // A one-word fruit must not veto the honey named after its blossom.
+    if (words.length === 1 && item.has("blossom") && !/blossom/.test(term)) return false;
+    return words.every((word) => item.has(word));
+  });
+}
+
 function groundExtraction(parsed, reply, avoidText = "") {
-  const clauses = replyClauses(reply);
+  const sentences = replySentences(reply);
   const avoid = String(avoidText || "").toLowerCase();
   const out = { yeast: "", source_bill_candidates: [], adjunct_candidates: [] };
   if (!isPlainObject(parsed)) return out;
 
   const yeast = KNOWN_YEAST_NAMES.find((name) => name.toLowerCase() === String(parsed.yeast || "").toLowerCase().trim());
-  if (yeast) {
-    const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(yeast.toLowerCase())}(?![a-z0-9])`);
-    const chosen = clauses.some((clause) => {
-      const match = pattern.exec(clause);
-      return match && !NEGATION.test(clause.slice(0, match.index));
-    });
-    if (chosen) out.yeast = yeast;
-  }
+  if (yeast && yeastIsChosen(yeast, sentences)) out.yeast = yeast;
 
   const kept = [];
   const isDuplicate = (name) => {
     const tokens = nameTokens(name);
     return kept.some((other) => tokens.every((token) => other.includes(token)) || other.every((token) => tokens.includes(token)));
   };
-  const unitOf = (value) => {
-    const unit = String(value || "").trim().toLowerCase();
-    return EXTRACTION_UNITS.has(unit) ? unit : "";
-  };
-  // Ground one item: the clause that names it (un-negated) and, if the model
-  // gave an amount, states that amount with that unit.
+  // Ground one item. It must be named somewhere it is not being ruled out; its
+  // amount counts only if the reply states that amount, in that unit, directly
+  // beside the name.
   const ground = (name, amount, unit) => {
-    const named = clauses.filter((clause) => nameInClause(name, clause));
-    if (!named.length) return null;
-    for (const clause of named) {
-      const found = amountInClause(amount, unit, clause);
-      if (found) return { amount: found, unit };
-    }
-    return { amount: "", unit: "" };
+    const hits = nameOccurrences(name, sentences);
+    const live = hits.map((hit) => ({ hit, quantity: adjacentQuantity(hit) })).filter(({ hit, quantity }) => !mentionIsNegated(hit, quantity));
+    if (!live.length) return null;
+    const wanted = Number(String(amount ?? "").trim());
+    const wantedUnit = unitKey(unit);
+    const match = Number.isFinite(wanted) && wanted > 0 && wantedUnit
+      ? live.find(({ quantity }) => quantity && quantity.amount === wanted && quantity.unit === wantedUnit)
+      : null;
+    return match ? { amount: String(wanted), unit: wantedUnit } : { amount: "", unit: "" };
   };
 
   // Longest names first, so "orange blossom honey" is kept over "orange blossom".
@@ -1132,28 +1171,25 @@ function groundExtraction(parsed, reply, avoidText = "") {
 
   (Array.isArray(parsed.source_bill) ? parsed.source_bill.filter(isPlainObject) : []).slice(0, 8).sort(byNameLength).forEach((item) => {
     const name = String(item.name || "").trim();
-    if (!name || NOT_FERMENTABLE.test(name.toLowerCase()) || avoidMentions(name, avoid) || isDuplicate(name)) return;
-    const grounded = ground(name, item.amount, unitOf(item.unit));
+    const lower = name.toLowerCase();
+    if (!name || (NOT_FERMENTABLE.test(lower) && !/\bhoney\b/.test(lower)) || avoidMentions(name, avoid) || isDuplicate(name)) return;
+    const grounded = ground(name, item.amount, item.unit);
     if (!grounded) return;
     kept.push(nameTokens(name));
-    const converted = toSourceBillUnit(grounded.amount, grounded.unit);
-    out.source_bill_candidates.push({
-      name,
-      type: APP_SOURCE_TYPES[String(item.type || "").toLowerCase()] || "Custom",
-      amount: converted.amount,
-      unit: converted.unit
-    });
+    const type = appSourceType(name, item.type);
+    const converted = toSourceBillUnit(grounded.amount, grounded.unit, type);
+    out.source_bill_candidates.push({ name, type, amount: converted.amount, unit: converted.unit });
   });
 
   (Array.isArray(parsed.adjuncts) ? parsed.adjuncts.filter(isPlainObject) : []).slice(0, 10).sort(byNameLength).forEach((item) => {
     const name = String(item.ingredient || item.name || "").trim();
     const key = name.toLowerCase();
     if (!name || avoidMentions(name, avoid) || isDuplicate(name)) return;
-    const unit = unitOf(item.unit);
-    const grounded = ground(name, item.amount, unit);
+    const grounded = ground(name, item.amount, item.unit);
     if (!grounded) return;
     kept.push(nameTokens(name));
     const phase = String(item.phase || "").toLowerCase().trim();
+    const unit = grounded.unit;
     out.adjunct_candidates.push({
       ingredient: name,
       amount: grounded.amount,
@@ -1193,12 +1229,19 @@ async function extractStructuredWithModel({ apiKey, model, reply, userMessage, t
 
 // Model-read fields replace the regex result only where the model produced
 // something that survived grounding; everything else stays as the regex left it.
-function mergeExtraction(regexExtracted, modelExtracted) {
+function mergeExtraction(regexExtracted, modelExtracted, reply = "") {
   if (!modelExtracted) return { extracted: regexExtracted, method: "pattern" };
   const build = { ...(regexExtracted.build_mapping || {}) };
   // The model read the whole reply, so an EMPTY list is an answer too ("no
   // adjuncts were recommended"): it replaces whatever the patterns scraped.
+  // The pattern pass takes the first yeast named anywhere, including one the
+  // reply rules out ("skip 71B; pitch EC-1118"): keep it only if it holds up.
+  const sentences = replySentences(reply);
   if (modelExtracted.yeast) build.yeast = modelExtracted.yeast;
+  else if (!build.yeast || !yeastIsChosen(String(build.yeast), sentences)) {
+    build.yeast = KNOWN_YEAST_NAMES.find((name) => yeastIsChosen(name, sentences)) || "";
+  }
+  build.yeast_checked = true;
   build.source_bill_candidates = modelExtracted.source_bill_candidates;
   build.adjunct_candidates = modelExtracted.adjunct_candidates;
   return { extracted: { ...regexExtracted, build_mapping: build }, method: "model" };
@@ -1255,7 +1298,8 @@ function buildFallbackResponse(userMessage, collaboratorReply, extracted = {}) {
       decision_stage: pickFirstString(concept.decision_stage, packet.decisionStage)
     },
     build_mapping: {
-      yeast: pickFirstString(build.yeast, packet.yeastLane),
+      // A checked reply that chose no yeast must not inherit the request's.
+      yeast: build.yeast_checked ? String(build.yeast || "") : pickFirstString(build.yeast, packet.yeastLane),
       source_bill_candidates: normalizeObjectArray(build.source_bill_candidates, packet.sourceBillCandidates),
       adjunct_candidates: normalizeObjectArray(build.adjunct_candidates, packet.adjunctCandidates)
     }
@@ -1341,7 +1385,10 @@ export async function handler(event) {
         model,
         userMessage,
         guidanceNote,
-        knowledgePromptBlock
+        knowledgePromptBlock,
+        // The platform kills the function at its limit and the user gets
+        // nothing; failing first lets the app fall back to its local reply.
+        timeoutMs: Math.max(1000, FUNCTION_BUDGET_MS - (Date.now() - startedAt) - 300)
       });
       const violations = [
         ...checkHardViolations(collaboratorReply, userMessage),
@@ -1368,7 +1415,7 @@ export async function handler(event) {
           extractStructuredWithModel({ apiKey, model, reply: collaboratorReply, userMessage, timeoutMs: remainingMs }),
           new Promise((_, reject) => { budgetTimer = setTimeout(() => reject(new Error("extraction exceeded the time budget")), remainingMs + 100); })
         ]).finally(() => clearTimeout(budgetTimer));
-        const merged = mergeExtraction(extracted, modelExtracted);
+        const merged = mergeExtraction(extracted, modelExtracted, collaboratorReply);
         extracted = merged.extracted;
         extraction = merged.method;
       } catch (error) {
