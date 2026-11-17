@@ -176,6 +176,11 @@ Ferment is for active batch tracking:
 - 1/3 sugar break visibility
 - step-feeding support
 - active fermentation notes
+- the shelf: other batches in progress, set aside with everything they hold
+  and made active again from here (`data.shelf`; "Set aside" / "Make active")
+
+Ferment truth is the ACTIVE batch. A shelved batch is a parked copy of that
+truth, not a Vault entry: it is still fermenting, and it comes back whole.
 
 This section is not for initial recipe construction.
 
@@ -422,12 +427,12 @@ What is real right now:
 - amounts for Send to Build are read by a second JSON-mode call and kept only when the reply states amount, unit and ingredient together; otherwise pattern extraction is used
 - Source Bill drives gravity math; measured readings outrank both the bill and the design target
 - Cellar has a volume / racking log and the calculators include refractometer alcohol correction
+- several batches can be in progress: one is active (Ferment/Feed/Finish show it), others are "set aside" on a shelf in Ferment and switched back with "Make active"; each keeps its readings, checklists, timer and RAPT link, and the RAPT pill only feeds the active batch from the moment it became active
 - cloud sync is a three-way merge with a recovery path (see `docs/SETUP.md`)
 - the app shell opens offline through `sw.js`
 - automated suites cover regressions, sync, mentor backend and offline (`npm test`, `npm run test:sync`, `test:mentor`, `test:offline`)
 
 What is still a bridge:
-- one active batch at a time
 - one world-shared sync document under anonymous auth
 - the brainstorm thread itself does not sync between devices
 
@@ -454,8 +459,8 @@ Do:
 ## 16) Highest-value future improvements
 
 If work continues, the best next improvements are:
-1. multiple active batches
-2. real sign-in and per-user sync documents with Firestore rules
+1. real sign-in and per-user sync documents with Firestore rules
+2. per-batch RAPT pills (today one pill feeds whichever batch is active)
 3. expand bench-trial support for acid and tannin stock-solution workflows
 4. make backsweetening and finishing math more explicit about estimates versus exact values
 5. continue tightening mobile spacing, especially the Finish tab
