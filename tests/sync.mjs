@@ -617,6 +617,49 @@ async function main() {
   check("...so a sync does not strip the resumed readings", mergedSlow === 2, String(mergedSlow));
   await closeAll();
 
+  console.log("\n[16] Batches set aside on one device");
+  const sh = await device(browser, "shelf-pure", { localOnly: true });
+  const r16 = await sh.evaluate(() => {
+    const merge = window.MeadevilSync.buildMergedAppData;
+    const env = (data, savedAt) => ({ _schema: { savedAt }, data });
+    const X = { loadedAt: "2026-04-01T00:00:00Z", recipeId: "rx", name: "Batch X" };
+    const Y = { loadedAt: "2026-05-01T00:00:00Z", recipeId: "ry", name: "Batch Y" };
+    const lx = { id: "lx", date: "2026-04-02", gravity: "1.100" };
+    const shelfX = { id: "shelf-x", shelvedAt: "2026-05-01T00:00:00Z", batch: X, cellar: { currentPh: "" }, fermentationLogs: [lx] };
+    const base = { sections: { currentBatch: X, cellar: { currentPh: "" } }, logIds: ["lx"] };
+    // Laptop set X aside and started Y; phone still on X and did nothing.
+    const laptop = env({ currentBatch: Y, cellar: { currentPh: "" }, fermentationLogs: [], shelf: [shelfX], archive: [],
+      tombstones: [{ collection: "fermentationLogs", id: "lx", deletedAt: "2026-05-01T00:00:00Z" }] }, "2026-05-01T00:00:00Z");
+    const phone = env({ currentBatch: X, cellar: { currentPh: "" }, fermentationLogs: [lx], shelf: [], archive: [] }, "2026-04-02T00:00:00Z");
+    const onPhone = merge(phone, laptop, null, base).data;
+    // Phone, still on X, recorded a pH the laptop never saw.
+    const busyPhone = env({ currentBatch: X, cellar: { currentPh: "3.4" }, fermentationLogs: [lx], shelf: [], archive: [] }, "2026-04-03T00:00:00Z");
+    const onBusyPhone = merge(busyPhone, laptop, null, base).data;
+    // Stale phone with no baseline at all.
+    const onStalePhone = merge(phone, laptop, null, null).data;
+    // Later the phone makes X active again (removing it from the shelf).
+    const switched = env({ currentBatch: X, cellar: { currentPh: "" }, fermentationLogs: [lx],
+      shelf: [{ id: "shelf-y", shelvedAt: "2026-05-05T00:00:00Z", batch: Y, cellar: { currentPh: "" }, fermentationLogs: [] }], archive: [],
+      tombstones: [{ collection: "shelf", id: "shelf-x", deletedAt: "2026-05-05T00:00:00Z" },
+                   { collection: "fermentationLogs", id: "lx", deletedAt: "", revivedAt: "2026-05-05T00:00:01Z" }] }, "2026-05-05T00:00:00Z");
+    const onLaptop = merge(laptop, switched, null, { sections: { currentBatch: Y, cellar: { currentPh: "" } }, logIds: [] }).data;
+    const names = (list) => (list || []).map((e) => e.batch.name).join(",");
+    return {
+      phoneActive: onPhone.currentBatch.name, phoneShelf: names(onPhone.shelf), phoneLogs: onPhone.fermentationLogs.length,
+      phoneCopies: onPhone.archive.length, shelfLogs: onPhone.shelf[0] && onPhone.shelf[0].fermentationLogs.length,
+      busyCopies: names(onBusyPhone.archive),
+      staleActive: onStalePhone.currentBatch.name, staleCopies: onStalePhone.archive.length,
+      laptopActive: onLaptop.currentBatch.name, laptopShelf: names(onLaptop.shelf), laptopLogs: onLaptop.fermentationLogs.map((l) => l.id).join(",")
+    };
+  });
+  check("the other device follows: Y active, X on the shelf", r16.phoneActive === "Batch Y" && r16.phoneShelf === "Batch X", `${r16.phoneActive} | ${r16.phoneShelf}`);
+  check("...X's reading stays with X, not the live log", r16.phoneLogs === 0 && r16.shelfLogs === 1, `${r16.phoneLogs}/${r16.shelfLogs}`);
+  check("...and no recovered copy, since X is accounted for", r16.phoneCopies === 0, String(r16.phoneCopies));
+  check("unsynced work on the set-aside batch is still parked, not lost", /Batch X \(recovered copy\)/.test(r16.busyCopies), r16.busyCopies);
+  check("a stale device with no baseline does not revive a shelved batch", r16.staleActive === "Batch Y" && r16.staleCopies === 0, `${r16.staleActive}/${r16.staleCopies}`);
+  check("switching back on one device: X active, Y shelved, X's reading live", r16.laptopActive === "Batch X" && r16.laptopShelf === "Batch Y" && r16.laptopLogs === "lx", JSON.stringify(r16));
+  await closeAll();
+
   console.log("\n[14] A stale device without a v2 baseline must not resurrect an archived batch");
   await closeAll();
   const oldBatch = { name: "Archived Batch", loadedAt: "2026-05-01T00:00:00.000Z", recipeId: "recipe-big", batchGallons: "5" };

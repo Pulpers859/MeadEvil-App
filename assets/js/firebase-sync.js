@@ -13,7 +13,7 @@
   const SYNC_BASE_KEY = "meadevil-sync-base-v2";
   const OLD_SYNC_BASE_KEY = "meadevil-sync-base-v1";
   // Unioned by id (with tombstones); never merged as single values.
-  const COLLECTION_KEYS = ["fermentationLogs", "recipes", "archive", "tombstones"];
+  const COLLECTION_KEYS = ["fermentationLogs", "recipes", "archive", "shelf", "tombstones"];
   // Per-device state that is never uploaded. `ui` would switch tabs under the
   // user; `clock` is a stopwatch; the rapt fields are this device's fetch
   // bookkeeping, rewritten on every page load — uploading them made every reload
@@ -306,7 +306,8 @@
         Object.keys(old.sections).forEach((key) => {
           if (!LOCAL_ONLY_KEYS.includes(key) && !COLLECTION_KEYS.includes(key)) sections[key] = old.sections[key];
         });
-        return { docId: SHARED_DOC_ID, sections, logIds: [] };
+        // Partial (v1 kept fewer sections): weaker evidence than a v2 baseline.
+        return { docId: SHARED_DOC_ID, sections, logIds: [], migrated: true };
       }
     }catch(error){
       warn("Could not read sync baseline", error);
@@ -488,6 +489,20 @@
     return sortLogs(mergeByKey(localLogs, cloudLogs, logKey, logStamp));
   }
 
+  // Batches set aside (not active, not finished). Whole entries keyed by id; a
+  // switch back in removes the entry with a tombstone.
+  function shelfStamp(entry){
+    return toTimestamp(entry?.shelvedAt || entry?.batch?.loadedAt);
+  }
+
+  function mergeShelf(localShelf, cloudShelf){
+    const merged = mergeByKey(localShelf, cloudShelf, (entry) => entry?.id, shelfStamp);
+    return newestFirst(merged, shelfStamp).map((entry) => ({
+      ...entry,
+      fermentationLogs: sortLogs(list(entry?.fermentationLogs))
+    }));
+  }
+
   function archiveStamp(entry){
     return toTimestamp(entry?.archivedAt || entry?.batch?.loadedAt);
   }
@@ -663,7 +678,7 @@
         // A stale device with no ancestor must not resurrect a batch the
         // cloud already archived (or cleared on purpose).
         localWins = batchIsReal(local) && !batchIsReal(cloud)
-          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive), local, true);
+          && !archivedByIdentity(mergeArchive(local.archive, cloud.archive).concat(mergeShelf(local.shelf, cloud.shelf)), local, true);
       }
       winner = localWins ? local : cloud;
       loser = localWins ? cloud : local;
@@ -701,6 +716,9 @@
     const mergedTombstones = mergeTombstones(local.tombstones, cloud.tombstones);
     const deadLogs = tombstonedIdSet(mergedTombstones, "fermentationLogs");
     let archive = mergeArchive(local.archive, cloud.archive);
+    const shelf = stripTombstoned(mergeShelf(local.shelf, cloud.shelf), tombstonedIdSet(mergedTombstones, "shelf"));
+    // A batch that sits in the Vault OR on the shelf is accounted for.
+    const accounted = () => archive.concat(shelf);
     let liveLogs;
 
     if (winner){
@@ -717,7 +735,10 @@
       const groupChanged = !hasBase || !same(batchGroupOf(loser), batchGroupOf(baseSections));
       // ...and is that work not already sitting in the Vault (the other device
       // archived this very batch)? Then there is nothing to recover.
-      const alreadyArchived = archiveCovers(archive, loser, loserLogs) || archivedByIdentity(archive, loser);
+      // Identity alone (same batch, readings all there) is enough only without a
+      // baseline, where field-level differences may be mere normalisation. With
+      // one, a changed group is real unsynced work and must be parked.
+      const alreadyArchived = archiveCovers(accounted(), loser, loserLogs) || ((!hasBase || Boolean(base && base.migrated)) && archivedByIdentity(accounted(), loser));
       if (batchIsReal(loser) && (groupChanged || unseenLogs) && !alreadyArchived){
         const rescued = rescueEntry(loser, loserLogs);
         if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);
@@ -738,7 +759,7 @@
         && String(entry.batch && entry.batch.loadedAt || "") === String(local.currentBatch && local.currentBatch.loadedAt || "")
         && String(entry.batch && entry.batch.recipeId || "") === String(local.currentBatch && local.currentBatch.recipeId || ""));
       if (!hasBase && batchIsReal(local) && !alreadyParked && !same(batchGroupOf(local), batchGroupOf(mergedData))
-        && !archiveCovers(archive, local, list(local.fermentationLogs))){
+        && !archiveCovers(accounted(), local, list(local.fermentationLogs))){
         const rescued = rescueEntry(local, list(local.fermentationLogs));
         if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);
       }
@@ -759,6 +780,7 @@
       tombstonedIdSet(mergedTombstones, "recipes")
     );
     mergedData.archive = stripTombstoned(archive, tombstonedIdSet(mergedTombstones, "archive"));
+    mergedData.shelf = shelf;
 
     const mergedSchema = {
       ...(localEnv.schema || cloudEnv.schema || {}),

@@ -305,19 +305,20 @@ async function main() {
   if (!modalText) {
     bad("HIGH", "Ferment", "replacing an active batch with logged readings asked for no confirmation");
   } else {
-    const offersArchive = /archiv/i.test(modalText);
+    const offersArchive = /archiv|set it aside/i.test(modalText);
     if (!offersArchive) {
       bad("HIGH", "Ferment", "replace-batch prompt offers no way to keep the current batch", modalText.replace(/\n/g, " ").slice(0, 160));
     } else ok("Ferment", "replace-batch prompt offers to archive the current batch first");
     // Take the safe path and confirm it actually preserves the batch.
-    const before = ((await readState(page)).archive || []).length;
+    const kept = (st) => (st.archive || []).length + (st.shelf || []).length;
+    const before = kept(await readState(page));
     const altBtn = await page.$(".modal-backdrop .modal-actions .btn-primary");
     if (offersArchive && altBtn) {
       await altBtn.click();
       await delay(800);
-      const after = ((await readState(page)).archive || []).length;
-      if (after !== before + 1) bad("HIGH", "Ferment", "'archive first' did not archive the batch", `${before} -> ${after}`);
-      else ok("Ferment", "'archive first' preserved the running batch in the Vault");
+      const after = kept(await readState(page));
+      if (after !== before + 1) bad("HIGH", "Ferment", "'set it aside' did not keep the batch", `${before} -> ${after}`);
+      else ok("Ferment", "'set it aside' kept the running batch, readings and all");
     } else {
       await answerModal(page, "cancel");
     }

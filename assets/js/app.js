@@ -1044,6 +1044,88 @@
     return true;
   }
 
+  // ---- several batches at once ------------------------------------------------
+  // One batch is the active one: Ferment, Feed and Finish show it. Others can be
+  // set aside on the shelf and switched back in. Nothing is lost either way:
+  // a set-aside batch keeps its readings, checklists, timer and RAPT link.
+  function shelveCurrentBatch(){
+    if (!batchHasData()) return null;
+    const entry = normalizeShelfItem({
+      shelvedAt: new Date().toISOString(),
+      batch: clone(data.currentBatch),
+      nutrients: clone(data.nutrients),
+      cellar: clone(data.cellar),
+      fermentChecklist: clone(data.fermentChecklist),
+      cellarChecklist: clone(data.cellarChecklist),
+      fermentationLogs: clone(data.fermentationLogs),
+      clock: clone(data.clock),
+      rapt: clone(data.rapt)
+    });
+    data.shelf.unshift(entry);
+    // The live log follows the active batch; these readings now live in the
+    // shelf entry, so retire them from the live list everywhere.
+    recordTombstones("fermentationLogs", data.fermentationLogs.map((log) => log.id));
+    data.currentBatch = defaultCurrentBatch();
+    data.fermentationLogs = [];
+    data.fermentChecklist = defaultFermentChecklist();
+    data.nutrients = defaultNutrients();
+    data.cellar = defaultCellar();
+    data.cellarChecklist = defaultCellarChecklist();
+    data.rapt = { ...defaultRaptSync(), deviceId: data.rapt && data.rapt.deviceId ? data.rapt.deviceId : "" };
+    data.clock = normalizeClock(null);
+    return entry;
+  }
+
+  function switchToShelvedBatch(shelfId){
+    const entry = data.shelf.find((item) => item.id === shelfId);
+    if (!entry) return false;
+    const incoming = clone(entry);
+    data.shelf = data.shelf.filter((item) => item.id !== shelfId);
+    recordTombstones("shelf", shelfId);
+    shelveCurrentBatch();
+    data.currentBatch = incoming.batch;
+    data.fermentationLogs = incoming.fermentationLogs;
+    clearTombstones("fermentationLogs", incoming.fermentationLogs.map((log) => log.id));
+    data.fermentChecklist = incoming.fermentChecklist;
+    data.nutrients = incoming.nutrients;
+    data.cellar = incoming.cellar;
+    data.cellarChecklist = incoming.cellarChecklist;
+    if (incoming.rapt) data.rapt = { ...defaultRaptSync(), ...incoming.rapt };
+    data.clock = normalizeClock(incoming.clock);
+    return true;
+  }
+
+  function latestGravityOf(logs){
+    const sorted = (Array.isArray(logs) ? logs : []).filter((log) => log && log.gravity)
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    return sorted.length ? sorted[sorted.length - 1] : null;
+  }
+
+  function renderShelf(){
+    const card = $("shelfCard");
+    if (!card) return;
+    const items = Array.isArray(data.shelf) ? data.shelf : [];
+    card.hidden = !items.length;
+    $("shelfSummary").textContent = items.length === 1 ? "1 set aside" : `${items.length} set aside`;
+    $("shelfList").innerHTML = items.map((item) => {
+      const latest = latestGravityOf(item.fermentationLogs);
+      const started = item.batch.pitchDate || (item.batch.loadedAt ? String(item.batch.loadedAt).slice(0, 10) : "");
+      const bits = [
+        item.batch.phase ? escapeHTML(item.batch.phase) : "",
+        started ? `started ${escapeHTML(formatDate(started))}` : "",
+        latest ? `last SG ${escapeHTML(latest.gravity)} (${escapeHTML(formatDate(latest.date))})` : "no readings yet"
+      ].filter(Boolean).join(" · ");
+      return `
+        <div class="shelf-item">
+          <div>
+            <strong>${escapeHTML(item.batch.name || "Unnamed batch")}</strong>
+            <div class="muted">${bits}</div>
+          </div>
+          <button class="mini-btn" data-shelf-switch="${escapeHTML(item.id)}" type="button">Make active</button>
+        </div>`;
+    }).join("");
+  }
+
   // Shared confirm for "this will replace the active batch". Offers a third way
   // out — archive the current batch first — because the destructive path
   // tombstones every gravity reading, which cloud sync cannot resurrect.
@@ -1052,15 +1134,15 @@
     const choice = await confirmDialog({
       title: "Replace the active batch?",
       message: `Starting a new batch from ${sourceLabel} clears the current Ferment, Feed, Finish, and gravity records. Archiving first keeps them in the Vault.`,
-      altLabel: "Archive first, then start",
+      altLabel: "Set it aside, then start",
       confirmLabel: "Discard and replace",
       cancelLabel: "Cancel",
       tone: "danger"
     });
     if (!choice) return false;
     if (choice === "alt"){
-      archiveCurrentBatch();
-      showToast("Previous batch archived to Vault.", "good");
+      shelveCurrentBatch();
+      showToast("Previous batch set aside. Switch back to it from Ferment.", "good");
     }
     return true;
   }
@@ -1371,6 +1453,7 @@
     normalizeRecipe,
     normalizeLog,
     normalizeArchiveItem,
+    normalizeShelfItem,
     normalizeData,
     loadStoredData,
     persistStoredData,
@@ -2690,6 +2773,7 @@
   }
 
   function renderFerment(){
+    renderShelf();
     renderCurrentBatchSummary();
     renderExecutionPlan();
     setFermentEmptyState(batchHasData());
@@ -4363,6 +4447,26 @@
       renderAll();
     });
 
+    $("shelveBatchBtn").addEventListener("click", () => {
+      if (!shelveCurrentBatch()) return;
+      persistData();
+      populateNutrientForm();
+      populateCellarForm();
+      renderAll();
+      showToast("Batch set aside. Start another, or make it active again below.", "good");
+    });
+
+    $("shelfList").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-shelf-switch]");
+      if (!button) return;
+      if (!switchToShelvedBatch(button.dataset.shelfSwitch)) return;
+      persistData();
+      populateNutrientForm();
+      populateCellarForm();
+      renderAll();
+      showToast(`${data.currentBatch.name || "Batch"} is now the active batch.`, "good");
+    });
+
     $("archiveBatchBtn").addEventListener("click", () => {
       if (!batchHasData()) return;
       archiveCurrentBatch();
@@ -5247,7 +5351,8 @@
       const priorIds = {
         fermentationLogs: data.fermentationLogs.map((entry) => entry.id),
         recipes: data.recipes.map((entry) => entry.id),
-        archive: data.archive.map((entry) => entry.id)
+        archive: data.archive.map((entry) => entry.id),
+        shelf: data.shelf.map((entry) => entry.id)
       };
       try{
         const raw = await file.text();
@@ -5298,7 +5403,8 @@
       const removedIds = {
         fermentationLogs: data.fermentationLogs.map((entry) => entry.id),
         recipes: data.recipes.map((entry) => entry.id),
-        archive: data.archive.map((entry) => entry.id)
+        archive: data.archive.map((entry) => entry.id),
+        shelf: data.shelf.map((entry) => entry.id)
       };
       try { localStorage.removeItem(ENHANCEMENT_KEY); } catch(e) {}
       data = normalizeData(null);

@@ -76,9 +76,9 @@ async function answerModal(page, action = "confirm", timeout = 1200) {
     .catch(() => false);
   if (!appeared) return false;
   // The replace-batch modal has THREE buttons in DOM order:
-  //   .btn-ghost (Cancel) · .btn-primary (Archive first) · .btn-danger (Discard)
+  //   .btn-ghost (Cancel) · .btn-primary (Set it aside) · .btn-danger (Discard)
   // A comma selector resolves by document order, not by the order written, so
-  // asking for ".btn-primary, .btn-danger" would click "Archive first" whenever
+  // asking for ".btn-primary, .btn-danger" would click "Set it aside" whenever
   // the caller meant "confirm the destructive action". Pick explicitly.
   await page.evaluate((act) => {
     const root = document.querySelector(".modal-backdrop .modal-actions");
@@ -850,6 +850,64 @@ async function testExportFilenames(context) {
   await page.close();
 }
 
+async function testMultipleBatches(context) {
+  console.log("\n[22] Several batches in progress at once");
+  const page = await freshPage(context);
+  const addReading = async (gravity) => {
+    await clickTab(page, "ferment");
+    await setVal(page, "#logDate", "2026-05-02");
+    await setVal(page, "#logGravity", gravity);
+    await page.$eval("#addLogBtn", (b) => b.click());
+    await delay(250);
+  };
+  await buildAndSaveRecipe(page, { name: "First Mead", honeyLb: "9" });
+  await clickAndAnswer(page, "#loadDraftToBatchBtn");
+  await addReading("1.100");
+  await page.$eval('[data-task-toggle]', (el) => el.click());
+  await delay(200);
+  let s = await state(page);
+  const firstLogId = s.fermentationLogs[0]?.id;
+  check("first batch is active with one reading", s.currentBatch.name === "First Mead" && s.fermentationLogs.length === 1);
+
+  // Start a second batch: choose to set the first aside, not discard it.
+  await buildAndSaveRecipe(page, { name: "Second Mead", honeyLb: "10" });
+  await clickAndAnswer(page, "#loadDraftToBatchBtn", "alt");
+  s = await state(page);
+  check("the second batch is now active", s.currentBatch.name === "Second Mead", s.currentBatch.name);
+  check("the first batch is on the shelf with its reading and checklist", s.shelf.length === 1 && s.shelf[0].batch.name === "First Mead"
+    && s.shelf[0].fermentationLogs.length === 1 && s.shelf[0].fermentChecklist.some((t) => t.done), JSON.stringify(s.shelf.map((x) => x.batch.name)));
+  check("its reading is not attached to the second batch", s.fermentationLogs.length === 0, String(s.fermentationLogs.length));
+  await addReading("1.110");
+
+  await clickTab(page, "ferment");
+  const listed = await page.$$eval("#shelfList .shelf-item strong", (els) => els.map((e) => e.textContent));
+  check("Ferment lists the other batch in progress", listed.join() === "First Mead", listed.join());
+  check("...with its last reading", /1\.100/.test(await page.$eval("#shelfList", (el) => el.textContent)));
+
+  await page.$eval("[data-shelf-switch]", (b) => b.click());
+  await delay(300);
+  s = await state(page);
+  check("switching makes the first batch active again", s.currentBatch.name === "First Mead", s.currentBatch.name);
+  check("...with its own reading back, live", s.fermentationLogs.length === 1 && s.fermentationLogs[0].id === firstLogId && s.fermentationLogs[0].gravity === "1.100", JSON.stringify(s.fermentationLogs));
+  check("...and its checklist progress", s.fermentChecklist.some((t) => t.done));
+  check("the second batch went onto the shelf, reading intact", s.shelf.length === 1 && s.shelf[0].batch.name === "Second Mead" && s.shelf[0].fermentationLogs[0]?.gravity === "1.110", JSON.stringify(s.shelf.map((x) => [x.batch.name, x.fermentationLogs.length])));
+  const liveTomb = (s.tombstones || []).find((t) => t.collection === "fermentationLogs" && t.id === firstLogId);
+  check("the revived reading is not left tombstoned", !liveTomb || Date.parse(liveTomb.revivedAt || 0) > Date.parse(liveTomb.deletedAt || 0), JSON.stringify(liveTomb));
+
+  // "Set aside" with no other batch leaves an empty slot; the shelf still shows.
+  await page.$eval("#shelveBatchBtn", (b) => b.click());
+  await delay(300);
+  s = await state(page);
+  check("Set aside empties the active slot and keeps both batches", !s.currentBatch.name && s.shelf.length === 2, `${s.currentBatch.name}/${s.shelf.length}`);
+  check("the shelf stays visible with no active batch", await page.$eval("#shelfCard", (el) => !el.hidden && el.offsetParent !== null));
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(600);
+  s = await state(page);
+  check("the shelf survives a reload", s.shelf.length === 2);
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -875,6 +933,7 @@ async function main() {
   await testMeasuredVolume(context);
   await testRefractometerCorrection(context);
   await testBillDrivesGravityMath(context);
+  await testMultipleBatches(context);
 
   await context.close();
   await browser.close();

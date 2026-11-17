@@ -636,6 +636,11 @@ option{background:#140e1a;color:var(--cream)}
 .cellar-status-more summary{cursor:pointer;color:var(--cream-dim);font-size:.86rem;font-weight:800}
 .cellar-status-more div{margin-top:8px;color:var(--cream-dim);font-weight:650;line-height:1.38}
 .batch-summary-card{padding:var(--sp-md);border-radius:var(--radius-lg);color:var(--cream-2);display:grid;gap:var(--sp-sm);background:linear-gradient(180deg, rgba(13,10,19,.76), rgba(13,10,19,.46))}
+.shelf-card{display:grid;gap:var(--sp-sm);padding:var(--sp-sm) 0 0;border-top:1px solid var(--line)}
+.shelf-card h4{margin:0}
+.shelf-list{display:grid;gap:var(--sp-sm)}
+.shelf-item{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-sm);padding:var(--sp-sm) var(--sp-md);border:1px solid var(--line);border-radius:var(--radius-lg);background:rgba(13,10,19,.4)}
+.shelf-item .muted{font-size:.9em}
 .info-rows{display:grid;gap:var(--sp-sm)}
 .info-row{display:grid;grid-template-columns:minmax(120px,150px) 1fr;gap:var(--sp-md);padding-bottom:var(--sp-sm);border-bottom:1px solid rgba(244,230,208,.06)}
 .info-row:last-child{padding-bottom:0;border-bottom:none}

@@ -531,10 +531,15 @@
                 <h3>Active batch</h3>
                 <div class="tag-row" id="batchActions">
                   <button class="mini-btn utility-danger" id="clearActiveBatchBtn" type="button">Reset batch</button>
+                  <button class="mini-btn" id="shelveBatchBtn" type="button" title="Keep this batch with all its records and free the active slot for another">Set aside</button>
                   <button class="btn btn-primary" id="archiveBatchBtn" type="button">Archive to Vault</button>
                 </div>
               </div>
               <div class="batch-summary-card" id="currentBatchSummary"></div>
+              <div class="shelf-card" id="shelfCard" hidden>
+                <div class="toolbar"><h4>Other batches in progress</h4><span class="small" id="shelfSummary"></span></div>
+                <div class="shelf-list" id="shelfList"></div>
+              </div>
               <div class="form-grid-2" id="batchPhaseFields">
                 <div class="field"><label for="batchPitchDate">Pitch date</label><input id="batchPitchDate" type="date" /></div>
                 <div class="field"><label for="batchPhase">Batch phase</label><select id="batchPhase"><option value="primary">Primary</option><option value="secondary">Secondary</option><option value="aging">Aging</option><option value="stabilizing">Stabilizing</option><option value="packaging">Packaging</option><option value="bottled">Bottled</option></select></div>

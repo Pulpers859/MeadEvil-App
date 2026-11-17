@@ -132,6 +132,20 @@
       };
     }
 
+    // A batch set aside so another can be the active one. Same shape as a
+    // Vault entry plus what only a still-running batch has: its brew timer and
+    // its RAPT link.
+    function normalizeShelfItem(item){
+      const input = item || {};
+      const base = normalizeArchiveItem({ ...input, id: safeId(input.id, "shelf") });
+      return {
+        ...base,
+        shelvedAt: input.shelvedAt || base.archivedAt,
+        clock: input.clock && typeof input.clock === "object" ? { ...input.clock } : null,
+        rapt: input.rapt && typeof input.rapt === "object" ? { ...input.rapt } : null
+      };
+    }
+
     function normalizeMentorKnowledge(input){
       const defaults = defaultMentorKnowledgeBase();
       const source = input && typeof input === "object" ? input : {};
@@ -225,6 +239,7 @@
       merged.fermentChecklist = normalizeChecklist(input.fermentChecklist, defaultFermentChecklist);
       merged.cellarChecklist = normalizeChecklist(input.cellarChecklist, defaultCellarChecklist);
       merged.archive = Array.isArray(input.archive) ? dedupeIds(input.archive.map(normalizeArchiveItem), "arch") : [];
+      merged.shelf = Array.isArray(input.shelf) ? dedupeIds(input.shelf.map(normalizeShelfItem), "shelf") : [];
       merged.tombstones = Array.isArray(input.tombstones)
         ? input.tombstones.filter((entry) => entry && entry.collection && entry.id)
         : [];
@@ -328,6 +343,7 @@
       normalizeRecipe,
       normalizeLog,
       normalizeArchiveItem,
+      normalizeShelfItem,
       normalizeData,
       loadStoredData,
       persistStoredData,
