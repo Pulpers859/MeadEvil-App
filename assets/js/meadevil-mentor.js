@@ -541,7 +541,23 @@
 
   function harvestEnhancementFromMain(main, enhancement){
     if (!main || typeof main !== "object") return enhancement;
-    if (isEnvelope(main)) return enhancement;
+    // app.js saves an envelope and its data is the truth for structure
+    // additions. Mirror them here on every save, or this copy goes stale and
+    // the reload overlay in app.js puts the stale list back (a batch started
+    // from a saved recipe lost its oak on the next reload).
+    if (isEnvelope(main)){
+      const inner = main.data;
+      const filled = (rows) => (rows || []).some((row) => row && String(row.ingredient || row.amount || row.purpose || row.notes || "").trim());
+      ["recipeDraft", "currentBatch"].forEach((slot) => {
+        const rows = inner[slot] && inner[slot].structureAdditions;
+        if (!Array.isArray(rows)) return;
+        // Both empty: keep the placeholder row the editor is bound to, or each
+        // read mints a new blank row and the first typed adjunct lands beside it.
+        if (!filled(rows) && !filled(enhancement[slot].structureAdditions)) return;
+        enhancement[slot].structureAdditions = rows.map(normalizeAdjunctRow);
+      });
+      return enhancement;
+    }
     if (main.recipeDraft && Array.isArray(main.recipeDraft.structureAdditions)){
       enhancement.recipeDraft.structureAdditions = main.recipeDraft.structureAdditions.map(normalizeAdjunctRow);
     }

@@ -908,6 +908,39 @@ async function testMultipleBatches(context) {
   await page.close();
 }
 
+async function testBatchAdjunctsSurvive(context) {
+  console.log("\n[23] A batch keeps its structure additions through reload, archive and resume");
+  const page = await freshPage(context);
+  const batchAdj = async () => ((await state(page)).currentBatch.structureAdditions || []).map((r) => r.ingredient).filter(Boolean).join(",");
+  await clickTab(page, "recipes");
+  await setVal(page, "#recipeName", "Oaky");
+  await setVal(page, "#recipeBatchGallons", "3");
+  await setVal(page, '#recipeAdjunctList [data-adjunct-field="ingredient"]', "French oak");
+  await setVal(page, '#recipeAdjunctList [data-adjunct-field="amount"]', "1");
+  await page.$eval("#saveRecipeBtn", (b) => b.click());
+  await delay(300);
+  const draftRows = ((await state(page)).recipeDraft.structureAdditions || []).map((r) => r.ingredient);
+  check("typing into the first adjunct row makes exactly one row", draftRows.join(",") === "French oak", JSON.stringify(draftRows));
+  await clickTab(page, "archive");
+  await clickAndAnswer(page, "[data-recipe-load]");
+  check("Start batch from a saved recipe carries the oak", (await batchAdj()) === "French oak", await batchAdj());
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(800);
+  check("...and it survives a reload", (await batchAdj()) === "French oak", await batchAdj());
+  await clickTab(page, "ferment");
+  await page.$eval("#archiveBatchBtn", (b) => b.click());
+  await delay(400);
+  const archived = ((await state(page)).archive[0]?.batch.structureAdditions || []).map((r) => r.ingredient).filter(Boolean).join(",");
+  check("archiving keeps it in the Vault entry", archived === "French oak", archived);
+  await clickTab(page, "archive");
+  await clickAndAnswer(page, "[data-archive-load]");
+  check("resuming from the Vault brings it back", (await batchAdj()) === "French oak", await batchAdj());
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(800);
+  check("...and it survives another reload", (await batchAdj()) === "French oak", await batchAdj());
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -934,6 +967,7 @@ async function main() {
   await testRefractometerCorrection(context);
   await testBillDrivesGravityMath(context);
   await testMultipleBatches(context);
+  await testBatchAdjunctsSurvive(context);
 
   await context.close();
   await browser.close();
