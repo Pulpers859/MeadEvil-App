@@ -351,6 +351,7 @@
     // templates/knowledge base, or this browser's local logic. "" = unknown
     // (turns saved before this was tracked).
     turn.source = turn.role === "mentor" && ["model", "template", "knowledge", "local"].includes(turn.source) ? turn.source : "";
+    turn.warnings = turn.role === "mentor" && Array.isArray(turn.warnings) ? turn.warnings.map(String).filter(Boolean).slice(0, 3) : [];
     return turn;
   }
 
@@ -1552,6 +1553,7 @@
           ${turn.source ? `<span class="mentor-turn-source ${turn.source === "model" ? "is-model" : ""}" title="${escapeHTML(TURN_SOURCE_TITLES[turn.source])}">${escapeHTML(TURN_SOURCE_LABELS[turn.source])}</span>` : ""}
         </div>
         <div class="mentor-turn-text">${formatTurnText(turn.text)}</div>
+        ${turn.warnings && turn.warnings.length ? `<div class="mentor-turn-warning">Check this reply: ${turn.warnings.map(escapeHTML).join(" ")}</div>` : ""}
       </div>
     `).join("") : "";
   }
@@ -1986,6 +1988,7 @@
     };
     let status = { mode: "local", message: "Rendered with local mentor logic.", lastRunAt: new Date().toISOString(), lastError: "" };
     let turnSource = "local";
+    let turnWarnings = [];
 
     if (provider === "openai"){
       try {
@@ -1999,6 +2002,7 @@
         // An older deployed function sends no provenance; it cannot be told
         // apart, so say only what is known.
         turnSource = ["model", "template", "knowledge"].includes(provenance.source) ? provenance.source : "";
+        turnWarnings = Array.isArray(provenance.warnings) ? provenance.warnings : [];
         const message = turnSource === "model"
           ? `GPT response received (${provenance.model || model}).`
           : turnSource === "template"
@@ -2018,6 +2022,7 @@
       mode: enhancementNow.mentor.mode || "scout",
       text: buildMentorTurnText(finalOutput),
       source: turnSource,
+      warnings: turnWarnings,
       createdAt: new Date().toISOString()
     });
 

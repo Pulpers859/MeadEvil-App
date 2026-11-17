@@ -1632,6 +1632,7 @@ option{background:#140e1a;color:var(--cream)}
   color:rgba(244,230,208,.78);
 }
 .mentor-turn-source.is-model{border-color:rgba(141,189,73,.45);color:#b9dc85}
+.mentor-turn-warning{margin-top:8px;padding:6px 10px;border-left:3px solid var(--crimson);border-radius:6px;background:rgba(163,38,73,.12);color:var(--cream-2);font-size:.86rem;line-height:1.38}
 .mentor-turn-mode{
   font-size:.72rem;
   color:rgba(244,230,208,.68);

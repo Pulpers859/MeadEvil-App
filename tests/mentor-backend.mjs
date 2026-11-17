@@ -339,6 +339,15 @@ check("'will dominate early but ... keep them' keeps the oak", amt(m.adjunct_can
 m = await extract("71B is too forgiving to pass up here.", { yeast: "71B", source_bill: [], adjuncts: [] });
 check("'too forgiving to pass up' keeps the yeast", m.yeast === "71B", m.yeast);
 
+console.log("\n[11] A reply that breaks the user's constraints is flagged, not passed off");
+script = [{ content: "Lean into smoky mesquite honey and a bit of K1-V1116 for punch." }];
+r = await ask({ current_user_turn: DESIGN_TURN, concept_snapshot: { avoid: ["mesquite"] } });
+check("the reply still goes out", r.status === 200 && /mesquite/.test(r.body.mentor_reply.conversation_reply));
+check("...with the problems named in provenance", Array.isArray(r.body.provenance?.warnings) && r.body.provenance.warnings.some((w) => /avoid list/.test(w)), JSON.stringify(r.body.provenance?.warnings));
+script = [{ content: "Keep it lean and bright with orange blossom up front." }];
+r = await ask({ current_user_turn: DESIGN_TURN });
+check("a clean reply carries no warnings", Array.isArray(r.body.provenance?.warnings) && r.body.provenance.warnings.length === 0, JSON.stringify(r.body.provenance?.warnings));
+
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));
 if (failures.length) { console.log(`MENTOR BACKEND: ${failures.length} FAILURE(S)`); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

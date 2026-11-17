@@ -1410,6 +1410,7 @@ export async function handler(event) {
   try {
     // Where the words came from. The UI used to announce "GPT response received"
     // for every reply, including the ones below that never touch the model.
+    let warnings = [];
     let source = "template";
     let collaboratorReply = buildPacketDrivenReply(userMessage);
     if (!collaboratorReply) {
@@ -1440,10 +1441,10 @@ export async function handler(event) {
         ...checkHardViolations(collaboratorReply, userMessage),
         ...buildKnowledgeIssues(collaboratorReply, userMessage, knowledgeContext)
       ];
-      if (violations.length) {
-        const evidenceReply = buildEvidenceDrivenReply(userMessage, knowledgeContext);
-        if (evidenceReply) { collaboratorReply = evidenceReply; source = "knowledge"; }
-      }
+      // There is no safe automatic substitute for a model reply (the
+      // deterministic answers were already tried before the model was called),
+      // so the reply goes out with the problem named next to it.
+      warnings = Array.from(new Set(violations)).slice(0, 3);
     }
 
     let extracted = extractStructuredFromProse(collaboratorReply, userMessage);
@@ -1474,7 +1475,7 @@ export async function handler(event) {
       extracted = { ...extracted, build_mapping: resolveYeast({ ...(extracted.build_mapping || {}) }, "", collaboratorReply) };
     }
     const body = buildFallbackResponse(userMessage, collaboratorReply, extracted);
-    body.provenance = { source, model: source === "model" ? model : "", extraction, mode: String(userMessage.mode || "scout") };
+    body.provenance = { source, model: source === "model" ? model : "", extraction, mode: String(userMessage.mode || "scout"), warnings };
     return respond(200, body);
   } catch (err) {
     console.error("Mentor function error:", err);
