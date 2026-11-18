@@ -711,6 +711,44 @@ async function main() {
   check("switching back on one device: X active, Y shelved, X's reading live", r16.laptopActive === "Batch X" && r16.laptopShelf === "Batch Y" && r16.laptopLogs === "lx", JSON.stringify(r16));
   await closeAll();
 
+  console.log("\n[17] Edited and deleted readings stay that way");
+  const ed = await device(browser, "edit-pure", { localOnly: true });
+  const r17 = await ed.evaluate(() => {
+    const merge = window.MeadevilSync.buildMergedAppData;
+    const env = (data, savedAt) => ({ _schema: { savedAt }, data });
+    const B = { loadedAt: "2026-04-01T00:00:00Z", recipeId: "rb", name: "Trad" };
+    const orig = { id: "g1", date: "2026-04-02", createdAt: "2026-04-02T10:00:00Z", gravity: "1.090" };
+    const edited = { ...orig, gravity: "1.095", editedAt: "2026-04-03T10:00:00Z" };
+    const base = { sections: { currentBatch: B }, logIds: ["g1"] };
+    const afterEdit = merge(env({ currentBatch: B, fermentationLogs: [edited] }, "2026-04-03T10:00:00Z"), env({ currentBatch: B, fermentationLogs: [orig] }, "2026-04-02T10:00:00Z"), null, base).data;
+    // A deleted g2 from the shelved batch; B still holds the older shelf copy with it.
+    const g2 = { id: "g2", date: "2026-04-03", gravity: "1.080" };
+    const shelfOld = { id: "shelf-t", shelvedAt: "2026-04-04T00:00:00Z", batch: B, fermentationLogs: [orig, g2] };
+    const shelfNew = { id: "shelf-t", shelvedAt: "2026-04-06T00:00:00Z", batch: B, fermentationLogs: [orig] };
+    const empty = { name: "", loadedAt: null, recipeId: "" };
+    const delTomb = { collection: "fermentationLogs", id: "g2", deletedAt: "2026-04-05T00:00:00Z", reason: "deleted" };
+    const union = merge(env({ currentBatch: empty, fermentationLogs: [], shelf: [shelfOld], archive: [] }, "2026-04-04T00:00:00Z"),
+      env({ currentBatch: empty, fermentationLogs: [], shelf: [shelfNew], archive: [], tombstones: [delTomb] }, "2026-04-06T00:00:00Z"), null, null).data;
+    // A later "moved with its batch" tombstone must not erase the deletion.
+    const moved = { collection: "fermentationLogs", id: "g2", deletedAt: "2026-04-07T00:00:00Z" };
+    const kept = merge(env({ tombstones: [moved] }, "2026-04-07T00:00:00Z"), env({ tombstones: [delTomb] }, "2026-04-06T00:00:00Z"), null, null).data;
+    // Stale device still has g2 live on the batch the other device switched in and trimmed.
+    const stale = merge(env({ currentBatch: B, fermentationLogs: [orig, g2], shelf: [], archive: [] }, "2026-04-04T00:00:00Z"),
+      env({ currentBatch: { ...B, notes: "x" }, fermentationLogs: [orig], shelf: [], archive: [], tombstones: [delTomb] }, "2026-04-06T00:00:00Z"), null, null).data;
+    const has = (d, id) => JSON.stringify(d.fermentationLogs.concat(...(d.shelf || []).map((e) => e.fermentationLogs), ...(d.archive || []).map((e) => e.fermentationLogs)).map((l) => l.id)).includes(`"${id}"`);
+    return {
+      edited: afterEdit.fermentationLogs[0].gravity,
+      unionHasG2: has(union, "g2"),
+      reason: (kept.tombstones.find((t) => t.id === "g2") || {}).reason,
+      staleHasG2: has(stale, "g2")
+    };
+  });
+  check("an edited reading wins over the uploaded original", r17.edited === "1.095", r17.edited);
+  check("a deleted reading does not come back through an older shelf copy", !r17.unionHasG2);
+  check("a later move tombstone keeps the 'deleted' reason", r17.reason === "deleted", String(r17.reason));
+  check("a stale device's copy of a deleted reading is not rescued into the Vault", !r17.staleHasG2);
+  await closeAll();
+
   console.log("\n[14] A stale device without a v2 baseline must not resurrect an archived batch");
   await closeAll();
   const oldBatch = { name: "Archived Batch", loadedAt: "2026-05-01T00:00:00.000Z", recipeId: "recipe-big", batchGallons: "5" };

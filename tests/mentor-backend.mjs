@@ -373,6 +373,29 @@ for (const [text, want] of [["I'd take QA23 over the harsher EC-1118.", "QA23"],
   check(`yeast that loses a comparison is not chosen: "${text.slice(0, 30)}…"`, m.yeast === want, m.yeast);
 }
 
+console.log("\n[13] Seventh-audit phrasing");
+m = await extract("If you want a clean melomel, 3 lb buckwheat honey would bury the fruit. Use 12 lb clover honey.", bwClover);
+check("an 'If ...,' opening does not switch off the verdict", !m.source_bill_candidates.some((b) => /buckwheat/.test(b.name)), JSON.stringify(m.source_bill_candidates));
+for (const text of ["Buckwheat honey isn't right here. Use 12 lb clover honey.", "Steer clear of the 3 lb buckwheat honey. Use 12 lb clover honey.", "I'd pass on the 3 lb buckwheat honey. Use 12 lb clover honey.", "Buckwheat honey won't work here. Use 12 lb clover honey."]) {
+  m = await extract(text, bwClover);
+  check(`ruled out: "${text.slice(0, 32)}…"`, !m.source_bill_candidates.some((b) => /buckwheat/.test(b.name)), JSON.stringify(m.source_bill_candidates));
+}
+m = await extract("Raise the 12 lb clover honey to 14 lb for more body.", { yeast: "", source_bill: [{ name: "clover honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [] });
+check("'raise X to N' does not keep the old amount", amt(m.source_bill_candidates, /clover/) !== "12lb", JSON.stringify(m.source_bill_candidates));
+m = await extract("Raise the 12 lb clover honey to 14 lb for more body.", { yeast: "", source_bill: [{ name: "clover honey", type: "Honey", amount: "14", unit: "lb" }], adjuncts: [] });
+check("...and takes the new one", amt(m.source_bill_candidates, /clover/) === "14lb", JSON.stringify(m.source_bill_candidates));
+m = await extract("Cut the 3 lb buckwheat honey to 1 lb and use 12 lb clover honey.", { yeast: "", source_bill: [{ name: "buckwheat honey", type: "Honey", amount: "1", unit: "lb" }, { name: "clover honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [] });
+check("'cut X to N' keeps X at the new amount", amt(m.source_bill_candidates, /buckwheat/) === "1lb", JSON.stringify(m.source_bill_candidates));
+m = await extract("For a 1 gallon test, use 3 lb clover honey; scale to 15 lb for the full 5 gallons.", { yeast: "", source_bill: [{ name: "clover honey", type: "Honey", amount: "3", unit: "lb" }], adjuncts: [] });
+check("a trial-size amount is not the batch amount", amt(m.source_bill_candidates, /clover/) !== "3lb", JSON.stringify(m.source_bill_candidates));
+m = await extract("Use half of the 4 oz oak cubes you planned.", { yeast: "", source_bill: [], adjuncts: [{ ingredient: "oak cubes", amount: "4", unit: "oz", phase: "secondary" }] });
+check("'half of the 4 oz' is not 4 oz", amt(m.adjunct_candidates, /oak/) !== "4oz", JSON.stringify(m.adjunct_candidates));
+m = await extract("Use 12 lb clover honey. 2 oz oak cubes would overwhelm the cherry, but use them in your next bochet.", { yeast: "", source_bill: [], adjuncts: [{ ingredient: "oak cubes", amount: "2", unit: "oz", phase: "secondary" }] });
+check("'use them in your next bochet' does not keep them here", m.adjunct_candidates.length === 0, JSON.stringify(m.adjunct_candidates));
+script = [{ content: "If you care about aroma, EC-1118 will strip it. Use 71B." }, { content: JSON.stringify({ yeast: "EC-1118", source_bill: [], adjuncts: [] }) }];
+r = await ask({ current_user_turn: DESIGN_TURN, mode: "forge" });
+check("'If you care about aroma, EC-1118 will strip it' rules EC-1118 out", r.body.build_mapping.yeast !== "EC-1118", r.body.build_mapping.yeast);
+
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));
 if (failures.length) { console.log(`MENTOR BACKEND: ${failures.length} FAILURE(S)`); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

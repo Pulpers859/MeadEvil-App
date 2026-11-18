@@ -1021,7 +1021,7 @@ const JOINERS = "and|or|to|over|plus|with|instead|rather|than|for|into|per|in|on
 const AMOUNT_BEFORE = new RegExp(`${QUANTITY}\\s*(?:\\([^)]*\\)\\s*)?(?:of\\s+)?(?:(?!(?:${JOINERS})\\b)[a-z'-]+\\s+){0,3}$`);
 // "wildflower honey: 12 lb", "wildflower honey (12 lb)", "wildflower honey, 12 lb".
 const AMOUNT_AFTER = new RegExp(`^\\s*[:,(–—=-]?\\s*(?:about|roughly|around|approximately|use|at|is)?\\s*${QUANTITY}`);
-const NEGATION = /(?:\b(?:skip|avoid|omit|without|not|no|never|dont|do not|instead of|rather than|leave out|hold off on|drop|ditch|cut|remove|lose|replace|swap|trade|in place of|other than)\b|n't\b)/;
+const NEGATION = /(?:\b(?:skip|avoid|omit|without|not|no|never|dont|do not|instead of|rather than|leave out|hold off on|drop|ditch|cut|remove|lose|replace|swap|trade|in place of|other than|steer clear of|pass on|scrap)\b|n't\b)/;
 // For a yeast, losing a comparison to another yeast rules it out: "71B over
 // EC-1118", "QA23 is cleaner than D47", "unlike EC-1118". Plain "over" and
 // "than" ("a gravity over 1.100", "cooler than 65F") do not.
@@ -1039,12 +1039,15 @@ function yeastLosesComparison(lead) {
 // "too <x>" counts unless <x> is praise or timing ("too good to bury", "too
 // forgiving to pass up", "too early to judge").
 const NOT_A_FAULT = "(?:good|forgiving|nice|lovely|pretty|important|valuable|useful|versatile|reliable|early|soon|young)";
-const NEGATION_AFTER = new RegExp("^(?:[^.!?;]{0,40}?\\b(?:(?:is|are|would be|feels?|sounds?|seems?|looks?|gets?)\\s+(?:(?:way|much|far|a bit|a little|just|rather)\\s+)?(?:too\\s+(?!" + NOT_A_FAULT + "\\b)[a-z]+|a bad idea|a mistake|overkill|wrong|unnecessary|out of place)|(?:would|will|could|might)\\s+(?:bury|overpower|overwhelm|swamp|smother|drown|mask|muddy|strip|blow out|flatten|clash|dominate|fight)|(?:has|needs) to go|should (?:be replaced|go|come out))|[;,.]\\s*(?:so\\s+)?(?:skip|drop|cut|ditch|lose)\\s+(?:it|that|them)\\b)");
+const NEGATION_AFTER = new RegExp("^(?:[^.!?;]{0,40}?\\b(?:(?:is|are|would be|feels?|sounds?|seems?|looks?|gets?)\\s+(?:(?:way|much|far|a bit|a little|just|rather)\\s+)?(?:too\\s+(?!" + NOT_A_FAULT + "\\b)[a-z]+|a bad idea|a mistake|overkill|wrong|unnecessary|out of place|not right|overpowering|a poor fit|not a fit)|(?:would|will|could|might)\\s+(?:bury|overpower|overwhelm|swamp|smother|drown|mask|muddy|strip|blow out|flatten|clash|dominate|fight|stall)|(?:isn't|is not|aren't|are not)\\s+(?:right|a fit|a good fit)|(?:don't|do not|doesn't|does not)\\s+belong|(?:won't|will not)\\s+work|(?:has|needs) to go|should (?:be replaced|go|come out))|[;,.]\\s*(?:so\\s+)?(?:skip|drop|cut|ditch|lose)\\s+(?:it|that|them)\\b)");
 // "... will dominate early but fade; keep them": the reply keeps THIS item,
 // referring back to it, not some other ingredient later in the sentence.
-const KEPT_AFTER = /^[^.!?]*\b(?:but|then|still)\b[^.!?]*\b(?:keep|add|use|include)\s+(?:it|them|that|those)\b/;
+const KEPT_AFTER = /^[^.!?]*\b(?:but|then|still)\b[^.!?]*\b(?:keep|add|use|include)\s+(?:it|them|that|those)\b(?![^.!?]*\b(?:next|another|other|different|later batch|future)\b)/;
 // Phrases that contain a negation word but do not rule the ingredient out.
-const NOT_A_LIMIT = /\b(?:no|not) more than\b|\bup to\b|\bat most\b|\bat least\b|\bnot too much\b|\bno need to [a-z]+\b|\bno substitute for\b|\b(?:can't|cannot|can not) go wrong with\b|\b(?:don't|do not|never) (?:forget|skip|leave out|drop|cut)\b|\b(?:would|will|should)(?: not|n't) (?:skip|drop|cut|leave out)\b|\bnot only\b|\bno doubt\b|\bwithout (?:heating|boiling|heat)\b/g;
+const NOT_A_LIMIT = /\b(?:no|not) more than\b|\bup to\b|\bat most\b|\bat least\b|\bnot too much\b|\bno need to (?!add|use|include|put|pitch|toss|throw)[a-z]+\b|\bno substitute for\b|\b(?:can't|cannot|can not) go wrong with\b|\b(?:don't|do not|never) (?:forget|skip|leave out|drop|cut)\b|\b(?:would|will|should)(?: not|n't) (?:skip|drop|cut|leave out)\b|\bnot only\b|\bno doubt\b|\bwithout (?:heating|boiling|heat)\b/g;
+const CHANGE_VERB_BEFORE = /\b(?:raise|bump|increase|lower|reduce|cut|drop|trim|scale|take|up|boost)\s+(?:the\s+|your\s+|that\s+)?$/;
+const FRACTION_BEFORE = /\b(?:half|a third|a quarter|third|quarter|double|twice|triple)\s+(?:of\s+)?(?:the\s+|your\s+)?$/;
+const TRIAL_CLAUSE = /\b\d+(?:\.\d+)?\s*-?\s*(?:gal|gallons?|l|liters?)\s+(?:test|trial|sample)\b|\btest (?:batch|run)\b|\bbench trial\b/;
 // A rate or a total, not this item's amount: "3 lb wildflower honey per gallon".
 const RATE_AFTER = /^\s*(?:per|a|\/|each|every)\s*(?:gallon|gal|liter|litre|l)\b/;
 
@@ -1092,7 +1095,18 @@ function adjacentQuantity(hit) {
   const rest = hit.sentence.slice(hit.end);
   if (RATE_AFTER.test(rest)) return { amount: NaN, unit: "", start: hit.start };
   const before = AMOUNT_BEFORE.exec(hit.sentence.slice(0, hit.start));
-  if (before) return { amount: Number(before[1]), unit: unitKey(before[2]), start: before.index };
+  if (before) {
+    const ahead = hit.sentence.slice(0, before.index);
+    // "Raise the 12 lb clover honey to 14 lb": 12 is the old amount, 14 the new.
+    if (CHANGE_VERB_BEFORE.test(ahead)) {
+      const changed = new RegExp(`^\\s+(?:up\\s+|down\\s+|back\\s+)?to\\s+${QUANTITY}`).exec(rest);
+      return changed ? { amount: Number(changed[1]), unit: unitKey(changed[2]), start: before.index, changed: true } : { amount: NaN, unit: "", start: before.index, changed: true };
+    }
+    // "half of the 4 oz oak cubes", "for a 1 gallon test, use 3 lb ...":
+    // a share of the amount, or a trial size, not the batch amount.
+    if (FRACTION_BEFORE.test(ahead) || TRIAL_CLAUSE.test(ahead)) return { amount: NaN, unit: "", start: before.index };
+    return { amount: Number(before[1]), unit: unitKey(before[2]), start: before.index };
+  }
   const after = AMOUNT_AFTER.exec(rest);
   if (after) {
     // "wildflower honey, 2 lb tart cherry puree": that amount opens the next item.
@@ -1132,8 +1146,13 @@ function mentionIsNegated(hit, quantity, extra) {
   if (/\b(?:leave|keep|rule)\b/.test(window) && /^\s+out\b/.test(rest)) return true;
   // A clause later the reply may keep it after all ("...; keep them").
   // "If the honey seems too thin, ..." is a condition, not a verdict.
-  const after = !/\bif\b/.test(lead) && NEGATION_AFTER.test(rest) && !KEPT_AFTER.test(rest) && !/^\s*(?:but\s+)?keep\s+(?:it|them|that)\b/.test(hit.next || "");
-  return NEGATION.test(window) || Boolean(extra && extra(lead)) || after;
+  // Only when the condition governs this mention's own clause: "If you want a
+  // clean melomel, 3 lb buckwheat would bury the fruit" is still a verdict.
+  const ownClause = hit.sentence.slice(0, anchor).split(/[,;:]/).pop();
+  const after = !/\bif\b/.test(ownClause) && NEGATION_AFTER.test(rest) && !KEPT_AFTER.test(rest) && !/^\s*(?:but\s+)?keep\s+(?:it|them|that)\b/.test(hit.next || "");
+  // "Cut the 3 lb X to 1 lb" changes the amount; it does not rule X out.
+  const verdictWindow = quantity && quantity.changed ? window.replace(/\b(?:cut|drop|trim|reduce|lower)\b/g, " ") : window;
+  return NEGATION.test(verdictWindow) || Boolean(extra && extra(lead)) || after;
 }
 
 function yeastIsChosen(yeast, sentences) {

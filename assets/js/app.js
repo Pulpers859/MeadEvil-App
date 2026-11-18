@@ -1063,6 +1063,25 @@
   // Readings the pill sent while this batch was active but that have not been
   // fetched yet would be lost once the next batch's floor starts at "now".
   // Fetch them first (briefly; offline or unconfigured just moves on).
+  // One batch move at a time. The catch-up below can take a few seconds; a
+  // second click in that window (Archive while "Make active" was still
+  // fetching) acted on whichever batch happened to be active afterwards.
+  let batchMoveBusy = false;
+  const BATCH_MOVE_SELECTORS = "#shelveBatchBtn, #archiveBatchBtn, #clearActiveBatchBtn, #loadDraftToBatchBtn, [data-shelf-switch], [data-archive-load], [data-recipe-load]";
+
+  async function withBatchMove(task){
+    if (batchMoveBusy) return false;
+    batchMoveBusy = true;
+    document.querySelectorAll(BATCH_MOVE_SELECTORS).forEach((el) => { el.disabled = true; });
+    try {
+      await task();
+      return true;
+    } finally {
+      batchMoveBusy = false;
+      document.querySelectorAll(BATCH_MOVE_SELECTORS).forEach((el) => { el.disabled = false; });
+    }
+  }
+
   async function catchUpRapt(){
     if (!batchHasData() || !(data.rapt && (data.rapt.lastFetchedAt || data.rapt.deviceId))) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
@@ -1178,7 +1197,10 @@
       tone: "danger"
     });
     if (!choice) return false;
-    if (choice === "alt") await catchUpRapt();
+    if (choice === "alt"){
+      if (batchMoveBusy) return false;
+      await withBatchMove(catchUpRapt);
+    }
     if (choice === "alt"){
       shelveCurrentBatch();
       showToast("Previous batch set aside. Switch back to it from Ferment.", "good");
@@ -1594,7 +1616,11 @@
   // one-time log cleanup (or years of deletions) can't itself become the bloat.
   const TOMBSTONE_LIMIT = 5000;
 
-  function recordTombstones(collection, ids){
+  // reason "deleted": the user threw this record away. Without it a tombstone
+  // only says "no longer in the live list", which is also what setting a batch
+  // aside or archiving it does to its readings, and sync could not tell a
+  // deleted reading from one that moved to the shelf or Vault.
+  function recordTombstones(collection, ids, reason){
     const now = Date.now();
     (Array.isArray(ids) ? ids : [ids]).filter(Boolean).forEach((id) => {
       // Strictly after any earlier revival of this id, even on a slow clock.
@@ -1604,7 +1630,9 @@
           latest = Math.max(latest, Date.parse(entry.deletedAt) || 0, Date.parse(entry.revivedAt) || 0);
         }
       });
-      data.tombstones.push({ collection, id: String(id), deletedAt: new Date(Math.max(now, latest + 1)).toISOString() });
+      const entry = { collection, id: String(id), deletedAt: new Date(Math.max(now, latest + 1)).toISOString() };
+      if (reason) entry.reason = reason;
+      data.tombstones.push(entry);
     });
     if (data.tombstones.length > TOMBSTONE_LIMIT){
       data.tombstones = data.tombstones.slice(-TOMBSTONE_LIMIT);
@@ -1826,7 +1854,7 @@
       .filter((log) => !kept.has(log))
       .map((log) => log.id)
       .filter(Boolean);
-    recordTombstones("fermentationLogs", removedIds);
+    recordTombstones("fermentationLogs", removedIds, "deleted");
     data.fermentationLogs = data.fermentationLogs.filter((log) => kept.has(log));
     return removedIds.length;
   }
@@ -3967,7 +3995,7 @@
       stepFeedLog: [],
       loadedAt: new Date().toISOString()
     };
-    recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
+    recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id), "deleted");
     data.fermentationLogs = [];
     data.fermentChecklist = buildRecipeAwareChecklist(recipe);
     // The RAPT bridge accumulates readings under one key forever, and the dedupe
@@ -4387,7 +4415,7 @@
         confirmLabel: "Clear readings",
         tone: "danger"
       }))) return;
-      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
+      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id), "deleted");
       data.fermentationLogs = [];
       persistData();
       renderDashboard();
@@ -4402,7 +4430,7 @@
           confirmLabel: "Delete reading",
           tone: "danger"
         }))) return;
-        recordTombstones("fermentationLogs", deleteId);
+        recordTombstones("fermentationLogs", deleteId, "deleted");
         data.fermentationLogs = data.fermentationLogs.filter((entry) => entry.id !== deleteId);
         persistData();
         renderDashboard();
@@ -4434,6 +4462,9 @@
             return;
           }
           Object.keys(pending).forEach((key) => { entry[key] = pending[key]; });
+          // Sync keeps the newer copy of a reading; without a stamp an edit
+          // ties with the uploaded original and the original wins.
+          entry.editedAt = new Date().toISOString();
           // The trend chart, rate window, and timestamps prefer telemetryAt over
           // date for imported readings. If the user edits the date, move
           // telemetryAt with it so the reading actually repositions instead of
@@ -4473,7 +4504,7 @@
         confirmLabel: "Reset batch",
         tone: "danger"
       }))) return;
-      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
+      recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id), "deleted");
       data.currentBatch = defaultCurrentBatch();
       data.fermentationLogs = [];
       data.fermentChecklist = defaultFermentChecklist();
@@ -4486,7 +4517,7 @@
       renderAll();
     });
 
-    $("shelveBatchBtn").addEventListener("click", async () => {
+    $("shelveBatchBtn").addEventListener("click", () => withBatchMove(async () => {
       await catchUpRapt();
       if (!shelveCurrentBatch()) return;
       persistData();
@@ -4494,30 +4525,35 @@
       populateCellarForm();
       renderAll();
       showToast("Batch set aside. Start another, or make it active again below.", "good");
-    });
+    }));
 
-    $("shelfList").addEventListener("click", async (event) => {
+    $("shelfList").addEventListener("click", (event) => {
       const button = event.target.closest("[data-shelf-switch]");
       if (!button) return;
+      withBatchMove(() => makeShelvedActive(button.dataset.shelfSwitch));
+    });
+
+    async function makeShelvedActive(shelfId){
       await catchUpRapt();
-      if (!switchToShelvedBatch(button.dataset.shelfSwitch)) return;
+      if (!switchToShelvedBatch(shelfId)) return;
       persistData();
       populateNutrientForm();
       populateCellarForm();
       renderAll();
       showToast(`${data.currentBatch.name || "Batch"} is now the active batch.`, "good");
-    });
+    }
 
-    $("archiveBatchBtn").addEventListener("click", async () => {
+    $("archiveBatchBtn").addEventListener("click", () => withBatchMove(async () => {
       if (!batchHasData()) return;
       await catchUpRapt();
+      if (!batchHasData()) return;
       archiveCurrentBatch();
       persistData();
       populateNutrientForm();
       populateCellarForm();
       renderAll();
       setActiveTab("archive");
-    });
+    }));
   }
 
   function bindNutrients(){
@@ -4784,7 +4820,9 @@
         // Tombstone the outgoing live logs so sync doesn't union them into the
         // resumed batch, then revive the restored batch's own log ids so sync
         // doesn't strip the gravity trail we just brought back (see H2/H3).
-        recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
+        // Anything still live here was discarded at the replace prompt (setting
+        // it aside would have emptied the list already).
+        recordTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id), "deleted");
         data.currentBatch = clone(item.batch);
         data.fermentationLogs = clone(item.fermentationLogs);
         clearTombstones("fermentationLogs", data.fermentationLogs.map((entry) => entry.id));
@@ -5552,6 +5590,20 @@
       console.warn("Initial RAPT refresh failed", error);
     });
   }
+
+  // Another tab on this device saved. This tab's in-memory copy is now stale,
+  // and its next save would write the stale copy over that tab's work (an
+  // adjunct added in one tab vanished when the other tab edited a note).
+  window.addEventListener("storage", (event) => {
+    if (event.storageArea !== localStorage || event.key !== STORAGE_KEY || event.newValue == null) return;
+    data = loadStoredData();
+    populateRecipeForm();
+    populateNutrientForm();
+    populateCellarForm();
+    populateCalcForm();
+    populateMentorForm();
+    renderAll();
+  });
 
   // Surface persistence failures (full quota, private-mode storage disabled) so
   // the user knows their changes are not being saved instead of losing work

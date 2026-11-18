@@ -485,8 +485,25 @@
     });
   }
 
+  // Which copy of the same reading wins: the most recently edited one. The
+  // reading's own time (logStamp) is the same on both copies, and on a tie the
+  // cloud wins, so an edit was undone by the next sync.
+  function logVersion(entry){
+    return Math.max(toTimestamp(entry?.editedAt), logStamp(entry));
+  }
+
   function mergeFermentationLogs(localLogs, cloudLogs){
-    return sortLogs(mergeByKey(localLogs, cloudLogs, logKey, logStamp));
+    return sortLogs(mergeByKey(localLogs, cloudLogs, logKey, logVersion));
+  }
+
+  // Readings the user threw away (as opposed to readings that moved to the
+  // shelf or the Vault with their batch).
+  function userDeletedLogIds(tombstones){
+    const ids = new Set();
+    list(tombstones).forEach((entry) => {
+      if (entry && entry.collection === "fermentationLogs" && entry.reason === "deleted" && tombstoneIsLive(entry)) ids.add(String(entry.id));
+    });
+    return ids;
   }
 
   // Batches set aside (not active, not finished). Whole entries keyed by id; a
@@ -549,7 +566,13 @@
       const key = tombstoneKey(entry);
       const existing = merged.get(key);
       if (!existing || tombstoneStamp(entry) > tombstoneStamp(existing)){
-        merged.set(key, clone(entry));
+        const next = clone(entry);
+        // A later "moved with its batch" tombstone from a device that had not
+        // seen the deletion must not turn a user's deletion back into a move.
+        if (existing && existing.reason === "deleted" && tombstoneIsLive(next) && tombstoneIsLive(existing) && !next.reason) next.reason = "deleted";
+        merged.set(key, next);
+      } else if (existing && entry.reason === "deleted" && !existing.reason && tombstoneIsLive(existing) && tombstoneIsLive(entry)){
+        merged.set(key, { ...existing, reason: "deleted" });
       }
     });
     // Oldest first: app.js trims with slice(-LIMIT) and relies on the newest
@@ -728,7 +751,9 @@
     const mergedTombstones = mergeTombstones(local.tombstones, cloud.tombstones);
     const deadLogs = tombstonedIdSet(mergedTombstones, "fermentationLogs");
     let archive = mergeArchive(local.archive, cloud.archive);
-    const allShelf = mergeShelf(local.shelf, cloud.shelf);
+    const userDeleted = userDeletedLogIds(mergedTombstones);
+    const withoutDeleted = (entry) => ({ ...entry, fermentationLogs: list(entry.fermentationLogs).filter((log) => !userDeleted.has(String(log?.id || ""))) });
+    const allShelf = mergeShelf(local.shelf, cloud.shelf).map(withoutDeleted);
     let shelf = stripTombstoned(allShelf, tombstonedIdSet(mergedTombstones, "shelf"));
     const strippedShelf = allShelf.filter((entry) => !shelf.includes(entry));
     // A batch that sits in the Vault OR on the shelf is accounted for.
@@ -739,7 +764,8 @@
       // The live log belongs to the active batch, so it follows the winner.
       liveLogs = stripTombstoned(sortLogs(list(winner.fermentationLogs)), deadLogs);
       const winnerLogKeys = new Set(list(winner.fermentationLogs).map(logKey));
-      const loserLogs = list(loser.fermentationLogs);
+      // A reading the user deleted elsewhere is not "unsynced work" to rescue.
+      const loserLogs = list(loser.fermentationLogs).filter((log) => !userDeleted.has(String(log?.id || "")));
       const strayLogs = loserLogs.filter((entry) => !winnerLogKeys.has(logKey(entry)));
       // Did the losing side do anything the winner cannot already account for?
       const archivedLogKeys = new Set();
@@ -794,7 +820,7 @@
         && String(entry.batch && entry.batch.recipeId || "") === String(local.currentBatch && local.currentBatch.recipeId || ""));
       if (!hasBase && batchIsReal(local) && !alreadyParked && !same(batchGroupOf(local), batchGroupOf(mergedData))
         && !archiveCovers(accounted(), local, list(local.fermentationLogs))){
-        const rescued = rescueEntry(local, list(local.fermentationLogs));
+        const rescued = rescueEntry(local, list(local.fermentationLogs).filter((log) => !userDeleted.has(String(log?.id || ""))));
         if (!archive.some((entry) => entry.id === rescued.id)) archive = newestFirst(archive.concat([rescued]), archiveStamp);
       }
     }
@@ -842,6 +868,7 @@
     // nowhere else, park the entry instead of letting it vanish.
     if (strippedShelf.length){
       const known = new Set(liveLogs.map(logKey));
+      userDeleted.forEach((id) => known.add(id));
       archive.forEach((entry) => list(entry.fermentationLogs).forEach((log) => known.add(logKey(log))));
       shelf.forEach((entry) => list(entry.fermentationLogs).forEach((log) => known.add(logKey(log))));
       strippedShelf.forEach((entry) => {

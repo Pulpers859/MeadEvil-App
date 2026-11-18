@@ -113,7 +113,8 @@
         sourceId: String(input.sourceId || ""),
         telemetryAt: String(input.telemetryAt || ""),
         deviceName: String(input.deviceName || ""),
-        deviceId: String(input.deviceId || "")
+        deviceId: String(input.deviceId || ""),
+        editedAt: String(input.editedAt || "")
       };
     }
 
