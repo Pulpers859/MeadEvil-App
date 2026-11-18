@@ -997,6 +997,50 @@ async function testShelfRaptAndAdjuncts(context) {
   await page.close();
 }
 
+async function testAdjunctSingleTruth(context) {
+  console.log("\n[25] Structure additions have one truth: the app's saved state");
+  const page = await freshPage(context);
+  const row = (i) => ({ id: "a-" + i, phase: "secondary", category: "structure", ingredient: i, amount: "1", unit: "oz", purpose: "", notes: "" });
+  const list = (rows) => (rows || []).map((r) => r.ingredient || "_").join(",");
+  await clickTab(page, "recipes");
+  await setVal(page, "#recipeName", "Single Truth");
+  await delay(300);
+  // An install whose mentor key holds an older copy than the app's own state.
+  await page.evaluate(([k, ek, oak, jun, van]) => {
+    const raw = JSON.parse(localStorage.getItem(k));
+    raw.data.recipeDraft.structureAdditions = [jun];
+    raw.data.currentBatch = { ...raw.data.currentBatch, name: "Oak Trad", loadedAt: "2026-05-01T00:00:00.000Z", structureAdditions: [oak] };
+    localStorage.setItem(k, JSON.stringify(raw));
+    localStorage.setItem(ek, JSON.stringify({ recipeDraft: { structureAdditions: [van] }, currentBatch: { structureAdditions: [van] } }));
+  }, [STORAGE_KEY, ENH_KEY, row("oak"), row("juniper"), row("vanilla")]);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(800);
+  let s = await state(page);
+  check("boot keeps the app's lists over an older mentor copy", list(s.recipeDraft.structureAdditions) === "juniper" && list(s.currentBatch.structureAdditions) === "oak", `${list(s.recipeDraft.structureAdditions)} | ${list(s.currentBatch.structureAdditions)}`);
+  await clickTab(page, "recipes");
+  await page.$eval("#addRecipeAdjunctBtn", (b) => b.click());
+  await delay(300);
+  const domRows = () => page.$$eval('#recipeAdjunctList [data-adjunct-field="ingredient"]', (els) => els.map((e) => e.value || "_").join(","));
+  check("Add shows a new row at once", (await domRows()) === "juniper,_", await domRows());
+  await page.$eval("#recipeAdjunctList [data-adjunct-delete]", (b) => b.click());
+  await delay(300);
+  s = await state(page);
+  check("Remove takes the row off screen and out of storage", (await domRows()) === "_" && !list(s.recipeDraft.structureAdditions).includes("juniper"), `${await domRows()} | ${list(s.recipeDraft.structureAdditions)}`);
+  // Resuming a Vault entry and then cancelling changes nothing.
+  await page.evaluate(([k, van]) => {
+    const raw = JSON.parse(localStorage.getItem(k));
+    raw.data.archive = [{ id: "arch-v", archivedAt: "2026-04-01T00:00:00.000Z", batch: { name: "Old Vanilla", loadedAt: "2026-03-01T00:00:00.000Z", structureAdditions: [van] }, nutrients: {}, cellar: {}, fermentChecklist: [], cellarChecklist: [], fermentationLogs: [] }];
+    localStorage.setItem(k, JSON.stringify(raw));
+  }, [STORAGE_KEY, row("vanilla")]);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await delay(800);
+  await clickTab(page, "archive");
+  await clickAndAnswer(page, "[data-archive-load]", "cancel", 600);
+  s = await state(page);
+  check("cancelling a Vault resume leaves the batch's additions alone", s.currentBatch.name === "Oak Trad" && list(s.currentBatch.structureAdditions) === "oak", `${s.currentBatch.name}: ${list(s.currentBatch.structureAdditions)}`);
+  await page.close();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
@@ -1025,6 +1069,7 @@ async function main() {
   await testMultipleBatches(context);
   await testBatchAdjunctsSurvive(context);
   await testShelfRaptAndAdjuncts(context);
+  await testAdjunctSingleTruth(context);
 
   await context.close();
   await browser.close();

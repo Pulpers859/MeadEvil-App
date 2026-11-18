@@ -348,6 +348,31 @@ script = [{ content: "Keep it lean and bright with orange blossom up front." }];
 r = await ask({ current_user_turn: DESIGN_TURN });
 check("a clean reply carries no warnings", Array.isArray(r.body.provenance?.warnings) && r.body.provenance.warnings.length === 0, JSON.stringify(r.body.provenance?.warnings));
 
+console.log("\n[12] Sixth-audit phrasing");
+const bwClover = { yeast: "", source_bill: [{ name: "buckwheat honey", type: "Honey", amount: "3", unit: "lb" }, { name: "clover honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [] };
+for (const text of [
+  "The 3 lb buckwheat honey is too funky for a delicate melomel. Use 12 lb clover honey.",
+  "3 lb buckwheat honey seems too heavy for this. Use 12 lb clover honey.",
+  "3 lb buckwheat honey is way too strong. Use 12 lb clover honey.",
+  "3 lb buckwheat honey is too much, but use 12 lb clover honey instead.",
+  "Substitute 12 lb clover honey for the 3 lb buckwheat honey.",
+  "Swap in 12 lb clover honey for the 3 lb buckwheat honey.",
+  "Swap to 12 lb clover honey from the 3 lb buckwheat honey.",
+  "Replace the 3 lb dark, funky buckwheat honey with 12 lb clover honey.",
+  "Use 12 lb clover honey in place of the 3 lb buckwheat honey."]) {
+  m = await extract(text, bwClover);
+  check(`ruled out: "${text.slice(0, 40)}…"`, !m.source_bill_candidates.some((b) => /buckwheat/.test(b.name)) && amt(m.source_bill_candidates, /clover/) === "12lb", JSON.stringify(m.source_bill_candidates));
+}
+for (const text of ["Use 12 lb clover honey. 2 oz oak cubes would clash.", "Use 12 lb clover honey. 2 oz oak cubes would drown the cherry.",
+  "Use 12 lb clover honey. 2 oz oak cubes would bury the cherry. Use them in a bochet another time."]) {
+  m = await extract(text, { yeast: "", source_bill: [{ name: "clover honey", type: "Honey", amount: "12", unit: "lb" }], adjuncts: [{ ingredient: "oak cubes", amount: "2", unit: "oz", phase: "secondary" }] });
+  check(`ruled out: "${text.slice(25, 60)}…"`, m.adjunct_candidates.length === 0, JSON.stringify(m.adjunct_candidates));
+}
+for (const [text, want] of [["I'd take QA23 over the harsher EC-1118.", "QA23"], ["Unlike the forgiving 71B, D47 needs care; pitch D47.", "D47"], ["I prefer D47 to 71B here.", "D47"], ["D47 beats 71B at this temperature.", "D47"]]) {
+  m = await extract(text, { yeast: want === "QA23" ? "EC-1118" : "71B", source_bill: [], adjuncts: [] });
+  check(`yeast that loses a comparison is not chosen: "${text.slice(0, 30)}…"`, m.yeast === want, m.yeast);
+}
+
 console.warn = quiet;
 console.log("\n" + "=".repeat(50));
 if (failures.length) { console.log(`MENTOR BACKEND: ${failures.length} FAILURE(S)`); failures.forEach((f) => console.log("  - " + f)); process.exit(1); }

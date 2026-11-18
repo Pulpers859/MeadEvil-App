@@ -669,7 +669,23 @@ async function main() {
     const phoneArch = env({ currentBatch: { name: "", loadedAt: null, recipeId: "" }, cellar: {}, fermentationLogs: [], shelf: [shelfM],
       archive: [{ id: "arch-x", archivedAt: "2026-05-06T00:00:00Z", batch: X, cellar: {}, fermentationLogs: [lx] }] }, "2026-05-06T00:00:00Z");
     const melWins = merge(phoneArch, lapMel, null, { sections: { currentBatch: X, cellar: {} }, logIds: ["lx"] }).data;
+    // Both devices, offline, logged different readings and set the same batch aside.
+    const l8 = { id: "l8", date: "2026-05-02", gravity: "1.080" };
+    const l7 = { id: "l7", date: "2026-05-03", gravity: "1.070" };
+    const sameId = merge(
+      env({ currentBatch: { name: "", loadedAt: null, recipeId: "" }, fermentationLogs: [], archive: [], shelf: [{ ...shelfX, shelvedAt: "2026-05-02T00:00:00Z", fermentationLogs: [lx, l8] }] }, "2026-05-02T00:00:00Z"),
+      env({ currentBatch: { name: "", loadedAt: null, recipeId: "" }, fermentationLogs: [], archive: [], shelf: [{ ...shelfX, shelvedAt: "2026-05-03T00:00:00Z", fermentationLogs: [lx, l7] }] }, "2026-05-03T00:00:00Z"),
+      null, base).data;
+    // This device's shelf copy holds a reading; another device already removed that entry.
+    const l6 = { id: "l6", date: "2026-05-04", gravity: "1.060" };
+    const stripped = merge(
+      env({ currentBatch: Y, fermentationLogs: [], archive: [], shelf: [{ ...shelfX, fermentationLogs: [lx, l6] }] }, "2026-05-04T00:00:00Z"),
+      env({ currentBatch: Y, fermentationLogs: [], archive: [], shelf: [], tombstones: [{ collection: "shelf", id: "shelf-x", deletedAt: "2026-05-05T00:00:00Z" }] }, "2026-05-05T00:00:00Z"),
+      null, { sections: { currentBatch: Y }, logIds: [] }).data;
+    const everywhere = (d) => JSON.stringify(d.fermentationLogs.concat(...d.shelf.map((e) => e.fermentationLogs), ...d.archive.map((e) => e.fermentationLogs)).map((l) => l.id));
     return {
+      sameIdLogs: (sameId.shelf[0] || {}).fermentationLogs?.map((l) => l.id).sort().join(","), sameIdCount: sameId.shelf.length,
+      strippedHasL6: everywhere(stripped).includes('"l6"'),
       bothShelf: names(bothSwitch.shelf), bothActive: bothSwitch.currentBatch.name,
       dupActive: activeAlsoShelved.currentBatch.name, dupShelf: names(activeAlsoShelved.shelf),
       foldedShelfLogs: (folded.shelf.find((e) => e.batch.name === "Batch X") || {}).fermentationLogs?.map((l) => l.id).join(","), foldedVault: folded.archive.length,
@@ -690,6 +706,8 @@ async function main() {
   check("the active batch is never also on the shelf", !r16.dupShelf.split(",").includes(r16.dupActive), `${r16.dupActive} | ${r16.dupShelf}`);
   check("a reading logged on a batch the other device set aside joins its shelf entry", r16.foldedShelfLogs === "lx,ly" && r16.foldedVault === 0, `${r16.foldedShelfLogs} / vault ${r16.foldedVault}`);
   check("making a batch active beats an empty slot from a concurrent archive", r16.melActive === "Mel" && !/recovered/.test(r16.melVault), `${r16.melActive} | ${r16.melVault}`);
+  check("two devices setting the same batch aside keep both devices' readings", r16.sameIdCount === 1 && r16.sameIdLogs === "l7,l8,lx", `${r16.sameIdCount} / ${r16.sameIdLogs}`);
+  check("a removed shelf entry holding the only copy of a reading is parked, not dropped", r16.strippedHasL6);
   check("switching back on one device: X active, Y shelved, X's reading live", r16.laptopActive === "Batch X" && r16.laptopShelf === "Batch Y" && r16.laptopLogs === "lx", JSON.stringify(r16));
   await closeAll();
 

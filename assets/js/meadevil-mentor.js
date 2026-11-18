@@ -587,7 +587,16 @@
 
   function mergeEnhancementIntoMain(main, enhancement){
     if (!main || typeof main !== "object") return main;
-    if (isEnvelope(main)) return stripEnvelopePhantoms(main);
+    if (isEnvelope(main)){
+      // The app's stored state is the one truth for structure additions; a
+      // mentor edit lands there directly, so nothing later can harvest a stale
+      // copy back over it (the Add/Remove buttons looked dead because of that).
+      ["recipeDraft", "currentBatch"].forEach((slot) => {
+        if (!isPlainObject(main.data[slot])) return;
+        main.data[slot].structureAdditions = clone(enhancement[slot].structureAdditions);
+      });
+      return stripEnvelopePhantoms(main);
+    }
 
     main.meadevilMentor = clone(enhancement.mentor);
     main.recipeDraft = main.recipeDraft || {};
@@ -2799,31 +2808,12 @@
       }, 80);
     });
 
-    $("recipeList")?.addEventListener("click", (event) => {
-      const id = event.target.dataset.recipeEdit || event.target.dataset.recipeLoad || "";
-      if (!id) return;
-      setTimeout(() => {
-        const enhancement = loadEnhancement();
-        if (enhancement.recipes[id]){
-          saveMergedMain((enh) => { enh.recipeDraft.structureAdditions = clone(enhancement.recipes[id].structureAdditions || [defaultAdjunctRow()]); });
-        }
-        renderAll();
-      }, 80);
-    });
-
-    $("archiveList")?.addEventListener("click", (event) => {
-      const loadId = event.target.dataset.archiveLoad || event.target.dataset.archiveClone || "";
-      if (!loadId) return;
-      setTimeout(() => {
-        const enhancement = loadEnhancement();
-        if (enhancement.archive[loadId]){
-          saveMergedMain((enh) => {
-            enh.currentBatch.structureAdditions = clone(enhancement.archive[loadId].structureAdditions || enh.currentBatch.structureAdditions);
-            enh.recipeDraft.structureAdditions = clone(enhancement.archive[loadId].structureAdditions || enh.recipeDraft.structureAdditions);
-          });
-        }
-        renderAll();
-      }, 80);
+    // Opening a recipe, starting a batch from one, resuming or cloning a Vault
+    // entry: app.js copies the structure additions the record itself carries.
+    // (Listeners here used to paste this module's own copies in, 80 ms later
+    // and before the user had even answered the replace-batch dialog.)
+    ["recipeList", "archiveList"].forEach((id) => {
+      $(id)?.addEventListener("click", () => setTimeout(renderAll, 120));
     });
 
     $("archiveBatchBtn")?.addEventListener("click", () => {
@@ -2845,7 +2835,11 @@
   }
 
   function boot(){
-    saveMergedMain(() => {});
+    // Start from the app's stored lists (app.js has already booted and adopted
+    // any legacy rows). Pushing this key's own copy instead overwrote every
+    // install's adjuncts with whatever older copy it held.
+    const enhancement = harvestEnhancementFromMain(getMainState(), loadEnhancement());
+    saveEnhancement(enhancement);
     bindEvents();
     renderAll();
     // Cloud sync just replaced the stored state (and this module's adjunct

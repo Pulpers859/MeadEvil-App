@@ -1060,6 +1060,18 @@
     };
   }
 
+  // Readings the pill sent while this batch was active but that have not been
+  // fetched yet would be lost once the next batch's floor starts at "now".
+  // Fetch them first (briefly; offline or unconfigured just moves on).
+  async function catchUpRapt(){
+    if (!batchHasData() || !(data.rapt && (data.rapt.lastFetchedAt || data.rapt.deviceId))) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    await Promise.race([
+      importRaptReadings({ silent: true }).catch(() => null),
+      new Promise((resolve) => setTimeout(resolve, 4000))
+    ]);
+  }
+
   function shelveCurrentBatch(){
     if (!batchHasData()) return null;
     // Same batch, same id on every device: two devices setting the same batch
@@ -1166,6 +1178,7 @@
       tone: "danger"
     });
     if (!choice) return false;
+    if (choice === "alt") await catchUpRapt();
     if (choice === "alt"){
       shelveCurrentBatch();
       showToast("Previous batch set aside. Switch back to it from Ferment.", "good");
@@ -3970,10 +3983,9 @@
       telemetrySince: data.currentBatch.loadedAt
     };
     data.clock = normalizeClock(null);
-    let structureAdds = Array.isArray(recipe.structureAdditions) && recipe.structureAdditions.length
-      ? recipe.structureAdditions
-      : readEnhancementStructureAdditions("recipeDraft");
-    data.currentBatch.structureAdditions = clone(structureAdds);
+    // The recipe's own list only: falling back to the Build draft's gave a
+    // recipe with no additions whatever was being sketched.
+    data.currentBatch.structureAdditions = clone(Array.isArray(recipe.structureAdditions) ? recipe.structureAdditions : []);
     // Cellar is post-fermentation truth: it must only ever hold additions that
     // actually happened. Planned structure additions stay on the batch (and are
     // shown in the Ferment execution plan) but are NOT pre-logged here.
@@ -4233,9 +4245,7 @@
         if (!latest || daysSinceLastReading(data.fermentationLogs) > 3) {
           showToast(`Phase changed to ${newPhase}. Take a gravity reading to mark this transition.`, "info");
         }
-        const structureAdds = (Array.isArray(data.currentBatch.structureAdditions) && data.currentBatch.structureAdditions.length)
-          ? data.currentBatch.structureAdditions
-          : readEnhancementStructureAdditions("currentBatch");
+        const structureAdds = Array.isArray(data.currentBatch.structureAdditions) ? data.currentBatch.structureAdditions : [];
         const phaseAdds = structureAdds.filter((row) => row.ingredient && row.phase && row.phase.toLowerCase() === newPhase.toLowerCase());
         if (phaseAdds.length) {
           const names = phaseAdds.map((row) => row.ingredient).join(", ");
@@ -4476,7 +4486,8 @@
       renderAll();
     });
 
-    $("shelveBatchBtn").addEventListener("click", () => {
+    $("shelveBatchBtn").addEventListener("click", async () => {
+      await catchUpRapt();
       if (!shelveCurrentBatch()) return;
       persistData();
       populateNutrientForm();
@@ -4485,9 +4496,10 @@
       showToast("Batch set aside. Start another, or make it active again below.", "good");
     });
 
-    $("shelfList").addEventListener("click", (event) => {
+    $("shelfList").addEventListener("click", async (event) => {
       const button = event.target.closest("[data-shelf-switch]");
       if (!button) return;
+      await catchUpRapt();
       if (!switchToShelvedBatch(button.dataset.shelfSwitch)) return;
       persistData();
       populateNutrientForm();
@@ -4496,8 +4508,9 @@
       showToast(`${data.currentBatch.name || "Batch"} is now the active batch.`, "good");
     });
 
-    $("archiveBatchBtn").addEventListener("click", () => {
+    $("archiveBatchBtn").addEventListener("click", async () => {
       if (!batchHasData()) return;
+      await catchUpRapt();
       archiveCurrentBatch();
       persistData();
       populateNutrientForm();
@@ -4780,6 +4793,9 @@
         data.cellar = clone(item.cellar);
         data.cellarChecklist = clone(item.cellarChecklist);
         data.currentBatch.loadedAt = new Date().toISOString();
+        // The pill only feeds this batch from now on; the timer starts fresh.
+        data.rapt = freshRaptLink();
+        data.clock = normalizeClock(null);
         persistData();
         populateNutrientForm();
         populateCellarForm();
@@ -5135,9 +5151,7 @@
     const r = data.recipeDraft;
     const bill = currentSourceBill();
     const plan = estimateRecipeTargets({ batchGallons: r.batchGallons, targetAbv: r.targetAbv, sweetness: r.sweetness, yeastTolerance: r.yeastTolerance, honeyPPG: 35 });
-    const draftStructure = Array.isArray(r.structureAdditions) && r.structureAdditions.length
-      ? r.structureAdditions
-      : readEnhancementStructureAdditions("recipeDraft");
+    const draftStructure = Array.isArray(r.structureAdditions) ? r.structureAdditions : [];
     const adjuncts = draftStructure.filter((a) => a && a.ingredient && a.ingredient.trim());
     // The card must print the protocol the user ACTUALLY selected. It used to
     // print `currentTosnaPlan()` unconditionally, so a batch on
@@ -5500,8 +5514,8 @@
     let changed = false;
     ["recipeDraft", "currentBatch"].forEach((slot) => {
       const legacy = readEnhancementStructureAdditions(slot);
-      // An empty batch slot takes nothing: the legacy copy may be the last batch's.
-      if (slot === "currentBatch" && !batchHasData()) return;
+      // Batch lists are never adopted: that copy may be an earlier batch's.
+      if (slot === "currentBatch") return;
       if (!filled(data[slot].structureAdditions) && filled(legacy)){
         data[slot].structureAdditions = clone(legacy);
         changed = true;
@@ -5578,30 +5592,9 @@
   });
 
   window.addEventListener("meadevil-cloud-restore", (event) => {
-    const fromCloud = Boolean(event && event.detail && event.detail.source === "cloud");
     data = loadStoredData();
-    // The mentor keeps brainstorm structure additions (adjuncts) in its own
-    // enhancement key and only syncs them into the main state through events.
-    // A full reload from storage would otherwise drop adjuncts the mentor just
-    // seeded on "Send to Build" (they never get written into the main state's
-    // recipeDraft before this restore fires). Re-overlay them, but only when the
-    // enhancement actually has them so a genuine cloud restore with an empty
-    // enhancement can't wipe adjuncts that were restored from storage.
-    //
-    // NOT when the reload is cloud sync delivering another device's state: the
-    // sync layer has already written the incoming adjuncts into the enhancement
-    // key, and overlaying this device's old copy on top is what made two
-    // devices overwrite each other's adjunct list on every save.
-    if (!fromCloud){
-      const draftAdjuncts = readEnhancementStructureAdditions("recipeDraft");
-      if (Array.isArray(draftAdjuncts) && draftAdjuncts.length) {
-        data.recipeDraft.structureAdditions = clone(draftAdjuncts);
-      }
-      const batchAdjuncts = readEnhancementStructureAdditions("currentBatch");
-      if (Array.isArray(batchAdjuncts) && batchAdjuncts.length) {
-        data.currentBatch.structureAdditions = clone(batchAdjuncts);
-      }
-    }
+    // (Structure additions are no longer re-overlaid from the mentor's key:
+    // mentor edits now land in the stored state this reload just read.)
     populateRecipeForm();
     populateNutrientForm();
     populateCellarForm();
